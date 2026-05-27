@@ -343,9 +343,7 @@ export default function OwnerOnboarding() {
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-sm shadow-lg shadow-sky-300/30">
-                FC
-              </div>
+              <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-lg shadow-sky-300/30 shrink-0" />
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-widest">FundCircle</p>
                 <p className="text-sm font-semibold text-slate-700">Organization Setup</p>
@@ -615,9 +613,7 @@ export default function OwnerOnboarding() {
               </div>
 
               <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white font-bold text-sm">
-                  FC
-                </div>
+                <img src="/fundcircle-logo.png" alt="FC" className="w-10 h-10 rounded-xl object-cover object-top shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-900">{orgName || "Your Organization"}</p>
                   <p className="text-xs text-slate-500">{plan.name} Plan · {billingCycle === "monthly" ? "Monthly" : "Yearly"} billing</p>

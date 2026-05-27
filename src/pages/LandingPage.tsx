@@ -148,10 +148,12 @@ function LandingNavbar({
       }`}
     >
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
-        <button onClick={() => scrollTo("hero")} className="flex items-center gap-3 focus:outline-none">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-sm shadow-md shadow-sky-300/30 shrink-0">
-            FC
-          </div>
+        <button onClick={() => scrollTo("hero")} className="flex items-center gap-2 focus:outline-none">
+          <img
+            src="/fundcircle-logo.png"
+            alt="FundCircle"
+            className="h-10 w-10 rounded-xl object-cover object-top shrink-0 shadow-md"
+          />
           <div className="hidden sm:block">
             <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">FundCircle</p>
             <p className={`text-sm font-bold leading-tight transition-colors duration-300 ${scrolled ? "text-white" : "text-slate-900"}`}>
@@ -874,7 +876,7 @@ export default function LandingPage() {
           <div className="grid gap-8 md:grid-cols-5">
             <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold">FC</div>
+                <img src="/fundcircle-logo.png" alt="FundCircle" className="h-8 w-8 rounded-xl object-cover object-top" />
                 <span className="font-bold text-slate-900">FundCircle</span>
               </div>
               <p className="text-sm leading-6 text-slate-600">

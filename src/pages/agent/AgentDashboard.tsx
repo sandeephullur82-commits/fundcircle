@@ -44,9 +44,7 @@ export default function AgentDashboard() {
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-400 flex items-center justify-center text-white text-xs font-bold shadow-md">
-            FC
-          </div>
+          <img src="/fundcircle-logo.png" alt="FC" className="h-8 w-8 rounded-xl object-cover object-top shadow-md shrink-0" />
           <div>
             <p className="text-xs font-semibold text-slate-900">Agent Portal</p>
             <p className="text-xs text-slate-400">{organization?.name}</p>
@@ -97,9 +95,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
       {/* Logo */}
       <div className="p-5 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-400 flex items-center justify-center text-white text-sm font-bold shadow-md shrink-0">
-            FC
-          </div>
+          <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-md shrink-0" />
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Agent Portal</p>
             <p className="text-sm font-bold text-slate-900 truncate">{organization?.name || "FundCircle"}</p>

@@ -82,9 +82,7 @@ export default function WorkspaceSelectionPage() {
         {/* Header */}
         <div className="w-full max-w-4xl text-center mb-10">
           <div className="inline-flex items-center gap-2.5 mb-6">
-            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-sky-200/50">
-              FC
-            </div>
+            <img src="/fundcircle-logo.png" alt="FundCircle" className="h-10 w-10 rounded-2xl object-cover object-top shadow-lg shadow-sky-200/50" />
             <span className="text-xl font-bold text-slate-900">FundCircle</span>
           </div>
           <h1 className="text-4xl font-bold text-slate-950 mb-3">

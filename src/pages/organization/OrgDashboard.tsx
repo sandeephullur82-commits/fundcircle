@@ -107,9 +107,7 @@ export default function OrgDashboard() {
       <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold">
-              FC
-            </div>
+            <img src="/fundcircle-logo.png" alt="FC" className="h-8 w-8 rounded-xl object-cover object-top shrink-0" />
             <span className="font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">{orgName}</span>
           </div>
           <Sheet>
@@ -199,9 +197,7 @@ function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, isO
       {/* Logo */}
       <div className="p-5 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white text-sm font-bold shadow-md shadow-sky-200/50 shrink-0">
-            FC
-          </div>
+          <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-md shrink-0" />
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">FundCircle</p>
             <p className="text-sm font-bold text-slate-900 truncate">{orgName}</p>
