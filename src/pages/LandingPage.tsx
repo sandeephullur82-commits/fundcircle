@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import {
   Building2,
@@ -141,7 +141,7 @@ function LandingNavbar({
 
   return (
     <header
-      className={`sticky top-0 z-50 w-full transition-all duration-300 ${
+      className={`fixed top-0 left-0 w-full z-50 transition-all duration-300 ${
         scrolled
           ? "bg-slate-900/85 backdrop-blur-xl border-b border-white/10 shadow-lg shadow-black/20"
           : "bg-white/90 backdrop-blur-xl border-b border-slate-200/80"
@@ -265,8 +265,8 @@ export default function LandingPage() {
         <div className="absolute left-[35%] top-16 h-72 w-72 rounded-full bg-indigo-100/80 blur-[120px]" />
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[1440px] flex-col gap-24 px-4 pb-10 pt-10 sm:px-6 lg:px-10">
-        <main id="hero" className="relative z-10 flex flex-col gap-24">
+      <div className="relative mx-auto flex w-full max-w-[1440px] flex-col gap-24 px-4 pb-10 pt-24 sm:px-6 lg:px-10">
+        <main id="hero" className="relative z-10 flex flex-col gap-24 scroll-mt-24">
           {/* Hero */}
           <section className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <motion.div
@@ -396,7 +396,7 @@ export default function LandingPage() {
           </section>
 
           {/* Role Cards */}
-          <section id="roles" className="space-y-10">
+          <section id="roles" className="space-y-10 scroll-mt-24">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Choose Your Workspace</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Select the role that fits your team.</h2>
@@ -482,7 +482,7 @@ export default function LandingPage() {
           </section>
 
           {/* Features */}
-          <section id="features" className="space-y-10">
+          <section id="features" className="space-y-10 scroll-mt-24">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Features</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Everything your finance team needs to move faster.</h2>
@@ -511,7 +511,7 @@ export default function LandingPage() {
           </section>
 
           {/* Analytics Preview */}
-          <section id="analytics" className="rounded-[2.5rem] border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 p-8 md:p-12 shadow-2xl">
+          <section id="analytics" className="scroll-mt-24 rounded-[2.5rem] border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 p-8 md:p-12 shadow-2xl">
             <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
               <div className="space-y-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-400">Analytics Preview</p>
@@ -574,7 +574,7 @@ export default function LandingPage() {
           </section>
 
           {/* Workflow */}
-          <section id="workflow" className="space-y-10">
+          <section id="workflow" className="space-y-10 scroll-mt-24">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Platform Flow</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Enterprise workflow designed for daily collections.</h2>
@@ -632,7 +632,7 @@ export default function LandingPage() {
           </section>
 
           {/* Pricing */}
-          <section id="pricing" className="space-y-10">
+          <section id="pricing" className="space-y-10 scroll-mt-24">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Pricing</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Simple, transparent pricing.</h2>
@@ -700,7 +700,7 @@ export default function LandingPage() {
           </section>
 
           {/* Security & Trust */}
-          <section id="reports" className="space-y-10">
+          <section id="reports" className="space-y-10 scroll-mt-24">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Security</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Built on trusted enterprise security.</h2>
@@ -733,7 +733,7 @@ export default function LandingPage() {
           </section>
 
           {/* CTA */}
-          <section id="contact" className="rounded-[2.5rem] border border-slate-200 bg-gradient-to-br from-slate-50 via-sky-50 to-violet-50 p-8 md:p-12 shadow-xl shadow-slate-200/40">
+          <section id="contact" className="scroll-mt-24 rounded-[2.5rem] border border-slate-200 bg-gradient-to-br from-slate-50 via-sky-50 to-violet-50 p-8 md:p-12 shadow-xl shadow-slate-200/40">
             <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-2xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Get Started Today</p>
@@ -760,6 +760,36 @@ export default function LandingPage() {
             </div>
           </section>
         </main>
+
+        {/* About */}
+        <section id="about" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-8 md:p-12 shadow-lg shadow-slate-200/40">
+          <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
+            <div className="space-y-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500">About FundCircle</p>
+              <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Built for the people who keep communities funded.</h2>
+              <p className="text-base leading-7 text-slate-600">
+                FundCircle is a multi-tenant SaaS platform purpose-built for pigmy collection businesses, cooperative banks, and microfinance organizations across India. We provide the digital infrastructure to replace paper ledgers with real-time, cloud-connected workflows.
+              </p>
+              <p className="text-base leading-7 text-slate-600">
+                Every feature is designed around the reality of daily field collection — fast agent onboarding, reliable offline resilience, and transparent reporting that builds customer trust.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                { label: "Founded", value: "2024", desc: "Born from real-world collection problems." },
+                { label: "Organizations", value: "1.2K+", desc: "Active chit funds and cooperatives." },
+                { label: "Daily Transactions", value: "12K+", desc: "Processed through our platform." },
+                { label: "Support", value: "24/7", desc: "Always here when collections happen." },
+              ].map((item) => (
+                <div key={item.label} className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+                  <p className="text-2xl font-bold text-slate-950">{item.value}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-500 mt-1">{item.label}</p>
+                  <p className="text-xs text-slate-500 mt-1.5">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         {/* Footer */}
         <footer id="footer" className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/40">
@@ -797,13 +827,13 @@ export default function LandingPage() {
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Platform</h3>
               <ul className="space-y-2 text-sm">
                 {[
-                  { label: "Clerk Auth", href: "/platform/clerk-auth" },
-                  { label: "Firestore", href: "/platform/firestore" },
-                  { label: "Multi-Tenant", href: "/platform/multi-tenant" },
-                  { label: "Role Access", href: "/platform/role-access" },
+                  { label: "Clerk Auth", id: "reports" },
+                  { label: "Firestore", id: "analytics" },
+                  { label: "Multi-Tenant", id: "features" },
+                  { label: "Role Access", id: "roles" },
                 ].map((item) => (
-                  <li key={item.href}>
-                    <Link to={item.href} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</Link>
+                  <li key={item.id}>
+                    <button onClick={() => scrollTo(item.id)} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</button>
                   </li>
                 ))}
               </ul>
@@ -812,13 +842,13 @@ export default function LandingPage() {
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Company</h3>
               <ul className="space-y-2 text-sm">
                 {[
-                  { label: "About", href: "/about" },
-                  { label: "Blog", href: "/blog" },
-                  { label: "Careers", href: "/careers" },
-                  { label: "Support", href: "/support" },
+                  { label: "About", id: "about" },
+                  { label: "Blog", id: "hero" },
+                  { label: "Careers", id: "contact" },
+                  { label: "Support", id: "contact" },
                 ].map((item) => (
-                  <li key={item.href}>
-                    <Link to={item.href} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</Link>
+                  <li key={item.label}>
+                    <button onClick={() => scrollTo(item.id)} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</button>
                   </li>
                 ))}
               </ul>
@@ -826,16 +856,16 @@ export default function LandingPage() {
             <div>
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Legal</h3>
               <ul className="space-y-2 text-sm">
-                <li><Link to="/privacy-policy" className="text-slate-600 hover:text-slate-900 transition-colors">Privacy Policy</Link></li>
-                <li><Link to="/terms-of-service" className="text-slate-600 hover:text-slate-900 transition-colors">Terms of Service</Link></li>
+                <li><button onClick={() => scrollTo("footer")} className="text-slate-600 hover:text-slate-900 transition-colors">Privacy Policy</button></li>
+                <li><button onClick={() => scrollTo("footer")} className="text-slate-600 hover:text-slate-900 transition-colors">Terms of Service</button></li>
               </ul>
             </div>
           </div>
           <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-slate-500">© 2026 FundCircle. All rights reserved.</p>
             <div className="flex gap-4 text-xs text-slate-500">
-              <Link to="/privacy-policy" className="hover:text-slate-800 transition-colors">Privacy Policy</Link>
-              <Link to="/terms-of-service" className="hover:text-slate-800 transition-colors">Terms of Service</Link>
+              <button onClick={() => scrollTo("footer")} className="hover:text-slate-800 transition-colors">Privacy Policy</button>
+              <button onClick={() => scrollTo("footer")} className="hover:text-slate-800 transition-colors">Terms of Service</button>
             </div>
           </div>
         </footer>

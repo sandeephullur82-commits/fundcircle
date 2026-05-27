@@ -25,20 +25,6 @@ import UserProfilePage from "./pages/UserProfilePage";
 import WorkspaceSelectionPage from "./pages/WorkspaceSelectionPage";
 import DebugUserDoc from "./components/DebugUserDoc";
 
-import FeaturesPage from "./pages/static/FeaturesPage";
-import PricingPage from "./pages/static/PricingPage";
-import AnalyticsPage from "./pages/static/AnalyticsPage";
-import ReportsPage from "./pages/static/ReportsPage";
-import AboutPage from "./pages/static/AboutPage";
-import BlogPage from "./pages/static/BlogPage";
-import CareersPage from "./pages/static/CareersPage";
-import SupportPage from "./pages/static/SupportPage";
-import PrivacyPolicyPage from "./pages/static/PrivacyPolicyPage";
-import TermsPage from "./pages/static/TermsPage";
-import ClerkAuthPage from "./pages/static/platform/ClerkAuthPage";
-import FirestorePage from "./pages/static/platform/FirestorePage";
-import MultiTenantPage from "./pages/static/platform/MultiTenantPage";
-import RoleAccessPage from "./pages/static/platform/RoleAccessPage";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -190,27 +176,6 @@ export default function App() {
           <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
           <Route path="/dashboard/*" element={<Navigate to="/router" replace />} />
 
-          {/* Static product pages */}
-          <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-
-          {/* Static company pages */}
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/blog" element={<BlogPage />} />
-          <Route path="/careers" element={<CareersPage />} />
-          <Route path="/support" element={<SupportPage />} />
-
-          {/* Legal pages */}
-          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-          <Route path="/terms-of-service" element={<TermsPage />} />
-
-          {/* Platform pages */}
-          <Route path="/platform/clerk-auth" element={<ClerkAuthPage />} />
-          <Route path="/platform/firestore" element={<FirestorePage />} />
-          <Route path="/platform/multi-tenant" element={<MultiTenantPage />} />
-          <Route path="/platform/role-access" element={<RoleAccessPage />} />
 
           {/* Debug */}
           <Route path="/debug-user" element={<SignedIn><ProtectedRoute><DebugUserDoc /></ProtectedRoute></SignedIn>} />

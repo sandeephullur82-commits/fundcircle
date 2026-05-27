@@ -1,0 +1,159 @@
+Fix the landing page routing and sticky navigation behavior completely.
+
+CURRENT PROBLEMS:
+1. Footer links are creating separate pages/routes.
+2. Footer links overwrite the landing page content.
+3. Navbar scrolls away with the page.
+4. Navbar is not fixed/sticky globally.
+5. Footer links should NOT navigate to separate pages.
+
+REQUIRED FIXES:
+
+==================================================
+FOOTER LINK BEHAVIOR
+==================================================
+
+DO NOT CREATE:
+- /features
+- /pricing
+- /workflow
+- /contact
+- /about
+- /blog
+- /support
+- /privacy
+- /terms
+
+REMOVE all separate routes/pages created for footer links.
+
+INSTEAD:
+Footer links should ONLY scroll inside the SAME landing page.
+
+USE:
+- #features
+- #workflow
+- #pricing
+- #contact
+- #about
+- #footer
+- #privacy
+- #terms
+
+EXAMPLE:
+Clicking footer "Pricing" should:
+- stay on "/"
+- smooth scroll to pricing section
+- NOT navigate to "/pricing"
+
+Clicking footer "About" should:
+- stay on "/"
+- smooth scroll to about section
+- NOT create a new page
+
+==================================================
+NAVBAR FIX
+==================================================
+
+Navbar must:
+- always stay visible
+- never scroll away
+- remain fixed at top
+- work on every screen size
+- have backdrop blur
+- have transparent glass effect
+
+IMPLEMENT:
+
+position: fixed
+top: 0
+left: 0
+width: 100%
+z-index: very high
+
+TAILWIND:
+fixed top-0 left-0 w-full z-50 backdrop-blur-xl
+
+Navbar must NOT move while scrolling.
+
+==================================================
+SMOOTH SCROLLING
+==================================================
+
+Enable smooth scrolling globally.
+
+Add:
+html {
+  scroll-behavior: smooth;
+}
+
+OR:
+className="scroll-smooth"
+
+==================================================
+LANDING PAGE STRUCTURE
+==================================================
+
+Single page only:
+
+/
+ ├── Hero Section (#hero)
+ ├── Features Section (#features)
+ ├── Workflow Section (#workflow)
+ ├── Pricing Section (#pricing)
+ ├── Analytics Section (#analytics)
+ ├── Reports Section (#reports)
+ ├── About Section (#about)
+ ├── Contact Section (#contact)
+ ├── Footer Section (#footer)
+
+NO extra public pages.
+
+==================================================
+NAVIGATION LINKS
+==================================================
+
+Navbar links:
+- Features → #features
+- Workflow → #workflow
+- Pricing → #pricing
+- Contact → #contact
+
+Footer links:
+- Features → #features
+- Pricing → #pricing
+- Analytics → #analytics
+- Reports → #reports
+- About → #about
+- Support → #contact
+- Privacy Policy → #privacy
+- Terms of Service → #terms
+
+==================================================
+SCROLL OFFSET FIX
+==================================================
+
+Because navbar is fixed,
+prevent sections from hiding behind navbar.
+
+Add:
+scroll-mt-24
+
+to every section.
+
+Example:
+<section id="pricing" className="scroll-mt-24">
+
+==================================================
+FINAL REQUIREMENT
+==================================================
+
+The landing page must behave like a premium modern SaaS website:
+
+- Single-page experience
+- Fixed glass navbar
+- Smooth scrolling
+- No route navigation for footer links
+- No duplicate pages
+- No content overwrite
+- Responsive everywhere
+- Professional scrolling behavior
