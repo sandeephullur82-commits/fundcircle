@@ -2,30 +2,34 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Menu, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
-const NAV_LINKS = [
+type NavItem =
+  | { label: string; href: string; scrollTo?: never }
+  | { label: string; scrollTo: string; href?: never };
+
+const NAV_LINKS: NavItem[] = [
   { label: "Features", href: "/features" },
-  { label: "Workflow", href: "/#workflow" },
+  { label: "Workflow", scrollTo: "workflow" },
   { label: "Pricing", href: "/pricing" },
   { label: "Contact", href: "/support" },
 ];
 
-const FOOTER_PRODUCT = [
+const FOOTER_PRODUCT: NavItem[] = [
   { label: "Features", href: "/features" },
   { label: "Pricing", href: "/pricing" },
   { label: "Analytics", href: "/analytics" },
   { label: "Reports", href: "/reports" },
 ];
 
-const FOOTER_PLATFORM = [
+const FOOTER_PLATFORM: NavItem[] = [
   { label: "Clerk Auth", href: "/platform/clerk-auth" },
   { label: "Firestore", href: "/platform/firestore" },
   { label: "Multi-Tenant", href: "/platform/multi-tenant" },
   { label: "Role Access", href: "/platform/role-access" },
 ];
 
-const FOOTER_COMPANY = [
+const FOOTER_COMPANY: NavItem[] = [
   { label: "About", href: "/about" },
   { label: "Blog", href: "/blog" },
   { label: "Careers", href: "/careers" },
@@ -43,58 +47,90 @@ function useScrolled(threshold = 20) {
   return scrolled;
 }
 
-function isNavLinkActive(href: string, pathname: string): boolean {
-  if (href === "/#workflow") return false;
-  if (href === "/support") return pathname === "/support";
-  return pathname === href;
+function useScrollToSection() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  return useCallback(
+    (sectionId: string) => {
+      const doScroll = () => {
+        const el = document.getElementById(sectionId);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      };
+
+      if (pathname === "/") {
+        doScroll();
+      } else {
+        navigate("/");
+        setTimeout(doScroll, 350);
+      }
+    },
+    [navigate, pathname]
+  );
 }
 
 function NavLinkItem({
-  link,
+  item,
   pathname,
   scrolled,
-  onClick,
+  onClose,
 }: {
-  link: { label: string; href: string };
+  item: NavItem;
   pathname: string;
   scrolled: boolean;
-  onClick?: () => void;
+  onClose?: () => void;
 }) {
-  const navigate = useNavigate();
-  const active = isNavLinkActive(link.href, pathname);
+  const scrollToSection = useScrollToSection();
+  const active = item.href ? pathname === item.href : false;
 
-  const handleClick = (e: React.MouseEvent) => {
-    if (link.href === "/#workflow") {
-      e.preventDefault();
-      if (pathname !== "/") {
-        navigate("/");
-        setTimeout(() => {
-          document.getElementById("workflow")?.scrollIntoView({ behavior: "smooth" });
-        }, 350);
-      } else {
-        document.getElementById("workflow")?.scrollIntoView({ behavior: "smooth" });
-      }
-      onClick?.();
-      return;
-    }
-    onClick?.();
-  };
+  const baseClass = `rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-200 ${
+    active
+      ? scrolled
+        ? "bg-white/15 text-white"
+        : "bg-sky-50 text-sky-600"
+      : scrolled
+      ? "text-slate-300 hover:bg-white/10 hover:text-white"
+      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+  }`;
+
+  if (item.scrollTo) {
+    return (
+      <button
+        onClick={() => {
+          scrollToSection(item.scrollTo!);
+          onClose?.();
+        }}
+        className={baseClass}
+      >
+        {item.label}
+      </button>
+    );
+  }
 
   return (
-    <Link
-      to={link.href === "/#workflow" ? "/" : link.href}
-      onClick={handleClick}
-      className={`rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-200 ${
-        active
-          ? scrolled
-            ? "bg-white/15 text-white"
-            : "bg-sky-50 text-sky-600"
-          : scrolled
-          ? "text-slate-300 hover:bg-white/10 hover:text-white"
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-      }`}
-    >
-      {link.label}
+    <Link to={item.href!} onClick={onClose} className={baseClass}>
+      {item.label}
+    </Link>
+  );
+}
+
+function FooterLink({ item }: { item: NavItem }) {
+  const scrollToSection = useScrollToSection();
+  const cls = "text-sm text-slate-400 hover:text-white transition-colors duration-150";
+
+  if (item.scrollTo) {
+    return (
+      <button onClick={() => scrollToSection(item.scrollTo!)} className={cls}>
+        {item.label}
+      </button>
+    );
+  }
+
+  return (
+    <Link to={item.href!} className={cls}>
+      {item.label}
     </Link>
   );
 }
@@ -120,7 +156,7 @@ export function PublicNavbar() {
             FC
           </div>
           <div className="hidden sm:block">
-            <p className={`text-[10px] uppercase tracking-[0.3em] transition-colors duration-300 ${scrolled ? "text-slate-400" : "text-slate-400"}`}>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">
               FundCircle
             </p>
             <p className={`text-sm font-bold leading-tight transition-colors duration-300 ${scrolled ? "text-white" : "text-slate-900"}`}>
@@ -130,10 +166,10 @@ export function PublicNavbar() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map((link) => (
+          {NAV_LINKS.map((item) => (
             <NavLinkItem
-              key={link.href}
-              link={link}
+              key={item.label}
+              item={item}
               pathname={pathname}
               scrolled={scrolled}
             />
@@ -173,6 +209,7 @@ export function PublicNavbar() {
             className={`md:hidden rounded-lg p-2 transition-colors duration-200 ${
               scrolled ? "text-slate-300 hover:bg-white/10" : "text-slate-600 hover:bg-slate-100"
             }`}
+            aria-label="Toggle menu"
           >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -191,13 +228,13 @@ export function PublicNavbar() {
             }`}
           >
             <nav className="flex flex-col gap-1 px-4 pb-4 pt-2">
-              {NAV_LINKS.map((link) => (
+              {NAV_LINKS.map((item) => (
                 <NavLinkItem
-                  key={link.href}
-                  link={link}
+                  key={item.label}
+                  item={item}
                   pathname={pathname}
                   scrolled={scrolled}
-                  onClick={() => setMobileOpen(false)}
+                  onClose={() => setMobileOpen(false)}
                 />
               ))}
               {!isSignedIn && (
@@ -241,14 +278,9 @@ export function PublicFooter() {
           <div>
             <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-slate-300 mb-4">Product</h3>
             <ul className="space-y-3">
-              {FOOTER_PRODUCT.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    to={l.href}
-                    className="text-sm text-slate-400 hover:text-white transition-colors duration-150"
-                  >
-                    {l.label}
-                  </Link>
+              {FOOTER_PRODUCT.map((item) => (
+                <li key={item.label}>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>
@@ -257,14 +289,9 @@ export function PublicFooter() {
           <div>
             <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-slate-300 mb-4">Platform</h3>
             <ul className="space-y-3">
-              {FOOTER_PLATFORM.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    to={l.href}
-                    className="text-sm text-slate-400 hover:text-white transition-colors duration-150"
-                  >
-                    {l.label}
-                  </Link>
+              {FOOTER_PLATFORM.map((item) => (
+                <li key={item.label}>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>
@@ -273,14 +300,9 @@ export function PublicFooter() {
           <div>
             <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-slate-300 mb-4">Company</h3>
             <ul className="space-y-3">
-              {FOOTER_COMPANY.map((l) => (
-                <li key={l.href}>
-                  <Link
-                    to={l.href}
-                    className="text-sm text-slate-400 hover:text-white transition-colors duration-150"
-                  >
-                    {l.label}
-                  </Link>
+              {FOOTER_COMPANY.map((item) => (
+                <li key={item.label}>
+                  <FooterLink item={item} />
                 </li>
               ))}
             </ul>
@@ -290,18 +312,12 @@ export function PublicFooter() {
             <h3 className="text-xs font-bold uppercase tracking-[0.3em] text-slate-300 mb-4">Legal</h3>
             <ul className="space-y-3">
               <li>
-                <Link
-                  to="/privacy-policy"
-                  className="text-sm text-slate-400 hover:text-white transition-colors duration-150"
-                >
+                <Link to="/privacy-policy" className="text-sm text-slate-400 hover:text-white transition-colors duration-150">
                   Privacy Policy
                 </Link>
               </li>
               <li>
-                <Link
-                  to="/terms-of-service"
-                  className="text-sm text-slate-400 hover:text-white transition-colors duration-150"
-                >
+                <Link to="/terms-of-service" className="text-sm text-slate-400 hover:text-white transition-colors duration-150">
                   Terms of Service
                 </Link>
               </li>
@@ -312,12 +328,8 @@ export function PublicFooter() {
         <div className="mt-12 border-t border-white/10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-slate-500">© 2026 FundCircle. All rights reserved.</p>
           <div className="flex gap-6 text-xs text-slate-500">
-            <Link to="/privacy-policy" className="hover:text-slate-300 transition-colors">
-              Privacy Policy
-            </Link>
-            <Link to="/terms-of-service" className="hover:text-slate-300 transition-colors">
-              Terms of Service
-            </Link>
+            <Link to="/privacy-policy" className="hover:text-slate-300 transition-colors">Privacy Policy</Link>
+            <Link to="/terms-of-service" className="hover:text-slate-300 transition-colors">Terms of Service</Link>
           </div>
         </div>
       </div>
