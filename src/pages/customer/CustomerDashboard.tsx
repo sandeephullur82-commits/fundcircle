@@ -157,7 +157,7 @@ export default function CustomerDashboard() {
             <h1 className="text-4xl md:text-5xl font-extrabold mb-6 tracking-tight">
               ₹{(profile?.balance || 0).toLocaleString()}
             </h1>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-4">
               <Dialog open={isLoanOpen} onOpenChange={setIsLoanOpen}>
                 <DialogTrigger render={
                   <Button className="bg-white text-purple-700 hover:bg-slate-50 border-none shadow-md font-bold px-6 py-2.5 h-12 rounded-xl transition-all duration-200" disabled={!!pendingLoan || !!activeLoan}>

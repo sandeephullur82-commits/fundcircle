@@ -110,7 +110,7 @@ export default function OrgDashboard() {
             <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold">
               FC
             </div>
-            <span className="font-bold text-slate-900 truncate max-w-[160px]">{orgName}</span>
+            <span className="font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">{orgName}</span>
           </div>
           <Sheet>
             <SheetTrigger render={

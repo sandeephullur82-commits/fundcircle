@@ -43,16 +43,17 @@ export default function AuthLayout({
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-100 px-4 py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-sky-100 px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
       <div className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-2xl shadow-slate-200/50 backdrop-blur-xl">
-          <div className="grid gap-10 lg:grid-cols-[1fr_1.2fr]">
-            <div className="bg-slate-950/95 p-10 text-white sm:p-12">
-              <div className="inline-flex items-center gap-3 rounded-3xl bg-sky-500/15 px-4 py-2 text-sm font-semibold text-sky-100">
+        <div className="overflow-hidden rounded-2xl lg:rounded-[2rem] border border-white/70 bg-white/90 shadow-2xl shadow-slate-200/50 backdrop-blur-xl">
+          <div className="grid lg:grid-cols-[1fr_1.2fr]">
+            {/* Left dark panel — hidden on mobile */}
+            <div className="hidden lg:flex flex-col bg-slate-950/95 p-10 text-white xl:p-12">
+              <div className="inline-flex items-center gap-3 rounded-3xl bg-sky-500/15 px-4 py-2 text-sm font-semibold text-sky-100 w-fit">
                 <Sparkles className="h-4 w-4" /> Premium FundCircle access
               </div>
               <div className="mt-8 space-y-6">
-                <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">{title}</h1>
+                <h1 className="text-3xl font-semibold tracking-tight text-white xl:text-4xl">{title}</h1>
                 <p className="text-base leading-7 text-slate-200">{subtitle}</p>
               </div>
               <div className="mt-8 space-y-4">
@@ -67,8 +68,20 @@ export default function AuthLayout({
                 <p className="mt-2 text-lg">{selectedRole}</p>
               </div>
             </div>
-            <div className="flex items-center justify-center p-8 sm:p-12">
-              <div className="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50">
+
+            {/* Right form panel */}
+            <div className="flex items-center justify-center p-5 sm:p-8 lg:p-12">
+              <div className="w-full max-w-md">
+                {/* Logo shown only on mobile (left panel is hidden) */}
+                <div className="lg:hidden flex items-center gap-3 mb-6">
+                  <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-sm shadow-md shrink-0">
+                    FC
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">FundCircle</p>
+                    <p className="text-sm font-bold text-slate-900">Enterprise Collection Platform</p>
+                  </div>
+                </div>
                 {children}
                 <div className="mt-6 border-t border-slate-200 pt-5 text-center text-sm text-slate-600">
                   <p>{ctaText}</p>

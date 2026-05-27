@@ -61,7 +61,7 @@ export default function AgentHistory() {
       </div>
 
       {/* Period Filter */}
-      <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="flex flex-wrap gap-1.5 bg-slate-100 p-1 rounded-xl w-fit max-w-full">
         {periods.map((p) => (
           <button
             key={p.id}

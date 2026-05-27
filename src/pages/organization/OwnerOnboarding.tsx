@@ -340,31 +340,48 @@ export default function OwnerOnboarding() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-3xl px-4 py-10">
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-sm shadow-lg shadow-sky-300/30">
-              FC
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-sm shadow-lg shadow-sky-300/30">
+                FC
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-widest">FundCircle</p>
+                <p className="text-sm font-semibold text-slate-700">Organization Setup</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-slate-400 uppercase tracking-widest">FundCircle</p>
-              <p className="text-sm font-semibold text-slate-700">Organization Setup</p>
+            <div className="hidden sm:flex items-center gap-2">
+              {STEPS.map((label, i) => (
+                <React.Fragment key={label}>
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                      i < step ? "bg-emerald-500 text-white" :
+                      i === step ? "bg-sky-500 text-white shadow-md shadow-sky-300/40" :
+                      "bg-slate-200 text-slate-400"
+                    }`}>
+                      {i < step ? <Check className="w-3.5 h-3.5" /> : i + 1}
+                    </div>
+                    <span className={`text-xs font-medium ${i === step ? "text-slate-700" : "text-slate-400"}`}>{label}</span>
+                  </div>
+                  {i < STEPS.length - 1 && (
+                    <div className={`h-px w-8 transition-all ${i < step ? "bg-emerald-400" : "bg-slate-200"}`} />
+                  )}
+                </React.Fragment>
+              ))}
             </div>
           </div>
-          <div className="hidden sm:flex items-center gap-2">
+          {/* Mobile step progress dots */}
+          <div className="sm:hidden mt-4 flex items-center gap-2">
             {STEPS.map((label, i) => (
               <React.Fragment key={label}>
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                    i < step ? "bg-emerald-500 text-white" :
-                    i === step ? "bg-sky-500 text-white shadow-md shadow-sky-300/40" :
-                    "bg-slate-200 text-slate-400"
-                  }`}>
-                    {i < step ? <Check className="w-3.5 h-3.5" /> : i + 1}
-                  </div>
-                  <span className={`text-xs font-medium ${i === step ? "text-slate-700" : "text-slate-400"}`}>{label}</span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className={`h-px w-8 transition-all ${i < step ? "bg-emerald-400" : "bg-slate-200"}`} />
+                <div className={`h-2 rounded-full transition-all duration-300 ${
+                  i < step ? "bg-emerald-500 w-6" :
+                  i === step ? "bg-sky-500 w-8" :
+                  "bg-slate-200 w-4"
+                }`} />
+                {i === step && (
+                  <span className="text-xs font-semibold text-slate-600 ml-1">{label} ({step + 1}/{STEPS.length})</span>
                 )}
               </React.Fragment>
             ))}
@@ -395,13 +412,13 @@ export default function OwnerOnboarding() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
-              className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/40"
+              className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl shadow-slate-200/40"
             >
               <div className="mb-7">
                 <div className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1 text-xs font-bold text-sky-600 mb-3">
                   <Building2 className="w-3.5 h-3.5" /> Step 1 of 3
                 </div>
-                <h1 className="text-2xl font-bold text-slate-900">Tell us about your organization</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Tell us about your organization</h1>
                 <p className="text-sm text-slate-500 mt-1">This information will appear on your reports and invoices.</p>
               </div>
 
@@ -484,13 +501,13 @@ export default function OwnerOnboarding() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
-              className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/40"
+              className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl shadow-slate-200/40"
             >
               <div className="mb-6">
                 <div className="inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-3 py-1 text-xs font-bold text-violet-600 mb-3">
                   <Sparkles className="w-3.5 h-3.5" /> Step 2 of 3
                 </div>
-                <h1 className="text-2xl font-bold text-slate-900">Choose your plan</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Choose your plan</h1>
                 <p className="text-sm text-slate-500 mt-1">Start with any plan — you can upgrade anytime.</p>
               </div>
 
