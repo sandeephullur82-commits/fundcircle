@@ -2,31 +2,32 @@ import { useEffect } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-const signedInRedirectPaths = [
+const AUTH_ONLY_PATHS = [
   "/sign-in",
   "/sign-up",
   "/organization/signin",
   "/organization/signup",
   "/agent/login",
   "/customer/signin",
-];
-
-const publicPaths = [
-  "/",
   "/workspace-selection",
-  "/organization/invitation",
 ];
 
-const isSignedInRedirectPath = (pathname: string) =>
-  signedInRedirectPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/onboarding",
+  "/complete-profile",
+  "/organization/create",
+  "/organization/invitation",
+  "/profile",
+  "/router",
+  "/debug-user",
+];
 
-const isPublicPath = (pathname: string) =>
-  publicPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+const isAuthOnlyPath = (pathname: string) =>
+  AUTH_ONLY_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 const isProtectedPath = (pathname: string) =>
-  !isPublicPath(pathname) &&
-  !isSignedInRedirectPath(pathname) &&
-  pathname !== "/auth/callback";
+  PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export default function AuthRedirectManager() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -36,7 +37,7 @@ export default function AuthRedirectManager() {
   useEffect(() => {
     if (!isLoaded) return;
 
-    if (isSignedIn && user && isSignedInRedirectPath(pathname)) {
+    if (isSignedIn && user && isAuthOnlyPath(pathname)) {
       navigate("/auth/callback", { replace: true });
       return;
     }

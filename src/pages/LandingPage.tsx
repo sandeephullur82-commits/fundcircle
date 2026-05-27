@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Building2,
   Users,
@@ -666,8 +666,8 @@ export default function LandingPage() {
 
         {/* Footer */}
         <footer id="footer" className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/40">
-          <div className="grid gap-8 md:grid-cols-4">
-            <div>
+          <div className="grid gap-8 md:grid-cols-5">
+            <div className="md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
                 <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center text-white text-xs font-bold">FC</div>
                 <span className="font-bold text-slate-900">FundCircle</span>
@@ -678,28 +678,62 @@ export default function LandingPage() {
             </div>
             <div>
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Product</h3>
-              <ul className="space-y-2 text-sm text-slate-600">
-                {["Features", "Pricing", "Analytics", "Reports"].map((i) => <li key={i} className="hover:text-slate-900 cursor-pointer transition">{i}</li>)}
+              <ul className="space-y-2 text-sm">
+                {[
+                  { label: "Features", href: "/features" },
+                  { label: "Pricing", href: "/pricing" },
+                  { label: "Analytics", href: "/analytics" },
+                  { label: "Reports", href: "/reports" },
+                ].map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</Link>
+                  </li>
+                ))}
               </ul>
             </div>
             <div>
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Platform</h3>
-              <ul className="space-y-2 text-sm text-slate-600">
-                {["Clerk Auth", "Firestore", "Multi-Tenant", "Role Access"].map((i) => <li key={i}>{i}</li>)}
+              <ul className="space-y-2 text-sm">
+                {[
+                  { label: "Clerk Auth", href: "/platform/clerk-auth" },
+                  { label: "Firestore", href: "/platform/firestore" },
+                  { label: "Multi-Tenant", href: "/platform/multi-tenant" },
+                  { label: "Role Access", href: "/platform/role-access" },
+                ].map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</Link>
+                  </li>
+                ))}
               </ul>
             </div>
             <div>
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Company</h3>
-              <ul className="space-y-2 text-sm text-slate-600">
-                {["About", "Blog", "Careers", "Support"].map((i) => <li key={i} className="hover:text-slate-900 cursor-pointer transition">{i}</li>)}
+              <ul className="space-y-2 text-sm">
+                {[
+                  { label: "About", href: "/about" },
+                  { label: "Blog", href: "/blog" },
+                  { label: "Careers", href: "/careers" },
+                  { label: "Support", href: "/support" },
+                ].map((item) => (
+                  <li key={item.href}>
+                    <Link to={item.href} className="text-slate-600 hover:text-slate-900 transition-colors">{item.label}</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Legal</h3>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/privacy-policy" className="text-slate-600 hover:text-slate-900 transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms-of-service" className="text-slate-600 hover:text-slate-900 transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
           </div>
           <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-xs text-slate-500">© 2026 FundCircle. All rights reserved.</p>
             <div className="flex gap-4 text-xs text-slate-500">
-              <span className="hover:text-slate-800 cursor-pointer">Privacy Policy</span>
-              <span className="hover:text-slate-800 cursor-pointer">Terms of Service</span>
+              <Link to="/privacy-policy" className="hover:text-slate-800 transition-colors">Privacy Policy</Link>
+              <Link to="/terms-of-service" className="hover:text-slate-800 transition-colors">Terms of Service</Link>
             </div>
           </div>
         </footer>
