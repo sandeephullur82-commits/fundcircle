@@ -38,8 +38,8 @@ const PLANS: Plan[] = [
     gradient: "from-slate-400 to-slate-500",
     borderActive: "border-slate-400 ring-slate-200",
     icon: Sparkles,
-    limits: { maxAgents: 1, maxCustomers: 25, maxCollectionsPerMonth: 250 },
-    features: ["1 Pigmy Collector", "25 Customers", "250 Collections/month", "Basic analytics", "FundCircle branding"],
+    limits: { maxAgents: 1, maxCustomers: 10, maxCollectionsPerMonth: 250 },
+    features: ["1 Pigmy Collector", "10 Customers", "250 Collections/month", "Basic analytics", "FundCircle branding"],
   },
   {
     id: "starter",
@@ -61,8 +61,8 @@ const PLANS: Plan[] = [
     borderActive: "border-violet-400 ring-violet-200",
     icon: TrendingUp,
     popular: true,
-    limits: { maxAgents: 25, maxCustomers: 1000, maxCollectionsPerMonth: 10000 },
-    features: ["25 Pigmy Collectors", "1,000 Customers", "10,000 Collections/month", "Full analytics suite", "Loan & EMI management", "SMS notifications"],
+    limits: { maxAgents: 25, maxCustomers: 500, maxCollectionsPerMonth: 10000 },
+    features: ["25 Pigmy Collectors", "500 Customers", "10,000 Collections/month", "Full analytics suite", "Loan & EMI management", "SMS notifications"],
   },
   {
     id: "enterprise",
@@ -72,8 +72,8 @@ const PLANS: Plan[] = [
     gradient: "from-amber-500 to-orange-500",
     borderActive: "border-amber-400 ring-amber-200",
     icon: Crown,
-    limits: { maxAgents: -1, maxCustomers: -1, maxCollectionsPerMonth: -1 },
-    features: ["Unlimited Collectors", "Unlimited Customers", "Unlimited Collections", "Full analytics suite", "Custom integrations", "Dedicated account manager"],
+    limits: { maxAgents: 50, maxCustomers: 5000, maxCollectionsPerMonth: 50000 },
+    features: ["50 Pigmy Collectors", "5,000 Customers", "50,000 Collections/month", "Full analytics suite", "Custom integrations", "Dedicated account manager"],
   },
 ];
 

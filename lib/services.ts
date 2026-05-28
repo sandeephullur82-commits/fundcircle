@@ -388,6 +388,13 @@ export async function addAgent(organizationId: string, agentData: Partial<Member
 }
 
 export async function recordCollection(organizationId: string, collectionData: Pick<Collection, "customerId" | "agentId" | "amount" | "status" | "collectedByRole" | "collectedByUserId" | "collectedByName">) {
+  // Service-layer guard: only ACTIVE customers may have collections recorded
+  const membershipId = `${organizationId}_${collectionData.customerId}`;
+  const memberSnap = await getDoc(doc(db, "organizationMembers", membershipId));
+  if (!memberSnap.exists() || memberSnap.data()?.status !== "ACTIVE") {
+    throw new Error("This customer has not activated their account yet.");
+  }
+
   // First, add the collection record
   const collRef = await addDoc(collection(db, "collections"), {
     ...collectionData,

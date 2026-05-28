@@ -49,12 +49,13 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const activeCollectorName = collectorName || user?.fullName || "Collector";
   const activeCollectorId = collectorId || user?.id || "";
 
-  // Plan limits from org doc — always positive; enterprise = -1 (unlimited)
+  // Plan limits — finite numbers only, count ONLY ACTIVE customers toward the limit
   const currentPlan = orgDoc?.plan ?? "free";
-  const isEnterprise = currentPlan === "enterprise";
-  const maxCustomers: number = isEnterprise ? -1 : Math.max(orgDoc?.limits?.maxCustomers || 25, 1);
-  const activeCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length, 0);
-  const atLimit = maxCustomers !== -1 && activeCustomerCount >= maxCustomers;
+  const PLAN_CUSTOMER_DEFAULTS: Record<string, number> = { free: 10, starter: 100, growth: 500, enterprise: 5000 };
+  const maxCustomers: number = Math.max(orgDoc?.limits?.maxCustomers || PLAN_CUSTOMER_DEFAULTS[currentPlan] || 10, 1);
+  const activeCustomerCount  = Math.max(allCustomers.filter((c: any) => c.status === "ACTIVE").length, 0);
+  const invitedCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "INVITED").length, 0);
+  const atLimit = activeCustomerCount >= maxCustomers;
 
   const myCustomers = users.filter(u => u.role === "customer" && u.agentId === agentId &&
     (u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -133,6 +134,16 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
     if (!organization?.id || !selectedCustomer) return;
     if (Number(amount) <= 0) return toast.error("Enter a valid amount");
 
+    // Block collection if customer has not activated their account yet
+    const memberRecord = allCustomers.find((c: any) =>
+      c.clerkUserId === selectedCustomer.id ||
+      c.userId === selectedCustomer.id ||
+      c.id === `${organization.id}_${selectedCustomer.id}`
+    );
+    if (!memberRecord || memberRecord.status !== "ACTIVE") {
+      return toast.error("This customer has not activated their account yet.");
+    }
+
     setIsSubmitting(true);
     try {
       await recordCollection(organization.id, {
@@ -176,7 +187,7 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
         </Button>
       </div>
 
-      {/* Limit indicator */}
+      {/* Limit / pending indicators */}
       {atLimit && (
         <div className="flex items-center gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm">
           <span className="text-amber-600 font-bold">⚠</span>
@@ -189,6 +200,11 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
           >
             Request Upgrade
           </button>
+        </div>
+      )}
+      {invitedCustomerCount > 0 && !atLimit && (
+        <div className="flex items-center gap-2 rounded-2xl bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
+          <span className="font-semibold">{invitedCustomerCount}</span> customer{invitedCustomerCount > 1 ? "s" : ""} invited — waiting for account activation
         </div>
       )}
 
@@ -205,28 +221,48 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
             <p className="text-xs mt-1">Use the "Add Customer" button to invite someone</p>
           </div>
         ) : (
-          myCustomers.map(customer => (
-            <Card key={customer.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-bold text-lg text-slate-900">{customer.name}</h3>
-                    <p className="text-sm text-slate-500">{customer.phone}</p>
+          myCustomers.map(customer => {
+            const memberRecord = allCustomers.find((c: any) =>
+              c.clerkUserId === customer.id ||
+              c.userId === customer.id ||
+              c.id === `${organization?.id}_${customer.id}`
+            );
+            const isActive = memberRecord?.status === "ACTIVE";
+            return (
+              <Card key={customer.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <h3 className="font-bold text-lg text-slate-900">{customer.name}</h3>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                          isActive
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            : "bg-amber-50 text-amber-700 border-amber-100"
+                        }`}>
+                          {isActive ? "Active" : "Pending"}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-500">{customer.phone}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500 mb-1">Balance</p>
+                      <p className="font-bold text-emerald-600">₹{(customer.balance || 0).toLocaleString()}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500 mb-1">Balance</p>
-                    <p className="font-bold text-emerald-600">₹{(customer.balance || 0).toLocaleString()}</p>
-                  </div>
-                </div>
-                <Button
-                  onClick={() => setSelectedCustomer(customer)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
-                >
-                  <IndianRupee className="w-4 h-4 mr-2" /> Collect Daily Savings
-                </Button>
-              </CardContent>
-            </Card>
-          ))
+                  <Button
+                    onClick={() => setSelectedCustomer(customer)}
+                    disabled={!isActive}
+                    className={`w-full ${isActive ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}
+                    title={isActive ? undefined : "Customer must activate their account first"}
+                  >
+                    <IndianRupee className="w-4 h-4 mr-2" />
+                    {isActive ? "Collect Daily Savings" : "Awaiting Activation"}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 

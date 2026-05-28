@@ -32,7 +32,7 @@ const PLAN_NAMES: Record<string, string> = {
 };
 
 function formatLimit(val: number) {
-  return val === -1 ? "∞" : val.toLocaleString();
+  return val.toLocaleString();
 }
 
 export default function AgentDashboard() {
@@ -53,26 +53,25 @@ export default function AgentDashboard() {
   }).length;
 
   const currentPlan = orgDoc?.plan ?? "free";
-  const isEnterprise = currentPlan === "enterprise";
 
-  // Safe limits — enterprise uses -1 (unlimited), all others enforce positive defaults
+  // Unified plan limits — all plans use finite positive numbers, no -1/∞
   const PLAN_DEFAULTS: Record<string, { maxAgents: number; maxCustomers: number; maxCollectionsPerMonth: number }> = {
-    free:       { maxAgents: 1,  maxCustomers: 25,   maxCollectionsPerMonth: 250   },
+    free:       { maxAgents: 1,  maxCustomers: 10,   maxCollectionsPerMonth: 250   },
     starter:    { maxAgents: 5,  maxCustomers: 100,  maxCollectionsPerMonth: 1000  },
-    growth:     { maxAgents: 25, maxCustomers: 1000, maxCollectionsPerMonth: 10000 },
-    enterprise: { maxAgents: -1, maxCustomers: -1,   maxCollectionsPerMonth: -1    },
+    growth:     { maxAgents: 25, maxCustomers: 500,  maxCollectionsPerMonth: 10000 },
+    enterprise: { maxAgents: 50, maxCustomers: 5000, maxCollectionsPerMonth: 50000 },
   };
   const planDefaults = PLAN_DEFAULTS[currentPlan] ?? PLAN_DEFAULTS.free;
   const rawLimits = orgDoc?.limits;
   const limits = {
-    maxAgents:             isEnterprise ? -1 : Math.max(rawLimits?.maxAgents             || planDefaults.maxAgents,             1),
-    maxCustomers:          isEnterprise ? -1 : Math.max(rawLimits?.maxCustomers          || planDefaults.maxCustomers,          1),
-    maxCollectionsPerMonth:isEnterprise ? -1 : Math.max(rawLimits?.maxCollectionsPerMonth|| planDefaults.maxCollectionsPerMonth, 1),
+    maxAgents:             Math.max(rawLimits?.maxAgents             || planDefaults.maxAgents,             1),
+    maxCustomers:          Math.max(rawLimits?.maxCustomers          || planDefaults.maxCustomers,          1),
+    maxCollectionsPerMonth:Math.max(rawLimits?.maxCollectionsPerMonth|| planDefaults.maxCollectionsPerMonth, 1),
   };
 
   // Auto-patch org docs that are missing or have broken limits
   useEffect(() => {
-    if (!orgDoc || !organization?.id || isEnterprise) return;
+    if (!orgDoc || !organization?.id) return;
     const l = orgDoc.limits;
     const broken = !l || (l.maxAgents ?? 0) < 1 || (l.maxCustomers ?? 0) < 1;
     if (broken) {
@@ -81,14 +80,16 @@ export default function AgentDashboard() {
     }
   }, [orgDoc, organization?.id]);
 
-  const activeAgentsCount    = Math.max(agents.filter((a: any) => a.status === "ACTIVE").length, 0);
-  const activeCustomersCount = Math.max(customers.filter((c: any) => c.status === "ACTIVE" || c.status === "INVITED").length, 0);
+  // Count only ACTIVE customers toward limits; INVITED = pending activation
+  const activeAgentsCount     = Math.max(agents.filter((a: any) => a.status === "ACTIVE").length, 0);
+  const activeCustomersCount  = Math.max(customers.filter((c: any) => c.status === "ACTIVE").length, 0);
+  const invitedCustomersCount = Math.max(customers.filter((c: any) => c.status === "INVITED").length, 0);
 
   const usageData = {
     plan: PLAN_NAMES[currentPlan] ?? currentPlan,
     agents:      { used: activeAgentsCount,    max: limits.maxAgents             },
-    customers:   { used: activeCustomersCount, max: limits.maxCustomers          },
-    collections: { used: collectionsThisMonth, max: limits.maxCollectionsPerMonth},
+    customers:   { used: activeCustomersCount, max: limits.maxCustomers, invited: invitedCustomersCount },
+    collections: { used: collectionsThisMonth, max: limits.maxCollectionsPerMonth },
   };
 
   if (!isUserLoaded || !isOrgLoaded) {
@@ -167,13 +168,13 @@ export default function AgentDashboard() {
 }
 
 function MiniUsageBar({ used, max }: { used: number; max: number }) {
-  const pct = max === -1 ? 0 : Math.min((used / max) * 100, 100);
+  const pct = Math.min((used / Math.max(max, 1)) * 100, 100);
   const color = pct >= 90 ? "bg-red-400" : pct >= 70 ? "bg-amber-400" : "bg-emerald-400";
   return (
     <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
       <div
         className={`h-full rounded-full transition-all duration-500 ${color}`}
-        style={{ width: max === -1 ? "4%" : `${pct}%` }}
+        style={{ width: `${pct}%` }}
       />
     </div>
   );
@@ -181,7 +182,7 @@ function MiniUsageBar({ used, max }: { used: number; max: number }) {
 
 function AgentSidebar({ activeTab, setActiveTab, user, organization, usageData }: any) {
   const { customers, agents, collections, plan } = usageData;
-  const customerPct = customers.max === -1 ? 0 : (customers.used / customers.max) * 100;
+  const customerPct = (customers.used / Math.max(customers.max, 1)) * 100;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -239,7 +240,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization, usageData }
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-slate-500">Collectors</span>
-              <span className={`font-semibold ${agents.used >= agents.max && agents.max !== -1 ? "text-red-600" : "text-slate-700"}`}>
+              <span className={`font-semibold ${agents.used >= agents.max ? "text-red-600" : "text-slate-700"}`}>
                 {agents.used} / {formatLimit(agents.max)}
               </span>
             </div>
@@ -254,6 +255,9 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization, usageData }
               </span>
             </div>
             <MiniUsageBar used={customers.used} max={customers.max} />
+            {customers.invited > 0 && (
+              <p className="text-[10px] text-amber-600 font-medium">{customers.invited} pending activation</p>
+            )}
           </div>
 
           <div className="space-y-1">

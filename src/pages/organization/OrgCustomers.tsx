@@ -42,7 +42,7 @@ export default function OrgCustomers() {
      (u?.email || "").toLowerCase().includes((searchTerm || "").toLowerCase()))
   );
 
-  const maxCustomers = orgDoc?.limits?.maxCustomers || 25;
+  const maxCustomers = orgDoc?.limits?.maxCustomers || 10;
   const activeCustomers = customers.filter((c: any) => c.status === "ACTIVE").length || 0;
   const atLimit = activeCustomers >= maxCustomers;
 

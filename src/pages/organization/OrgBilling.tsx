@@ -14,27 +14,27 @@ const CURRENCY = { code: "INR", symbol: "₹" };
 type PlanId = "free" | "starter" | "growth" | "enterprise";
 
 const PLANS = [
-  { id: "free" as PlanId, name: "Free", price: 0, gradient: "from-slate-400 to-slate-500", icon: Sparkles, limits: { maxAgents: 1, maxCustomers: 25, maxCollectionsPerMonth: 250 } },
+  { id: "free" as PlanId, name: "Free", price: 0, gradient: "from-slate-400 to-slate-500", icon: Sparkles, limits: { maxAgents: 1, maxCustomers: 10, maxCollectionsPerMonth: 250 } },
   { id: "starter" as PlanId, name: "Starter", price: 999, gradient: "from-sky-500 to-blue-500", icon: Zap, limits: { maxAgents: 5, maxCustomers: 100, maxCollectionsPerMonth: 1000 } },
-  { id: "growth" as PlanId, name: "Growth", price: 4999, gradient: "from-violet-500 to-fuchsia-500", icon: TrendingUp, popular: true, limits: { maxAgents: 25, maxCustomers: 1000, maxCollectionsPerMonth: 10000 } },
-  { id: "enterprise" as PlanId, name: "Enterprise", price: 14999, gradient: "from-amber-500 to-orange-500", icon: Crown, limits: { maxAgents: -1, maxCustomers: -1, maxCollectionsPerMonth: -1 } },
+  { id: "growth" as PlanId, name: "Growth", price: 4999, gradient: "from-violet-500 to-fuchsia-500", icon: TrendingUp, popular: true, limits: { maxAgents: 25, maxCustomers: 500, maxCollectionsPerMonth: 10000 } },
+  { id: "enterprise" as PlanId, name: "Enterprise", price: 14999, gradient: "from-amber-500 to-orange-500", icon: Crown, limits: { maxAgents: 50, maxCustomers: 5000, maxCollectionsPerMonth: 50000 } },
 ];
 
-function formatLimit(val: number) { return val === -1 ? "∞" : val.toLocaleString(); }
+function formatLimit(val: number) { return val.toLocaleString(); }
 
 function UsageBar({ label, used, max }: { label: string; used: number; max: number }) {
-  const pct = max === -1 ? 0 : Math.min((used / max) * 100, 100);
+  const pct = Math.min((used / Math.max(max, 1)) * 100, 100);
   const color = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500";
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-slate-700">{label}</span>
         <span className={`font-bold ${pct >= 90 ? "text-red-600" : "text-slate-600"}`}>
-          {used.toLocaleString()} / {max === -1 ? "∞" : max.toLocaleString()}
+          {used.toLocaleString()} / {max.toLocaleString()}
         </span>
       </div>
       <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: max === -1 ? "4%" : `${pct}%` }} />
+        <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

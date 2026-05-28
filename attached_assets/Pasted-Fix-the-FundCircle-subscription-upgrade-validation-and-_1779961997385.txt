@@ -1,0 +1,172 @@
+Fix the FundCircle subscription upgrade validation and customer activation flow.
+
+==================================================
+CURRENT ISSUES
+
+1. Upgrade validation shows incorrect values:
+   0/-1
+   1/∞
+
+2. Customer is counted before activation.
+
+3. Agent can collect money before customer becomes active.
+
+==================================================
+REQUIRED BUSINESS LOGIC
+
+INVITED customer
+❌ NOT counted in active limits
+❌ Cannot collect money
+❌ Cannot appear in active collections
+
+ACTIVE customer
+✅ Counted in subscription limits
+✅ Agent can collect money
+✅ Visible in dashboard analytics
+
+==================================================
+CUSTOMER STATUS FLOW
+
+INVITED
+↓
+Customer accepts Clerk invite
+↓
+Complete profile
+↓
+ACTIVE
+
+==================================================
+LIMIT VALIDATION FIX
+
+DO NOT count invited customers.
+
+ONLY count:
+
+status === "ACTIVE"
+
+==================================================
+CORRECT LIMIT QUERY
+
+activeCustomersCount =
+customers.filter(
+customer.status === "ACTIVE"
+).length
+
+==================================================
+REMOVE INVALID VALUES
+
+NEVER show:
+0/-1
+1/∞
+
+==================================================
+CORRECT PLAN LIMITS
+
+Free:
+maxCustomers = 10
+
+Starter:
+maxCustomers = 100
+
+Growth:
+maxCustomers = 500
+
+Enterprise:
+maxCustomers = 5000
+
+==================================================
+UNLIMITED HANDLING
+
+DO NOT use:
+-1
+Infinity
+∞
+
+Instead use:
+
+isUnlimited = true
+
+==================================================
+DISPLAY LOGIC
+
+if (isUnlimited) {
+show "Unlimited"
+}
+else {
+show "${activeCustomers}/${maxCustomers}"
+}
+
+==================================================
+COLLECTION SECURITY RULE
+
+Agent collection creation must validate:
+
+customer.status === "ACTIVE"
+
+==================================================
+BLOCK COLLECTIONS FOR
+
+status:
+
+- INVITED
+- PENDING
+- DISABLED
+
+==================================================
+ERROR MESSAGE
+
+This customer has not activated their account yet.
+
+==================================================
+CUSTOMER ACTIVATION FLOW
+
+Customer accepts invitation
+↓
+Customer completes profile
+↓
+Firestore update:
+
+status: "ACTIVE"
+
+profileCompleted: true
+
+activatedAt: serverTimestamp()
+
+==================================================
+REALTIME UPDATE
+
+After activation:
+
+- owner dashboard updates
+- agent dashboard updates
+- subscription usage updates
+- collections become enabled
+
+==================================================
+OWNER DASHBOARD FIX
+
+Separate sections:
+
+1. Pending Invitations
+2. Active Customers
+
+==================================================
+AGENT DASHBOARD FIX
+
+Show:
+
+- Active customers count
+- Pending invited customers count
+
+==================================================
+FINAL REQUIREMENT
+
+The platform must:
+
+✅ Count ONLY active customers
+✅ Ignore invited customers in limits
+✅ Block collections until activation
+✅ Remove negative/unlimited limit bugs
+✅ Show correct realtime plan usage
+✅ Prevent invalid upgrade warnings
+✅ Enable collections only for active customers
