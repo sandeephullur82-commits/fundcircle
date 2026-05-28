@@ -144,7 +144,18 @@
   }
 }
 
-/* Hide scrollbars while keeping scroll functionality */
+/* Hide ALL scrollbars globally — scroll still works via wheel/touch/keyboard */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  display: none;
+}
+
+/* Utility class for explicit scrollbar-hide (backwards compat) */
 .scrollbar-hide {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -153,7 +164,7 @@
   display: none;
 }
 
-/* Thin subtle scrollbar for scroll areas that need one */
+/* Thin subtle scrollbar — only use where explicitly needed */
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.3) transparent;

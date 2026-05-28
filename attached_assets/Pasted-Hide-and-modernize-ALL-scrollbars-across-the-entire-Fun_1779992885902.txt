@@ -1,0 +1,162 @@
+Hide and modernize ALL scrollbars across the entire FundCircle project.
+
+==================================================
+GOAL
+==================================================
+
+Remove visible scrollbars globally while keeping:
+- mouse wheel scrolling working
+- touchpad scrolling working
+- mobile scrolling working
+- touch scrolling working
+- smooth scrolling everywhere
+
+The app must feel like:
+- modern SaaS
+- native mobile app
+- premium dashboard
+
+==================================================
+GLOBAL SCROLLBAR HIDE
+==================================================
+
+Add this to global.css or index.css:
+
+/* Hide scrollbar globally */
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  display: none;
+}
+
+==================================================
+KEEP SCROLL FUNCTIONALITY
+==================================================
+
+IMPORTANT:
+Do NOT disable scrolling.
+
+Scrolling must still work with:
+- mouse wheel
+- touchpad
+- keyboard
+- mobile swipe
+- touch gestures
+
+==================================================
+HTML + BODY FIX
+==================================================
+
+html,
+body,
+#root {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+==================================================
+REMOVE SIDE SCROLLING
+==================================================
+
+Prevent horizontal scrolling globally:
+
+body {
+  overflow-x: hidden !important;
+}
+
+Use:
+max-w-full
+min-w-0
+overflow-hidden
+
+Fix:
+- cards
+- tables
+- dashboard panels
+- landing page
+- hero sections
+
+==================================================
+SIDEBAR FIX
+==================================================
+
+Sidebar should:
+- scroll internally
+- hide scrollbar
+- never show white scrollbar
+
+Use:
+
+overflow-y-auto
+overflow-x-hidden
+scrollbar-width-none
+
+==================================================
+MAIN CONTENT FIX
+==================================================
+
+Main content:
+- smooth vertical scrolling
+- hidden scrollbar
+- no x-axis overflow
+
+==================================================
+TAILWIND CUSTOM UTILITY
+==================================================
+
+Create utility:
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+Apply:
+scrollbar-hide
+
+to:
+- sidebar
+- dashboard content
+- modals
+- tables
+- landing page sections
+
+==================================================
+MOBILE FIX
+==================================================
+
+Ensure:
+- Android scrolling works
+- iPhone scrolling works
+- no bounce issues
+- no white scrollbar flash
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle should:
+- have NO visible scrollbars
+- scroll smoothly everywhere
+- feel like a native app
+- support wheel scrolling
+- support touchpad scrolling
+- support mobile touch scrolling
+- prevent horizontal overflow
+- look premium and clean
+
+Scan the ENTIRE project automatically and hide every scrollbar globally without breaking scrolling.
