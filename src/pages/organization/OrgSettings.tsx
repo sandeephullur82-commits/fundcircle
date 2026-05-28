@@ -5,6 +5,7 @@ import { db } from "@/lib/firebase";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { membershipIdFor } from "@/lib/services";
 import { toast } from "sonner";
+
 import {
   Settings,
   Building2,
@@ -67,6 +68,11 @@ export default function OrgSettings() {
 
   const saveProfile = async () => {
     if (!user || !membershipId) return;
+    const cleanedPhone = phone.replace(/\D/g, "");
+    if (cleanedPhone.length !== 10) {
+      toast.error("Enter a valid 10-digit mobile number.");
+      return;
+    }
     setIsSaving(true);
     try {
       await setDoc(doc(db, "organizationMembers", membershipId), {
@@ -189,11 +195,15 @@ export default function OrgSettings() {
                 <div className="grid gap-2">
                   <Label>Phone Number</Label>
                   <Input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+91 98765 43210"
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").substring(0, 10))}
+                    placeholder="9876543210"
                     className="rounded-xl"
                   />
+                  <p className="text-xs text-slate-400">Enter 10-digit Indian mobile number</p>
                 </div>
                 <div className="grid gap-2">
                   <Label>Email Address</Label>

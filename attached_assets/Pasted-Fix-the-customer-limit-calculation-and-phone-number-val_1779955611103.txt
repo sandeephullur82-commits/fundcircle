@@ -1,0 +1,162 @@
+Fix the customer limit calculation and phone number validation in the FundCircle platform.
+
+==================================================
+ISSUE 1 — INVALID CUSTOMER LIMIT COUNT
+
+PROBLEM:
+The dashboard shows:
+
+"Customer limit reached (0/-1)"
+
+even though no customers were created.
+
+==================================================
+ROOT CAUSE
+
+The subscription limits or usage values are:
+
+- undefined
+- null
+- missing
+- negative
+
+The system is calculating:
+
+0 / -1
+
+instead of valid plan limits.
+
+==================================================
+FIX REQUIRED
+
+When organization document is created,
+initialize default plan limits correctly.
+
+==================================================
+DEFAULT PLAN STRUCTURE
+
+organizations/{orgId}
+
+{
+plan: "free",
+
+limits: {
+maxAgents: 1,
+maxCustomers: 25
+},
+
+usage: {
+activeAgents: 1,
+activeCustomers: 0
+}
+}
+
+==================================================
+IMPORTANT VALIDATION
+
+NEVER allow:
+
+- undefined
+- null
+- negative numbers
+
+==================================================
+SAFE FALLBACKS
+
+Use safe defaults everywhere:
+
+const maxCustomers =
+organization?.limits?.maxCustomers || 25
+
+const activeCustomers =
+organization?.usage?.activeCustomers || 0
+
+==================================================
+LIMIT CHECK
+
+const isLimitReached =
+activeCustomers >= maxCustomers
+
+==================================================
+DISPLAY FIX
+
+Dashboard must show:
+
+Customers:
+0 / 25
+
+NOT:
+0 / -1
+
+==================================================
+ISSUE 2 — INVALID PHONE NUMBER LENGTH
+
+PROBLEM:
+Phone field accepts unlimited digits.
+
+==================================================
+REQUIRED FIX
+
+Indian mobile numbers only.
+
+VALIDATION:
+
+- exactly 10 digits
+- numeric only
+- no letters
+- no symbols
+- no spaces
+
+==================================================
+INPUT RULES
+
+Allow:
+9876543210
+
+Block:
+987654321098765
+abcd12345
+98765-43210
+
+==================================================
+INPUT IMPLEMENTATION
+
+Phone input must:
+
+- maxLength = 10
+- type = tel
+- numeric keyboard on mobile
+- auto-remove non-numeric characters
+
+==================================================
+VALIDATION LOGIC
+
+const cleanedPhone = phone.replace(/\D/g, "")
+
+if (cleanedPhone.length !== 10) {
+showError("Enter valid 10-digit mobile number")
+return
+}
+
+==================================================
+APPLY TO ALL FORMS
+
+Apply phone validation to:
+
+- owner onboarding
+- agent profile completion
+- customer profile completion
+- add customer form
+- invite agent form
+
+==================================================
+FINAL REQUIREMENT
+
+The platform must:
+
+- correctly initialize plan limits
+- never show negative limits
+- correctly calculate realtime usage
+- validate Indian mobile numbers
+- support responsive mobile input
+- keep Firestore realtime sync working

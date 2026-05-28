@@ -42,9 +42,9 @@ export default function OrgCustomers() {
      (u?.email || "").toLowerCase().includes((searchTerm || "").toLowerCase()))
   );
 
-  const maxCustomers = orgDoc?.limits?.maxCustomers ?? -1;
-  const activeCustomers = customers.filter((c: any) => c.status === "ACTIVE").length;
-  const atLimit = maxCustomers !== -1 && activeCustomers >= maxCustomers;
+  const maxCustomers = orgDoc?.limits?.maxCustomers || 25;
+  const activeCustomers = customers.filter((c: any) => c.status === "ACTIVE").length || 0;
+  const atLimit = activeCustomers >= maxCustomers;
 
   const statusClass = (status?: string) => {
     if (status === "ACTIVE") return "bg-emerald-50 text-emerald-700 border-emerald-100";
@@ -97,11 +97,9 @@ export default function OrgCustomers() {
           <h2 className="text-2xl font-bold text-slate-900">Manage Customers</h2>
           <p className="text-slate-500">
             View and add pigmy savings accounts.
-            {maxCustomers !== -1 && (
-              <span className={`ml-2 font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
-                {activeCustomers}/{maxCustomers} active
-              </span>
-            )}
+            <span className={`ml-2 font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
+              {activeCustomers}/{maxCustomers} active
+            </span>
           </p>
         </div>
 

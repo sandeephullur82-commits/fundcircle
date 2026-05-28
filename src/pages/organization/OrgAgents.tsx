@@ -33,9 +33,9 @@ export default function OrgAgents() {
      (u?.email || "").toLowerCase().includes((searchTerm || "").toLowerCase()))
   );
 
-  const maxAgents = orgDoc?.limits?.maxAgents ?? -1;
-  const activeAgents = members.filter((a: any) => a.status === "ACTIVE").length;
-  const atLimit = maxAgents !== -1 && activeAgents >= maxAgents;
+  const maxAgents = orgDoc?.limits?.maxAgents || 1;
+  const activeAgents = members.filter((a: any) => a.status === "ACTIVE").length || 0;
+  const atLimit = activeAgents >= maxAgents;
 
   const statusClass = (status?: string) => {
     if (status === "ACTIVE") return "bg-emerald-50 text-emerald-700 border-emerald-100";
@@ -82,11 +82,9 @@ export default function OrgAgents() {
           <h2 className="text-2xl font-bold text-slate-900">Manage Agents</h2>
           <p className="text-slate-500">
             View and add collection agents.
-            {maxAgents !== -1 && (
-              <span className={`ml-2 font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
-                {activeAgents}/{maxAgents} active
-              </span>
-            )}
+            <span className={`ml-2 font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
+              {activeAgents}/{maxAgents} active
+            </span>
           </p>
         </div>
 

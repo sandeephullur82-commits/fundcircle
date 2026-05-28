@@ -95,6 +95,13 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
       setShowLimitModal(true);
       return;
     }
+    if (invitePhone) {
+      const cleanedPhone = invitePhone.replace(/\D/g, "");
+      if (cleanedPhone.length !== 10) {
+        toast.error("Enter a valid 10-digit mobile number.");
+        return;
+      }
+    }
     setIsInviting(true);
     try {
       await sendOrganizationInvitation({
@@ -287,9 +294,12 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
             <div className="space-y-2">
               <Label>Phone Number</Label>
               <Input
-                placeholder="Phone number"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="9876543210"
                 value={invitePhone}
-                onChange={e => setInvitePhone(e.target.value)}
+                onChange={e => setInvitePhone(e.target.value.replace(/\D/g, "").substring(0, 10))}
               />
             </div>
             <div className="flex gap-3 pt-2">

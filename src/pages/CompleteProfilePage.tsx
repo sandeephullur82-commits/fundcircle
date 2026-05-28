@@ -55,6 +55,11 @@ export default function CompleteProfilePage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user || !membershipId || !membershipDoc) return;
+    const cleanedPhone = phone.replace(/\D/g, "");
+    if (cleanedPhone.length !== 10) {
+      toast.error("Enter a valid 10-digit mobile number.");
+      return;
+    }
     setIsSaving(true);
 
     const email = user.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
@@ -158,11 +163,16 @@ export default function CompleteProfilePage() {
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-700">Phone number</label>
             <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
               value={phone}
-              onChange={(event) => setPhone(event.target.value)}
+              onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").substring(0, 10))}
+              placeholder="9876543210"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
               required
             />
+            <p className="text-xs text-slate-400">Enter 10-digit Indian mobile number</p>
           </div>
 
           <div className="space-y-2">
