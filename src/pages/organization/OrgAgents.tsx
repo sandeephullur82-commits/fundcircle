@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { sendOrganizationInvitation } from "@/lib/services";
+import { sendOrganizationInvitation, validateAgentInviteEmail } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
-import { Search, Plus, AlertTriangle, ArrowRight, UserCheck, Clock } from "lucide-react";
+import { Search, Plus, AlertTriangle, ArrowRight, UserCheck, Clock, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 export default function OrgAgents() {
@@ -23,22 +23,19 @@ export default function OrgAgents() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [assignedArea, setAssignedArea] = useState("");
-  const [notes, setNotes] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const collectors = members.filter((u) =>
-    (((u?.fullName || u?.name || "").toLowerCase().includes((searchTerm || "").toLowerCase())) ||
-     (u?.phone || "").includes(searchTerm || "") ||
-     (u?.email || "").toLowerCase().includes((searchTerm || "").toLowerCase()))
+    ((u?.fullName || (u as any)?.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
+    ((u?.phone || "").includes(searchTerm)) ||
+    ((u?.email || "").toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const maxCollectors = orgDoc?.limits?.maxAgents || 1;
-  const activeCollectors = members.filter((a: any) => a.status === "ACTIVE").length || 0;
-  const invitedCollectors = members.filter((a: any) => a.status === "INVITED" || a.status === "PENDING").length || 0;
+  const activeCollectors = members.filter((a: any) => a.status === "ACTIVE").length;
+  const invitedCollectors = members.filter((a: any) => a.status === "INVITED" || a.status === "PENDING").length;
   const atLimit = activeCollectors >= maxCollectors;
 
   const statusConfig: Record<string, { label: string; className: string }> = {
@@ -53,20 +50,28 @@ export default function OrgAgents() {
     return statusConfig[key] || { label: key, className: "bg-slate-50 text-slate-600 border-slate-100" };
   };
 
-  const resetForm = () => {
-    setFullName("");
-    setEmail("");
-    setPhone("");
-    setAssignedArea("");
-    setNotes("");
-  };
+  const resetForm = () => setEmail("");
 
   const handleInviteCollector = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id) { toast.error("No active organization selected. Refresh and try again."); return; }
+    if (!organization?.id) { toast.error("No active organization selected."); return; }
     if (!user?.id) { toast.error("Unable to send invitation without a signed-in owner."); return; }
     if (!email.trim()) { toast.error("Email address is required."); return; }
-    if (atLimit) { toast.error(`You've reached the limit of ${maxCollectors} collectors for your plan. Please upgrade.`); return; }
+    if (atLimit) { toast.error(`Collector limit of ${maxCollectors} reached. Please upgrade your plan.`); return; }
+
+    const emailKey = email.trim().toLowerCase();
+
+    // Pre-validate before calling Clerk
+    setIsValidating(true);
+    try {
+      await validateAgentInviteEmail(organization.id, emailKey);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Validation failed");
+      setIsValidating(false);
+      return;
+    } finally {
+      setIsValidating(false);
+    }
 
     setIsSubmitting(true);
     try {
@@ -74,22 +79,21 @@ export default function OrgAgents() {
       const result = await sendOrganizationInvitation({
         organization,
         organizationId: organization.id,
-        email: email.trim().toLowerCase(),
+        email: emailKey,
         role: "pigmy_collector",
         clerkRole: "org:pigmy_collector",
         invitedBy: user.id,
         invitedByEmail,
-        fullName: fullName.trim(),
-        phone: phone.trim(),
-        notes: notes.trim(),
-        assignedArea: assignedArea.trim(),
+        fullName: "",
+        phone: "",
+        notes: "",
+        assignedArea: "",
       });
       toast.success(result.message);
       setIsInviteOpen(false);
       resetForm();
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to send collector invitation";
-      toast.error(msg);
+      toast.error(error instanceof Error ? error.message : "Failed to send collector invitation");
     } finally {
       setIsSubmitting(false);
     }
@@ -100,9 +104,7 @@ export default function OrgAgents() {
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Manage Collectors</h2>
-          <p className="text-slate-500">
-            View and add pigmy collectors.
-          </p>
+          <p className="text-slate-500">View and add pigmy collectors.</p>
           <div className="flex items-center gap-3 mt-1.5">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
               <UserCheck className="w-3 h-3" />
@@ -127,63 +129,41 @@ export default function OrgAgents() {
             <DialogTrigger render={
               <Button className="shrink-0"><Plus className="w-4 h-4 mr-2" /> Add Collector</Button>
             } />
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle>Invite Pigmy Collector</DialogTitle>
-                <p className="text-sm text-slate-500 mt-1">Send an organization invitation to a new collector.</p>
+                <DialogTitle className="text-lg font-bold">Invite Pigmy Collector</DialogTitle>
+                <p className="text-sm text-slate-500 mt-1">
+                  Enter the agent's email address. They'll receive a secure invitation to join your organization.
+                </p>
               </DialogHeader>
-              <form onSubmit={handleInviteCollector} className="space-y-4 mt-2">
+
+              <form onSubmit={handleInviteCollector} className="space-y-5 mt-2">
                 <div className="space-y-2">
-                  <Label htmlFor="col-name">Full Name <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="col-name"
-                    placeholder="e.g., Ravi Kumar"
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    required
-                  />
+                  <Label htmlFor="col-email" className="text-sm font-semibold text-slate-700">
+                    Agent Email Address <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      id="col-email"
+                      type="email"
+                      placeholder="agent@example.com"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      className="pl-10 h-11"
+                      required
+                      autoComplete="off"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400">Role is automatically assigned as Pigmy Collector.</p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="col-email">Email Address <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="col-email"
-                    type="email"
-                    placeholder="collector@example.com"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="col-phone">Phone Number</Label>
-                  <Input
-                    id="col-phone"
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="col-area">Assigned Area</Label>
-                  <Input
-                    id="col-area"
-                    placeholder="e.g., Northeast District"
-                    value={assignedArea}
-                    onChange={e => setAssignedArea(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="col-notes">Notes <span className="text-slate-400 text-xs font-normal">(optional)</span></Label>
-                  <Input
-                    id="col-notes"
-                    placeholder="Any additional notes..."
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isSubmitting}>
-                  {isSubmitting ? "Sending Invitation…" : "Send Invitation"}
+
+                <Button
+                  type="submit"
+                  className="w-full h-11 font-semibold"
+                  disabled={isValidating || isSubmitting || !email.trim()}
+                >
+                  {isValidating ? "Validating…" : isSubmitting ? "Sending Invitation…" : "Send Invitation"}
                 </Button>
               </form>
             </DialogContent>
@@ -195,13 +175,10 @@ export default function OrgAgents() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-800">You've reached your collector limit ({activeCollectors}/{maxCollectors})</p>
+            <p className="text-sm font-semibold text-amber-800">Collector limit reached ({activeCollectors}/{maxCollectors})</p>
             <p className="text-xs text-amber-600 mt-0.5">Upgrade your plan to add more pigmy collectors.</p>
           </div>
-          <button
-            onClick={() => {}}
-            className="flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-bold shrink-0 transition-all"
-          >
+          <button className="flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-bold shrink-0 transition-all">
             Upgrade <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -210,8 +187,13 @@ export default function OrgAgents() {
       <Card>
         <CardHeader className="pb-4 border-b border-slate-100">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <Input placeholder="Search collectors by name, email or phone..." className="pl-10" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+            <Input
+              placeholder="Search collectors by name, email or phone…"
+              className="pl-10"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -220,20 +202,31 @@ export default function OrgAgents() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Collector</TableHead>
-                  <TableHead>Phone</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
                   <TableHead>Assigned Area</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8">Loading…</TableCell></TableRow>
+                  [...Array(3)].map((_, i) => (
+                    <TableRow key={i}>
+                      {[...Array(5)].map((_, j) => (
+                        <TableCell key={j}>
+                          <div className="h-4 bg-slate-100 rounded animate-pulse w-24" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
                 ) : collectors.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10">
-                      <p className="text-slate-500 text-sm font-medium">No collectors yet.</p>
-                      <p className="text-slate-400 text-xs mt-1">Click "Add Collector" to invite your first pigmy collector.</p>
+                    <TableCell colSpan={5} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-2">
+                        <UserCheck className="w-8 h-8 text-slate-300" />
+                        <p className="text-slate-500 text-sm font-medium">No collectors yet.</p>
+                        <p className="text-slate-400 text-xs">Click "Add Collector" to invite your first pigmy collector.</p>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -241,10 +234,14 @@ export default function OrgAgents() {
                     const s = getStatus((collector as any).status);
                     return (
                       <TableRow key={collector.id}>
-                        <TableCell className="font-medium">{collector.fullName || (collector as any).name || <span className="text-slate-400 italic">Pending setup</span>}</TableCell>
-                        <TableCell>{collector.phone || <span className="text-slate-400">—</span>}</TableCell>
-                        <TableCell>{collector.email || <span className="text-slate-400">—</span>}</TableCell>
-                        <TableCell>{(collector as any).assignedArea || <span className="text-slate-400">Unassigned</span>}</TableCell>
+                        <TableCell className="font-medium">
+                          {collector.fullName || (collector as any).name || (
+                            <span className="text-slate-400 italic text-xs">Pending setup</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-600">{collector.email || <span className="text-slate-400">—</span>}</TableCell>
+                        <TableCell className="text-slate-600">{collector.phone || <span className="text-slate-400">—</span>}</TableCell>
+                        <TableCell>{(collector as any).assignedArea || <span className="text-slate-400 text-xs">Unassigned</span>}</TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${s.className}`}>
                             {s.label}

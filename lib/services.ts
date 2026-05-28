@@ -870,3 +870,110 @@ export async function ignoreUpgradeRequest(requestId: string): Promise<void> {
   });
 }
 
+// ─────────────────────────────────────────────────────────────
+// Invitation pre-validation — cross-role email & phone checks
+// ─────────────────────────────────────────────────────────────
+
+export async function validateAgentInviteEmail(
+  organizationId: string,
+  email: string
+): Promise<void> {
+  const emailKey = email.trim().toLowerCase();
+
+  // Check existing org members for this email
+  const membersSnap = await getDocs(
+    query(collection(db, "organizationMembers"), where("email", "==", emailKey))
+  );
+
+  for (const d of membersSnap.docs) {
+    const data = d.data();
+    const role = (data.role || "").toUpperCase();
+    const status = (data.status || "").toUpperCase();
+
+    if (role === "AGENT" || role === "PIGMY_COLLECTOR") {
+      throw new Error("This email is already registered as an agent.");
+    }
+    if (role === "CUSTOMER") {
+      throw new Error("This email is already used by a customer account.");
+    }
+    if (role === "OWNER" || role === "ADMIN" || role === "ORGANIZATION_OWNER") {
+      throw new Error("This email belongs to an organization administrator.");
+    }
+    if (status === "INVITED" || status === "PENDING") {
+      throw new Error("An invitation is already pending for this email.");
+    }
+  }
+
+  // Check pending invites for this org
+  const pendingSnap = await getDocs(
+    query(
+      collection(db, "pendingInvites"),
+      where("email", "==", emailKey),
+      where("organizationId", "==", organizationId),
+      where("status", "==", "PENDING")
+    )
+  );
+  if (!pendingSnap.empty) {
+    throw new Error("An invitation is already pending for this email.");
+  }
+}
+
+export async function validateCustomerInvite(
+  organizationId: string,
+  email: string,
+  phone: string
+): Promise<void> {
+  const emailKey = email.trim().toLowerCase();
+  const phoneKey = phone.trim();
+
+  // Parallel: email collision check + phone uniqueness check
+  const [membersSnap, phoneSnap] = await Promise.all([
+    getDocs(query(collection(db, "organizationMembers"), where("email", "==", emailKey))),
+    phoneKey
+      ? getDocs(
+          query(
+            collection(db, "organizationMembers"),
+            where("phone", "==", phoneKey),
+            where("organizationId", "==", organizationId)
+          )
+        )
+      : Promise.resolve(null),
+  ]);
+
+  for (const d of membersSnap.docs) {
+    const data = d.data();
+    const role = (data.role || "").toUpperCase();
+    const status = (data.status || "").toUpperCase();
+
+    if (role === "AGENT" || role === "PIGMY_COLLECTOR") {
+      throw new Error("This email already belongs to an agent.");
+    }
+    if (role === "OWNER" || role === "ADMIN" || role === "ORGANIZATION_OWNER") {
+      throw new Error("This email belongs to an administrator account.");
+    }
+    if (role === "CUSTOMER") {
+      throw new Error("A customer with this email already exists.");
+    }
+    if (status === "INVITED" || status === "PENDING") {
+      throw new Error("An invitation is already pending for this email.");
+    }
+  }
+
+  if (phoneSnap && !phoneSnap.empty) {
+    throw new Error("This phone number is already registered to another customer.");
+  }
+
+  // Check pending invites
+  const pendingSnap = await getDocs(
+    query(
+      collection(db, "pendingInvites"),
+      where("email", "==", emailKey),
+      where("organizationId", "==", organizationId),
+      where("status", "==", "PENDING")
+    )
+  );
+  if (!pendingSnap.empty) {
+    throw new Error("An invitation is already pending for this email.");
+  }
+}
+

@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { sendOrganizationInvitation } from "@/lib/services";
+import { sendOrganizationInvitation, validateCustomerInvite } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
-import { Search, Plus, AlertTriangle, ArrowRight, UserX } from "lucide-react";
+import { Search, Plus, AlertTriangle, ArrowRight, UserX, Users } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
+
+const COLLECTION_TYPES = ["Daily", "Weekly", "Monthly"] as const;
+type CollectionType = typeof COLLECTION_TYPES[number];
 
 export default function OrgCustomers() {
   const { user } = useUser();
@@ -28,22 +30,28 @@ export default function OrgCustomers() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [email, setEmail] = useState("");
-  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Realtime active agent gate
-  const activeAgents = agents.filter((a) => a.status === "ACTIVE");
+  // Form state
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [initialDeposit, setInitialDeposit] = useState("");
+  const [collectionType, setCollectionType] = useState<CollectionType>("Daily");
+
+  const activeAgents = agents.filter((a: any) => a.status === "ACTIVE");
   const noActiveAgent = !agentsLoading && activeAgents.length === 0;
 
   const filteredCustomers = customers.filter((u) =>
-    (((u?.fullName || u?.name || "").toLowerCase().includes((searchTerm || "").toLowerCase())) ||
-     (u?.phone || "").includes(searchTerm || "") ||
-     (u?.email || "").toLowerCase().includes((searchTerm || "").toLowerCase()))
+    ((u?.fullName || (u as any)?.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
+    ((u?.phone || "").includes(searchTerm)) ||
+    ((u?.email || "").toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const maxCustomers = orgDoc?.limits?.maxCustomers || 10;
-  const activeCustomers = customers.filter((c: any) => c.status === "ACTIVE").length || 0;
+  const activeCustomers = customers.filter((c: any) => c.status === "ACTIVE").length;
   const atLimit = activeCustomers >= maxCustomers;
 
   const statusClass = (status?: string) => {
@@ -52,43 +60,71 @@ export default function OrgCustomers() {
     return "bg-slate-50 text-slate-600 border-slate-100";
   };
 
+  const resetForm = () => {
+    setFullName("");
+    setEmail("");
+    setPhone("");
+    setSelectedAgentId("");
+    setInitialDeposit("");
+    setCollectionType("Daily");
+  };
+
   const handleInviteCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id) { toast.error("No active organization selected. Refresh and try again."); return; }
+    if (!organization?.id) { toast.error("No active organization selected."); return; }
+    if (!user?.id) { toast.error("Missing authenticated owner identity."); return; }
+    if (!fullName.trim()) { toast.error("Customer full name is required."); return; }
     if (!email.trim()) { toast.error("Email address is required."); return; }
-    if (!selectedAgentId) { toast.error("Please select an assigned Pigmy Collector."); return; }
-    if (atLimit) { toast.error(`You've reached the limit of ${maxCustomers} customers for your plan. Please upgrade.`); return; }
+    if (!phone.trim()) { toast.error("Phone number is required."); return; }
+    if (!selectedAgentId) { toast.error("Please select an assigned collector."); return; }
+    if (atLimit) { toast.error(`Customer limit of ${maxCustomers} reached. Please upgrade your plan.`); return; }
 
     const selectedAgent = activeAgents.find((a) => a.id === selectedAgentId);
+    if (!selectedAgent) { toast.error("Assigned agent is not active."); return; }
+
+    const emailKey = email.trim().toLowerCase();
+
+    // Pre-validate
+    setIsValidating(true);
+    try {
+      await validateCustomerInvite(organization.id, emailKey, phone.trim());
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Validation failed");
+      setIsValidating(false);
+      return;
+    } finally {
+      setIsValidating(false);
+    }
 
     setIsSubmitting(true);
     try {
-      if (!user?.id) throw new Error("Missing authenticated owner identity.");
       const invitedByEmail = user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || "";
       const result = await sendOrganizationInvitation({
         organization,
         organizationId: organization.id,
-        email: email.trim().toLowerCase(),
+        email: emailKey,
         role: "customer",
         clerkRole: "org:customer",
         invitedBy: user.id,
         invitedByEmail,
-        assignedAgentId: selectedAgent?.id || selectedAgentId,
-        assignedAgentName: selectedAgent?.fullName || selectedAgent?.name || "",
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        assignedAgentId: selectedAgent.id,
+        assignedAgentName: selectedAgent.fullName || (selectedAgent as any).name || "",
+        notes: [
+          `Collection Type: ${collectionType}`,
+          initialDeposit ? `Initial Deposit: ₹${initialDeposit}` : "",
+        ].filter(Boolean).join(" | "),
       });
       toast.success(result.message);
       setIsInviteOpen(false);
-      setEmail("");
-      setSelectedAgentId("");
+      resetForm();
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Failed to send customer invitation";
-      toast.error(msg);
+      toast.error(error instanceof Error ? error.message : "Failed to send customer invitation");
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  const canInvite = !atLimit && !noActiveAgent;
 
   return (
     <div className="space-y-6">
@@ -96,8 +132,8 @@ export default function OrgCustomers() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Manage Customers</h2>
           <p className="text-slate-500">
-            View and add pigmy savings accounts.
-            <span className={`ml-2 font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
+            View and add pigmy savings accounts.{" "}
+            <span className={`font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
               {activeCustomers}/{maxCustomers} active
             </span>
           </p>
@@ -109,44 +145,142 @@ export default function OrgCustomers() {
             <span>Customer limit reached</span>
           </div>
         ) : noActiveAgent ? (
-          <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 font-medium shrink-0 cursor-not-allowed" title="Please add at least one active Pigmy Collector before inviting customers.">
+          <div
+            className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 font-medium shrink-0 cursor-not-allowed"
+            title="Please add at least one active collector before inviting customers."
+          >
             <UserX className="w-4 h-4 shrink-0" />
             <span>No active collector</span>
           </div>
         ) : (
-          <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+          <Dialog open={isInviteOpen} onOpenChange={(open) => { setIsInviteOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger render={
               <Button className="shrink-0"><Plus className="w-4 h-4 mr-2" /> Invite Customer</Button>
             } />
-            <DialogContent>
+            <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Invite Customer</DialogTitle>
-                <p className="text-sm text-slate-500 mt-2">Send an organization invitation to a pigmy savings customer.</p>
+                <DialogTitle className="text-lg font-bold">Invite Customer</DialogTitle>
+                <p className="text-sm text-slate-500 mt-1">
+                  Add a new pigmy savings customer to your organization.
+                </p>
               </DialogHeader>
-              <form onSubmit={handleInviteCustomer} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cust-email">Email Address</Label>
-                  <Input id="cust-email" type="email" placeholder="customer@example.com" value={email} onChange={e => setEmail(e.target.value)} required />
+
+              <form onSubmit={handleInviteCustomer} className="space-y-4 mt-2">
+                {/* Full Name */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-name" className="text-sm font-semibold text-slate-700">
+                    Full Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="cust-name"
+                    placeholder="e.g. Priya Devi"
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    required
+                    className="h-10"
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cust-agent">Assigned Collector <span className="text-red-500">*</span></Label>
+
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-email" className="text-sm font-semibold text-slate-700">
+                    Email Address <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="cust-email"
+                    type="email"
+                    placeholder="customer@example.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                    className="h-10"
+                  />
+                </div>
+
+                {/* Phone */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-phone" className="text-sm font-semibold text-slate-700">
+                    Phone Number <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="cust-phone"
+                    type="tel"
+                    placeholder="+91 98765 43210"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    required
+                    className="h-10"
+                  />
+                </div>
+
+                {/* Assigned Agent */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-agent" className="text-sm font-semibold text-slate-700">
+                    Assigned Collector <span className="text-red-500">*</span>
+                  </Label>
                   <select
                     id="cust-agent"
                     value={selectedAgentId}
                     onChange={e => setSelectedAgentId(e.target.value)}
                     required
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-500 focus:outline-none"
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 h-10 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
                   >
-                    <option value="">Select a collector...</option>
+                    <option value="">Select a collector…</option>
                     {activeAgents.map((agent) => (
                       <option key={agent.id} value={agent.id}>
-                        {agent.fullName || agent.name || agent.email || agent.id}
+                        {agent.fullName || (agent as any).name || agent.email || agent.id}
                       </option>
                     ))}
                   </select>
                 </div>
-                <Button type="submit" className="w-full" disabled={isSubmitting}>
-                  {isSubmitting ? "Sending…" : "Send Invitation"}
+
+                {/* Collection Type */}
+                <div className="space-y-1.5">
+                  <Label className="text-sm font-semibold text-slate-700">Collection Schedule</Label>
+                  <div className="flex gap-2">
+                    {COLLECTION_TYPES.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setCollectionType(type)}
+                        className={`flex-1 h-10 rounded-lg border text-sm font-medium transition-all ${
+                          collectionType === type
+                            ? "bg-sky-50 border-sky-300 text-sky-700 shadow-sm"
+                            : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Initial Deposit (optional) */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="cust-deposit" className="text-sm font-semibold text-slate-700">
+                    Initial Deposit{" "}
+                    <span className="text-slate-400 text-xs font-normal">(optional)</span>
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                    <Input
+                      id="cust-deposit"
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={initialDeposit}
+                      onChange={e => setInitialDeposit(e.target.value)}
+                      className="pl-7 h-10"
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full h-11 font-semibold"
+                  disabled={isValidating || isSubmitting}
+                >
+                  {isValidating ? "Validating…" : isSubmitting ? "Sending Invitation…" : "Send Invitation"}
                 </Button>
               </form>
             </DialogContent>
@@ -154,13 +288,12 @@ export default function OrgCustomers() {
         )}
       </div>
 
-      {/* No active agent warning banner */}
       {noActiveAgent && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 flex items-center gap-3">
           <UserX className="w-5 h-5 text-red-600 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-red-800">No active Pigmy Collector in this organization</p>
-            <p className="text-xs text-red-600 mt-0.5">Please add at least one active Pigmy Collector before inviting customers.</p>
+            <p className="text-xs text-red-600 mt-0.5">Please add at least one active collector before inviting customers.</p>
           </div>
           <button
             onClick={() => window.location.href = window.location.href.replace("customers", "agents")}
@@ -175,7 +308,7 @@ export default function OrgCustomers() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-800">You've reached your customer limit ({activeCustomers}/{maxCustomers})</p>
+            <p className="text-sm font-semibold text-amber-800">Customer limit reached ({activeCustomers}/{maxCustomers})</p>
             <p className="text-xs text-amber-600 mt-0.5">Upgrade your plan to add more customers.</p>
           </div>
           <button className="flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-bold shrink-0 transition-all">
@@ -187,8 +320,13 @@ export default function OrgCustomers() {
       <Card>
         <CardHeader className="pb-4 border-b border-slate-100">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <Input placeholder="Search customers by name or email..." className="pl-10" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+            <Input
+              placeholder="Search customers by name, email or phone…"
+              className="pl-10"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -205,25 +343,47 @@ export default function OrgCustomers() {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8">Loading…</TableCell></TableRow>
+                  [...Array(3)].map((_, i) => (
+                    <TableRow key={i}>
+                      {[...Array(5)].map((_, j) => (
+                        <TableCell key={j}>
+                          <div className="h-4 bg-slate-100 rounded animate-pulse w-24" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
                 ) : filteredCustomers.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No customers found.</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-2">
+                        <Users className="w-8 h-8 text-slate-300" />
+                        <p className="text-slate-500 text-sm font-medium">No customers found.</p>
+                        <p className="text-slate-400 text-xs">Click "Invite Customer" to add your first savings member.</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   filteredCustomers.map(customer => {
-                    const agent = agents.find(a => a.id === (customer.assignedAgentId || customer.agentId));
+                    const agent = agents.find(a => a.id === ((customer as any).assignedAgentId || customer.agentId));
                     return (
                       <TableRow key={customer.id}>
-                        <TableCell className="font-medium">{customer.fullName || customer.name || "Unnamed Customer"}</TableCell>
-                        <TableCell>{customer.email || "N/A"}</TableCell>
-                        <TableCell>{customer.phone || "N/A"}</TableCell>
+                        <TableCell className="font-medium">
+                          {customer.fullName || (customer as any).name || (
+                            <span className="text-slate-400 italic text-xs">Pending setup</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-600">{customer.email || "N/A"}</TableCell>
+                        <TableCell className="text-slate-600">{customer.phone || <span className="text-slate-400">—</span>}</TableCell>
                         <TableCell>
                           <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-700">
-                            {(customer as any).assignedAgentName || agent?.fullName || agent?.name || "Unassigned"}
+                            {(customer as any).assignedAgentName || agent?.fullName || (agent as any)?.name || (
+                              <span className="text-slate-400">Unassigned</span>
+                            )}
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status)}`}>
-                            {customer.status || "INVITED"}
+                          <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status as string)}`}>
+                            {(customer as any).status || "INVITED"}
                           </span>
                         </TableCell>
                       </TableRow>

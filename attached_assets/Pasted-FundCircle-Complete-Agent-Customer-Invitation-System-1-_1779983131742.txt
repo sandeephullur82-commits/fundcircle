@@ -1,0 +1,315 @@
+FundCircle — Complete Agent & Customer Invitation System
+
+1. AGENT INVITATION FLOW
+
+Owner/Admin Invite Agent
+
+Invite Agent Modal
+
+ONLY SHOW:
+
+1. Agent Email Address
+2. Invite Button
+
+DO NOT SHOW:
+
+- Role selector
+- Notes
+- Phone number
+- Name field
+
+ROLE MUST AUTO ASSIGN:
+role = "agent"
+
+---
+
+AGENT EMAIL VALIDATION RULES
+
+Before sending invitation:
+
+CHECK:
+
+1. Email already exists in agents table?
+   → Block invitation
+
+Error:
+“This email is already registered as an agent.”
+
+---
+
+2. Email already exists in customers table?
+   → Block invitation
+
+Error:
+“This email is already used by a customer account.”
+
+---
+
+3. Email already invited and pending?
+   → Block duplicate invitation
+
+Error:
+“Invitation already pending for this email.”
+
+---
+
+4. Email belongs to organization owner/admin?
+   → Block invitation
+
+Error:
+“This email belongs to an organization administrator.”
+
+---
+
+AFTER VALIDATION
+
+System creates:
+
+- invitationToken
+- organizationId
+- role = agent
+- invitationStatus = pending
+- invitedBy
+- expiresAt
+
+Send secure invitation email.
+
+---
+
+AGENT ONBOARDING
+
+When agent opens invite link:
+
+Auto-fill:
+
+- email
+
+LOCK:
+
+- email field
+
+Agent completes:
+
+- full name
+- password
+- phone number
+- profile photo
+- assigned region
+
+After signup:
+
+- create agent profile
+- activate organization access
+- assign permissions
+- create audit logs
+
+---
+
+AGENT DATABASE RULES
+
+One email can ONLY belong to:
+
+- owner
+  OR
+- admin
+  OR
+- agent
+  OR
+- customer
+
+NEVER multiple roles.
+
+---
+
+2. CUSTOMER INVITATION FLOW
+
+Invite Customer Modal
+
+SHOW:
+
+1. Customer Full Name
+2. Customer Email
+3. Phone Number
+4. Assigned Agent
+5. Initial Deposit (optional)
+6. Collection Type
+7. Invite Button
+
+---
+
+CUSTOMER VALIDATION RULES
+
+Before creating customer:
+
+CHECK:
+
+1. Email exists in agents table?
+   → Block
+
+Error:
+“This email already belongs to an agent.”
+
+---
+
+2. Email exists in owners/admins?
+   → Block
+
+Error:
+“This email belongs to an administrator account.”
+
+---
+
+3. Customer already exists?
+   → Prevent duplicate customer
+
+Error:
+“Customer already exists.”
+
+---
+
+4. Phone number already exists?
+   → Block duplicate customer
+
+Error:
+“Phone number already registered.”
+
+---
+
+5. Assigned agent exists and active?
+   → Required
+
+Error:
+“Assigned agent is not active.”
+
+---
+
+CUSTOMER ACCOUNT CREATION
+
+System creates:
+
+- customer profile
+- customer account number
+- assigned agent relationship
+- collection schedule
+- organization relationship
+- onboarding status
+
+Send customer invitation.
+
+---
+
+CUSTOMER ONBOARDING
+
+Customer opens invitation link.
+
+LOCK:
+
+- email
+- assigned organization
+
+Customer completes:
+
+- password
+- address
+- ID proof upload
+- profile photo
+- nominee details
+
+After completion:
+
+- activate customer account
+- enable savings dashboard
+- enable collection history
+
+---
+
+UNIVERSAL SECURITY RULES
+
+Global Email Uniqueness
+
+Single email cannot exist in:
+
+- agents
+- customers
+- admins
+- owners
+
+Use centralized identity table.
+
+---
+
+REQUIRED DATABASE STRUCTURE
+
+Tables:
+
+- users
+- organizations
+- organization_members
+- agents
+- customers
+- invitations
+- audit_logs
+
+---
+
+REQUIRED INDEXES
+
+Unique:
+
+- email
+- phone number
+- invitation token
+
+---
+
+REQUIRED INVITATION STATUS
+
+- pending
+- accepted
+- expired
+- revoked
+
+---
+
+REQUIRED INVITATION EXPIRY
+
+48 hours
+
+---
+
+REQUIRED AUDIT LOGGING
+
+Track:
+
+- invitedBy
+- acceptedAt
+- IP
+- browser
+- device
+- login history
+
+---
+
+REQUIRED PERFORMANCE OPTIMIZATION
+
+1. Lazy load dashboards
+2. Skeleton loaders
+3. Server-side pagination
+4. Indexed database queries
+5. Realtime subscriptions only where needed
+6. Cache organization profile
+7. Avoid multiple auth checks
+8. Parallel API loading
+9. Route prefetching
+10. Edge optimized API routes
+
+---
+
+FINAL UX REQUIREMENT
+
+System must feel like:
+
+- modern fintech SaaS
+- enterprise banking platform
+- secure onboarding workflow
+- ultra-fast dashboard experience
