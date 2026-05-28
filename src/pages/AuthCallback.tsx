@@ -59,7 +59,7 @@ export default function AuthCallbackPage() {
   }, [isLoaded, isSignedIn, user, orgListLoaded, organization?.id, setActive, userMemberships?.data, userInvitations?.data, navigate]);
 
   return (
-    <div className="min-h-screen bg-[#09090f] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-[#09090f] flex items-center justify-center p-4 relative overflow-x-hidden">
       <div className="pointer-events-none absolute -top-48 -left-40 h-[650px] w-[650px] rounded-full bg-violet-700/20 blur-[130px]" />
       <div className="pointer-events-none absolute -bottom-48 -right-40 h-[550px] w-[550px] rounded-full bg-blue-600/18 blur-[120px]" />
 

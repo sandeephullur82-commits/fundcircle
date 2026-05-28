@@ -154,7 +154,7 @@ export default function OrgDashboard() {
   const orgName = organization?.name || "My Organization";
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="flex flex-col md:flex-row md:h-screen min-h-screen bg-slate-50">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
         <div className="flex items-center justify-between">
@@ -206,7 +206,7 @@ export default function OrgDashboard() {
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-screen sticky top-0 shadow-sm shrink-0">
+      <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-full shrink-0 shadow-sm">
         <SidebarContent
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -222,7 +222,7 @@ export default function OrgDashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 min-h-screen p-3 md:p-8 w-full max-w-7xl mx-auto pb-24 md:pb-10">
+      <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3 md:p-8 w-full max-w-7xl mx-auto pb-24 md:pb-10">
         {visibleRequests.length > 0 && (
           <div className="mb-4 space-y-2">
             {visibleRequests.slice(0, 3).map((req: any) => (

@@ -60,7 +60,7 @@ export default function WorkspaceSelectionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
       {/* Background blobs */}
       <div className="pointer-events-none absolute inset-0 z-0">
         <div className="absolute left-[-100px] top-[-50px] h-64 w-64 rounded-full bg-sky-200/40 blur-[120px]" />

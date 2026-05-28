@@ -24,7 +24,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-72.png" />
 
-    <!-- Safe area + PWA styles -->
+    <!-- Base styles — applied before any framework CSS -->
     <style>
       :root {
         --sat: env(safe-area-inset-top);
@@ -32,11 +32,24 @@
         --sab: env(safe-area-inset-bottom);
         --sal: env(safe-area-inset-left);
       }
+      html {
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
       body {
+        min-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior-y: auto;
+        -webkit-overflow-scrolling: touch;
         padding-top: env(safe-area-inset-top);
         padding-bottom: env(safe-area-inset-bottom);
         -webkit-tap-highlight-color: transparent;
-        overscroll-behavior: none;
+      }
+      #root {
+        min-height: 100%;
+        overflow-x: hidden;
       }
       * {
         -webkit-font-smoothing: antialiased;

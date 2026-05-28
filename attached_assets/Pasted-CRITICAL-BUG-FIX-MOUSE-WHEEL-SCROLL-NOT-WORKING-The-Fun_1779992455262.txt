@@ -1,0 +1,184 @@
+CRITICAL BUG FIX — MOUSE WHEEL SCROLL NOT WORKING
+
+The FundCircle application still blocks mouse wheel scrolling.
+
+Find and fix ALL causes globally.
+
+==================================================
+MAIN ISSUE
+==================================================
+
+Symptoms:
+- Mouse wheel scroll does not work
+- Touchpad scroll does not work
+- Page gets stuck
+- Only drag scrollbar works
+- Only sidebar scroll works
+- Scroll events blocked by overlays
+- React layouts locking scroll
+
+==================================================
+ROOT CAUSE FIXES
+==================================================
+
+REMOVE ALL OF THESE FROM ENTIRE PROJECT:
+
+overflow-hidden
+h-screen
+fixed inset-0 wrappers
+100vh lock layouts
+body overflow hidden
+wheel event preventDefault
+touchmove preventDefault
+
+==================================================
+GLOBAL CSS FIX
+==================================================
+
+Replace global CSS with:
+
+html {
+  height: 100%;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+body {
+  min-height: 100%;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  min-height: 100vh;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+==================================================
+REMOVE BROKEN HEIGHT SYSTEM
+==================================================
+
+Find ALL usage of:
+
+h-screen
+max-h-screen
+100vh
+fixed heights
+
+Replace with:
+
+min-h-screen
+h-auto
+
+==================================================
+APP LAYOUT FIX
+==================================================
+
+Main layout must use:
+
+<div className="flex min-h-screen w-full overflow-x-hidden">
+
+Sidebar:
+<div className="w-72 shrink-0 overflow-y-auto">
+
+Content:
+<main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+
+==================================================
+FIX WHEEL EVENT BLOCKING
+==================================================
+
+Search entire project for:
+
+preventDefault()
+wheel
+touchmove
+scroll lock
+
+Remove ALL unnecessary scroll prevention.
+
+Especially inside:
+- modals
+- dialogs
+- sidebars
+- overlays
+- drawers
+- command menus
+
+==================================================
+MODAL FIX
+==================================================
+
+Do NOT lock body scroll permanently.
+
+Use modal overlay correctly:
+
+overflow-y-auto
+max-h-[90vh]
+
+NOT:
+overflow-hidden on body
+
+==================================================
+REMOVE POINTER BLOCKING
+==================================================
+
+Fix overlays blocking wheel scroll.
+
+Search for:
+pointer-events-none
+fixed overlays
+absolute fullscreen layers
+
+Ensure they do not intercept scrolling.
+
+==================================================
+TAILWIND FIX
+==================================================
+
+Replace problematic classes globally:
+
+h-screen → min-h-screen
+overflow-hidden → overflow-x-hidden
+fixed h-full → min-h-full
+
+==================================================
+MOBILE + LAPTOP FIX
+==================================================
+
+Ensure:
+- mouse wheel works
+- touchpad works
+- touchscreen works
+- Android scrolling works
+- laptop scrolling works
+
+==================================================
+DEBUGGING
+==================================================
+
+Check if any component:
+- captures wheel events
+- traps focus incorrectly
+- freezes body scroll
+- uses custom scroll container badly
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle must behave like a professional SaaS app:
+
+- smooth mouse wheel scrolling
+- smooth touchpad scrolling
+- vertical scrolling everywhere
+- no frozen pages
+- no scroll lock bugs
+- sidebar and content both work
+- mobile responsive
+- clean overflow handling
+
+Scan ENTIRE project automatically and fix ALL scrolling blockers permanently.

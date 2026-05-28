@@ -64,7 +64,7 @@ export default function AgentDashboard() {
   if (!isSignedIn || !user) return <Navigate to="/sign-in" replace />;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="flex flex-col md:flex-row md:h-screen min-h-screen bg-slate-50">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
         <BrandMark size="sm" />
@@ -86,7 +86,7 @@ export default function AgentDashboard() {
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-screen sticky top-0 shadow-sm shrink-0">
+      <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-full shrink-0 shadow-sm">
         <AgentSidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -96,7 +96,7 @@ export default function AgentDashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 min-h-screen p-3 md:p-8 w-full max-w-5xl mx-auto pb-24 md:pb-10">
+      <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3 md:p-8 w-full max-w-5xl mx-auto pb-24 md:pb-10">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="hidden" />
           <TabsContent value="overview" className="mt-0">
