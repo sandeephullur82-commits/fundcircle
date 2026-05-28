@@ -31,5 +31,6 @@ export function getDashboardPath(role?: string | null): string {
   const normalized = normalizeClerkRole(role);
   if (normalized === "organization_owner" || normalized === "organization") return "/dashboard/owner";
   if (normalized === "pigmy_collector") return "/dashboard/agent";
-  return "/dashboard/customer";
+  if (normalized === "customer") return "/dashboard/customer";
+  return "/router";
 }

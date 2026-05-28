@@ -28,13 +28,20 @@ import DebugUserDoc from "./components/DebugUserDoc";
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn } = useUser();
-  if (!isLoaded) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600" />
+function LoadingWorkspace({ message = "Loading your workspace…" }: { message?: string }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
+        <p className="text-slate-500 text-sm">{message}</p>
+      </div>
     </div>
   );
+}
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn } = useUser();
+  if (!isLoaded) return <LoadingWorkspace message="Checking your session…" />;
   if (!isSignedIn) return <Navigate to="/sign-in" replace />;
   return <>{children}</>;
 }
@@ -44,6 +51,7 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const { organization } = useOrganization();
   const { isLoaded: isOrgListLoaded, userMemberships, setActive } = useOrganizationList({ userMemberships: true });
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (!isOrgListLoaded) return;
@@ -58,15 +66,13 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const membershipId = user && activeOrgId ? membershipIdFor(activeOrgId, user.id) : null;
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipId);
 
-  if (!isLoaded || !isOrgListLoaded || membershipDocLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
-          <p className="text-slate-500 text-sm">Loading your workspace…</p>
-        </div>
-      </div>
-    );
+  useEffect(() => {
+    const timer = setTimeout(() => setTimedOut(true), 8000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!isLoaded || (!isOrgListLoaded && !timedOut) || (membershipDocLoading && !timedOut)) {
+    return <LoadingWorkspace />;
   }
   if (!isSignedIn || !user) return <Navigate to="/sign-in" replace />;
   if (!membershipDoc) return <Navigate to="/router" replace />;
@@ -81,8 +87,7 @@ function RoleRouter() {
   const { user } = useUser();
   const { organization } = useOrganization();
   const { isLoaded: isOrgListLoaded, userMemberships, userInvitations, setActive } = useOrganizationList({ userMemberships: true, userInvitations: true });
-  const [firestoreMembershipRole, setFirestoreMembershipRole] = useState<string | null>(null);
-  const [membershipLoading, setMembershipLoading] = useState(true);
+  const [timedOut, setTimedOut] = useState(false);
 
   const selectedOrgs = userMemberships?.data || [];
   const activeOrgId = organization?.id || selectedOrgs?.[0]?.organization?.id;
@@ -90,40 +95,33 @@ function RoleRouter() {
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipDocId);
 
   useEffect(() => {
-    const ensureActiveOrg = async () => {
-      if (!user || !isOrgListLoaded || organization?.id || !selectedOrgs?.length || !setActive) return;
-      try { await setActive({ organization: selectedOrgs[0].organization.id }); } catch {}
-    };
-    const loadRole = () => {
-      if (!user || !activeOrgId) { setFirestoreMembershipRole(null); setMembershipLoading(false); return; }
-      setFirestoreMembershipRole(membershipDoc ? (membershipDoc.clerkRole || membershipDoc.role || null)?.toString() || null : null);
-      setMembershipLoading(false);
-    };
-    if (isOrgListLoaded) { setMembershipLoading(true); ensureActiveOrg().then(loadRole).catch(() => loadRole()); }
-  }, [user, activeOrgId, isOrgListLoaded, selectedOrgs, setActive, membershipDoc]);
+    if (!user || !isOrgListLoaded || organization?.id || !selectedOrgs?.length || !setActive) return;
+    setActive({ organization: selectedOrgs[0].organization.id }).catch(() => {});
+  }, [user, isOrgListLoaded, organization?.id, selectedOrgs, setActive]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTimedOut(true), 8000);
+    return () => clearTimeout(timer);
+  }, []);
 
   if (!user) return <Navigate to="/sign-in" replace />;
-  if (!isOrgListLoaded || membershipLoading || membershipDocLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-600 mx-auto mb-4" />
-          <p className="text-slate-500 text-sm">Loading your workspace…</p>
-        </div>
-      </div>
-    );
+
+  if ((!isOrgListLoaded || membershipDocLoading) && !timedOut) {
+    return <LoadingWorkspace />;
   }
 
-  if (!membershipDoc && userInvitations?.data?.length) return <Navigate to="/organization/invitation" replace />;
-  if (!membershipDoc) return <Navigate to="/onboarding" replace />;
+  if (!membershipDoc) {
+    if (userInvitations?.data?.length) return <Navigate to="/organization/invitation" replace />;
+    return <Navigate to="/onboarding" replace />;
+  }
 
-  const activeRole = normalizeClerkRole(firestoreMembershipRole || (user?.publicMetadata as any)?.role || null);
+  const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
   const profileCompleted = membershipDoc.profileCompleted !== false;
-  if (!profileCompleted && (activeRole === "pigmy_collector" || activeRole === "customer")) {
+  if (!profileCompleted && (normalizedRole === "pigmy_collector" || normalizedRole === "customer")) {
     return <Navigate to="/complete-profile" replace />;
   }
 
-  return <Navigate to={getDashboardPath(activeRole)} replace />;
+  return <Navigate to={getDashboardPath(normalizedRole)} replace />;
 }
 
 export default function App() {
@@ -175,7 +173,6 @@ export default function App() {
           <Route path="/dashboard/operator/*" element={<Navigate to="/dashboard/owner" replace />} />
           <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
           <Route path="/dashboard/*" element={<Navigate to="/router" replace />} />
-
 
           {/* Debug */}
           <Route path="/debug-user" element={<SignedIn><ProtectedRoute><DebugUserDoc /></ProtectedRoute></SignedIn>} />

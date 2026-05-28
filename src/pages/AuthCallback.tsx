@@ -62,9 +62,7 @@ export default function AuthCallbackPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12">
       <div className="max-w-sm w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-200/50">
         <div className="mb-5 flex justify-center">
-          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-sky-500 to-violet-500 text-white font-bold text-lg shadow-lg shadow-sky-300/40">
-            FC
-          </div>
+          <img src="/fundcircle-logo.png" alt="FundCircle" className="h-14 w-14 rounded-2xl object-cover object-top shadow-lg" />
         </div>
         <div className="mb-4 flex justify-center">
           <div className="w-8 h-8 rounded-full border-[3px] border-sky-500 border-t-transparent animate-spin" />

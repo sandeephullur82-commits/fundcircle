@@ -26,12 +26,7 @@ import {
   UserCheck,
 } from "lucide-react";
 
-const CURRENCIES = [
-  { code: "INR", symbol: "₹", label: "Indian Rupee (₹)" },
-  { code: "USD", symbol: "$", label: "US Dollar ($)" },
-  { code: "EUR", symbol: "€", label: "Euro (€)" },
-  { code: "GBP", symbol: "£", label: "British Pound (£)" },
-];
+const CURRENCY = { code: "INR", symbol: "₹", label: "Indian Rupee (₹)" };
 
 const PLANS = [
   {
@@ -136,7 +131,6 @@ export default function OwnerOnboarding() {
   const [orgName, setOrgName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [currency, setCurrency] = useState("INR");
 
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [selectedPlan, setSelectedPlan] = useState<"starter" | "professional" | "enterprise">("professional");
@@ -152,12 +146,13 @@ export default function OwnerOnboarding() {
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
   const amount = billingCycle === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
-  const currencySymbol = CURRENCIES.find((c) => c.code === currency)?.symbol || "₹";
+  const currencySymbol = CURRENCY.symbol;
 
   const validateStep0 = () => {
     const errs: Record<string, string> = {};
     if (!orgName.trim()) errs.orgName = "Organization name is required.";
     else if (orgName.trim().length < 3) errs.orgName = "Must be at least 3 characters.";
+    if (phone && phone.length !== 10) errs.phone = "Phone number must be exactly 10 digits.";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -204,7 +199,7 @@ export default function OwnerOnboarding() {
         slug,
         phone: phone.trim(),
         address: address.trim(),
-        currency,
+        currency: CURRENCY.code,
         ownerClerkUserId: user.id,
         ownerEmail: user.primaryEmailAddress?.emailAddress || "",
         subscriptionPlanId: selectedPlan,
@@ -261,7 +256,7 @@ export default function OwnerOnboarding() {
         planName: plan.name,
         billingCycle,
         amount,
-        currency,
+        currency: CURRENCY.code,
         status: "active",
         maxAgents: plan.maxAgents,
         maxCustomers: plan.maxCustomers,
@@ -280,7 +275,7 @@ export default function OwnerOnboarding() {
         organizationId: org.id,
         subscriptionId,
         amount,
-        currency,
+        currency: CURRENCY.code,
         billingCycle,
         paymentStatus: "success",
         invoiceNumber,
@@ -297,7 +292,7 @@ export default function OwnerOnboarding() {
         paymentId,
         invoiceNumber,
         amount,
-        currency,
+        currency: CURRENCY.code,
         planName: plan.name,
         billingCycle,
         status: "paid",
@@ -445,11 +440,18 @@ export default function OwnerOnboarding() {
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+91 98765 43210"
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-400 focus:ring-2 focus:ring-sky-200 focus:outline-none transition-all"
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").substring(0, 10);
+                        setPhone(digits);
+                        setErrors((er) => ({ ...er, phone: "" }));
+                      }}
+                      placeholder="9876543210"
+                      maxLength={10}
+                      inputMode="numeric"
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm text-slate-900 placeholder-slate-400 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all ${errors.phone ? "border-red-300 focus:ring-red-200" : "border-slate-200 focus:ring-sky-200 focus:border-sky-400"}`}
                     />
                   </div>
+                  {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone}</p>}
                 </div>
 
                 <div>
@@ -470,16 +472,11 @@ export default function OwnerOnboarding() {
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Currency</label>
                   <div className="relative">
                     <Globe className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
-                    <select
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:bg-white focus:border-sky-400 focus:ring-2 focus:ring-sky-200 focus:outline-none transition-all appearance-none"
-                    >
-                      {CURRENCIES.map((c) => (
-                        <option key={c.code} value={c.code}>{c.label}</option>
-                      ))}
-                    </select>
+                    <div className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed select-none">
+                      {CURRENCY.label}
+                    </div>
                   </div>
+                  <p className="mt-1 text-xs text-slate-400">Only Indian Rupee (₹) is supported.</p>
                 </div>
               </div>
 

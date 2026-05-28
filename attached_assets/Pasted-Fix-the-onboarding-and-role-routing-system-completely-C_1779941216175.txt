@@ -1,0 +1,222 @@
+Fix the onboarding and role-routing system completely.
+
+CURRENT ISSUES:
+1. Currency dropdown must support ONLY Indian Rupee (₹)
+2. Phone number must strictly allow only 10 digits
+3. Organization owner account is incorrectly redirected as customer
+4. Wrong role detection after onboarding
+5. Dashboard routing is broken
+6. Infinite loading issue on workspace loading screen
+
+==================================================
+FIX ROLE SYSTEM
+==================================================
+
+Create strict role-based routing:
+
+ROLES:
+- owner
+- agent
+- customer
+
+==================================================
+OWNER FLOW
+==================================================
+
+ONLY organization owner can:
+
+- Register from landing page
+- Create organization
+- Complete onboarding
+- Access:
+  /dashboard/owner
+
+After successful signup:
+1. Verify OTP
+2. Complete onboarding
+3. Create organization profile
+4. Save organization in Firestore
+5. Save role = owner
+6. Redirect ONLY to:
+   /dashboard/owner
+
+NEVER redirect owner to customer dashboard.
+
+==================================================
+AGENT FLOW
+==================================================
+
+Agents CANNOT register manually.
+
+Agents ONLY access through invitation.
+
+Flow:
+1. Owner invites agent
+2. Firestore creates pending agent record
+3. Email sent
+4. Agent accepts invite
+5. Agent creates password
+6. Role automatically set:
+   role = agent
+7. Redirect ONLY to:
+   /dashboard/agent
+
+==================================================
+CUSTOMER FLOW
+==================================================
+
+Customers CANNOT create organization.
+
+Customers ONLY enter through:
+- invite
+- customer onboarding
+
+After login:
+role = customer
+
+Redirect ONLY:
+- /dashboard/customer
+
+==================================================
+PHONE NUMBER VALIDATION
+==================================================
+
+Phone input rules:
+- only numbers
+- exactly 10 digits
+- India format only
+
+Example:
+9876543210
+
+Prevent:
+- letters
+- spaces
+- symbols
+- more than 10 digits
+
+==================================================
+CURRENCY FIX
+==================================================
+
+Remove all currencies.
+
+ONLY show:
+Indian Rupee (₹)
+
+Remove:
+- USD
+- EUR
+- GBP
+
+Currency field should be:
+readonly/default INR
+
+==================================================
+ROLE STORAGE
+==================================================
+
+Store role in:
+Firestore:
+users/{userId}
+
+Structure:
+{
+  role: "owner",
+  organizationId,
+  email,
+  onboardingCompleted: true
+}
+
+==================================================
+ROUTING LOGIC
+==================================================
+
+On app load:
+
+1. Get authenticated user
+2. Read Firestore user document
+3. Detect role
+4. Redirect:
+
+owner → /dashboard/owner
+agent → /dashboard/agent
+customer → /dashboard/customer
+
+==================================================
+FIX LOADING SCREEN
+==================================================
+
+Current issue:
+"Loading your workspace..."
+
+Problem:
+Firestore fetch never resolves.
+
+Fix:
+- add proper async await
+- add timeout fallback
+- add error boundary
+- add loading skeleton
+- redirect after role fetch success
+
+==================================================
+ADD FIRESTORE REALTIME
+==================================================
+
+Use:
+onSnapshot()
+
+Realtime updates:
+- organization
+- agents
+- customers
+- collections
+- dashboard stats
+
+Changes in Firestore instantly update UI.
+
+==================================================
+SECURITY RULES
+==================================================
+
+Owners:
+- full organization access
+
+Agents:
+- assigned customers only
+
+Customers:
+- only own profile/data
+
+==================================================
+FINAL EXPECTED FLOW
+==================================================
+
+OWNER:
+Landing
+→ Signup
+→ OTP
+→ Onboarding
+→ Organization creation
+→ Owner dashboard
+
+AGENT:
+Invite mail
+→ Accept invite
+→ Set password
+→ Agent dashboard
+
+CUSTOMER:
+Invite
+→ Complete profile
+→ Customer dashboard
+
+==================================================
+IMPORTANT
+==================================================
+
+Do NOT use mock data.
+Do NOT use fake routing.
+Do NOT use local state for roles.
+Everything must come from Firestore + Clerk auth.
