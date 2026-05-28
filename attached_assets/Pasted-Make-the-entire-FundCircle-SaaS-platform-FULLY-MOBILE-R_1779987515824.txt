@@ -1,0 +1,298 @@
+Make the entire FundCircle SaaS platform FULLY MOBILE RESPONSIVE across all devices.
+
+==================================================
+RESPONSIVE DESIGN REQUIREMENTS
+==================================================
+
+The entire application must work perfectly on:
+
+- Android phones
+- iPhones
+- Tablets
+- Small laptops
+- Medium screens
+- Large desktop monitors
+- Ultra wide screens
+
+==================================================
+MOBILE FIRST DESIGN
+==================================================
+
+Use:
+- mobile-first architecture
+- responsive layouts
+- flexible containers
+- adaptive typography
+- responsive grids
+- fluid spacing
+
+==================================================
+GLOBAL RESPONSIVE BREAKPOINTS
+==================================================
+
+Use:
+
+sm: 640px
+md: 768px
+lg: 1024px
+xl: 1280px
+2xl: 1536px
+
+==================================================
+GLOBAL RESPONSIVE RULES
+==================================================
+
+NEVER allow:
+- horizontal scrolling
+- text overflow
+- cut UI
+- broken layouts
+- overlapping cards
+- oversized modals
+- sidebar overflow
+- fixed width containers
+
+==================================================
+LAYOUT SYSTEM
+==================================================
+
+Desktop:
+- fixed sidebar
+- full dashboard layout
+
+Tablet:
+- collapsible sidebar
+- adaptive cards
+
+Mobile:
+- hidden sidebar
+- hamburger navigation
+- bottom navigation
+- stacked cards
+- full width sections
+
+==================================================
+MOBILE NAVIGATION
+==================================================
+
+On mobile:
+
+Hide desktop sidebar.
+
+Replace with:
+- top navbar
+- hamburger menu
+- slide drawer navigation
+- bottom tab navigation
+
+Bottom navigation tabs:
+- Dashboard
+- Customers
+- Collections
+- Reports
+- Profile
+
+==================================================
+RESPONSIVE SIDEBAR
+==================================================
+
+Desktop:
+- width 280px
+
+Tablet:
+- width 220px
+
+Mobile:
+- hidden by default
+- slide from left
+- overlay backdrop
+
+==================================================
+RESPONSIVE TYPOGRAPHY
+==================================================
+
+Desktop heading:
+text-6xl
+
+Tablet:
+text-5xl
+
+Mobile:
+text-3xl
+
+Descriptions:
+- adaptive font sizes
+- readable spacing
+- proper line height
+
+==================================================
+RESPONSIVE BRANDING
+==================================================
+
+Desktop:
+FundCircle logo large
+
+Mobile:
+compact branding
+
+Reduce:
+- logo size
+- spacing
+- subtitle size
+
+Keep premium appearance.
+
+==================================================
+RESPONSIVE CARDS
+==================================================
+
+Desktop:
+- multi-column grids
+
+Tablet:
+- 2 column layout
+
+Mobile:
+- single column stacked cards
+
+Cards must:
+- auto resize
+- avoid overflow
+- maintain equal spacing
+
+==================================================
+RESPONSIVE TABLES
+==================================================
+
+Desktop:
+- full data tables
+
+Mobile:
+Convert tables into:
+- stacked cards
+OR
+- horizontal scroll sections
+
+Ensure:
+- readable text
+- touch friendly buttons
+- adaptive spacing
+
+==================================================
+RESPONSIVE FORMS
+==================================================
+
+All forms must:
+- use full width inputs on mobile
+- adaptive padding
+- larger touch targets
+- mobile keyboard friendly
+- proper spacing
+
+Buttons:
+- minimum height 48px
+- full width on mobile
+
+==================================================
+RESPONSIVE MODALS
+==================================================
+
+Desktop:
+- centered modal
+
+Mobile:
+- fullscreen sheet
+OR
+- bottom drawer
+
+Avoid fixed width modals.
+
+==================================================
+RESPONSIVE DASHBOARDS
+==================================================
+
+Analytics cards:
+Desktop:
+4-column
+
+Tablet:
+2-column
+
+Mobile:
+1-column
+
+Charts:
+- responsive width
+- auto height
+- no overflow
+
+==================================================
+RESPONSIVE LOADING SCREENS
+==================================================
+
+Loading screens must:
+- center perfectly
+- scale branding properly
+- avoid huge empty spacing
+
+==================================================
+RESPONSIVE AUTH PAGES
+==================================================
+
+Login/signup/onboarding:
+Desktop:
+split layout
+
+Mobile:
+single column layout
+
+Hide unnecessary illustrations on mobile.
+
+==================================================
+RESPONSIVE SPACING
+==================================================
+
+Reduce excessive:
+- top spacing
+- bottom spacing
+- empty margins
+- oversized paddings
+
+Use compact premium SaaS spacing.
+
+==================================================
+RESPONSIVE PERFORMANCE
+==================================================
+
+Optimize:
+- image sizes
+- lazy loading
+- code splitting
+- smooth transitions
+- lightweight animations
+
+==================================================
+TOUCH FRIENDLY UI
+==================================================
+
+All mobile interactions must support:
+- tap gestures
+- swipe navigation
+- large buttons
+- proper spacing
+
+==================================================
+FINAL RESULT
+==================================================
+
+The final FundCircle platform should feel like:
+
+- premium mobile fintech app
+- enterprise SaaS dashboard
+- production-grade responsive platform
+- modern banking application
+- ultra polished UI/UX
+
+Every page must look perfect on both:
+- mobile devices
+- desktop screens
