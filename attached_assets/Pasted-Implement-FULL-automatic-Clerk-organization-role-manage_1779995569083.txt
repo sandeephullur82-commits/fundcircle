@@ -1,0 +1,360 @@
+Implement FULL automatic Clerk organization role management for FundCircle.
+
+==================================================
+GOAL
+==================================================
+
+When organization owner creates:
+- agents
+- customers
+
+The system must automatically:
+- invite them into Clerk organization
+- assign correct role automatically
+- sync role into database
+- protect routes by role
+
+NO manual role selection required.
+
+==================================================
+ROLES
+==================================================
+
+OWNER
+- organization creator
+- full access
+
+AGENT
+- pigmy collector
+- limited access
+
+CUSTOMER
+- customer portal user
+- savings/customer access only
+
+==================================================
+ORGANIZATION FLOW
+==================================================
+
+STEP 1
+User creates organization
+
+Automatically:
+- create Clerk organization
+- set creator role = owner
+- create organization metadata
+
+==================================================
+AGENT INVITE FLOW
+==================================================
+
+Owner enters ONLY:
+- email
+
+System automatically:
+1. validates email
+2. checks duplicate user
+3. checks customer table
+4. checks agent table
+5. sends Clerk org invitation
+6. assigns role automatically:
+   agent
+7. stores pending invitation
+8. syncs database
+
+==================================================
+CUSTOMER INVITE FLOW
+==================================================
+
+Owner enters:
+- customer email
+
+System automatically:
+1. validates email
+2. checks duplicates
+3. checks agent conflicts
+4. sends invitation
+5. assigns role automatically:
+   customer
+6. creates customer profile
+
+==================================================
+CLERK ORGANIZATION SETUP
+==================================================
+
+Create Clerk organization roles:
+
+owner
+agent
+customer
+
+Automatically assign during invitation.
+
+Use:
+organization.inviteMember()
+
+==================================================
+DATABASE SYNC
+==================================================
+
+When invitation accepted:
+
+Automatically create:
+- agent record
+OR
+- customer record
+
+Store:
+- clerk_user_id
+- organization_id
+- role
+- status
+- invitation state
+
+==================================================
+AUTHORIZATION
+==================================================
+
+OWNER ACCESS:
+- manage organization
+- add/remove agents
+- add/remove customers
+- analytics
+- reports
+
+AGENT ACCESS:
+- collections
+- assigned customers
+- visit tracking
+
+CUSTOMER ACCESS:
+- customer dashboard
+- savings history
+- payment history
+
+==================================================
+ROUTE PROTECTION
+==================================================
+
+Protect routes automatically:
+
+/dashboard/owner
+→ owner only
+
+/dashboard/agent
+→ agent only
+
+/dashboard/customer
+→ customer only
+
+==================================================
+AUTO REDIRECTION
+==================================================
+
+After login:
+
+If role = owner
+→ owner dashboard
+
+If role = agent
+→ agent dashboard
+
+If role = customer
+→ customer portal
+
+==================================================
+DUPLICATE VALIDATION
+==================================================
+
+Prevent:
+- same email as agent + customer
+- duplicate invites
+- duplicate memberships
+
+==================================================
+PENDING INVITATION SYSTEM
+==================================================
+
+Track:
+- invited
+- accepted
+- expired
+- revoked
+
+==================================================
+OWNER EXPERIENCE
+==================================================
+
+Owner should NEVER manually:
+- choose role
+- configure permissions
+- create Clerk accounts manually
+
+Everything automatic.
+
+==================================================
+UI REQUIREMENTS
+==================================================
+
+AGENT INVITE FORM:
+Only:
+- email field
+
+CUSTOMER INVITE FORM:
+Only:
+- email field
+
+Role assignment happens fully in background.
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle becomes a fully automated multi-tenant SaaS platform where:
+
+- owners create organizations
+- owners invite agents/customers
+- Clerk automatically assigns org roles
+- permissions work automatically
+- dashboards redirect automatically
+- route protection works automatically
+- database stays synced automatically
+
+Production-grade enterprise organization management system.Remove ALL MFA (Multi-Factor Authentication) requirements from the entire FundCircle application and Clerk authentication flow.
+
+==================================================
+GOAL
+==================================================
+
+FundCircle should support ONLY:
+- email/password login
+- optional email OTP
+
+Remove:
+- authenticator app verification
+- two-factor authentication
+- MFA checks
+- second-factor screens
+- backup codes
+- MFA error handling
+
+==================================================
+CLERK DASHBOARD CONFIGURATION
+==================================================
+
+Disable completely:
+- Multi-factor authentication
+- Two-step verification
+- Authenticator application
+- Backup recovery codes
+- SMS MFA
+
+==================================================
+REMOVE MFA FROM AUTH FLOW
+==================================================
+
+Delete ALL logic related to:
+
+needs_second_factor
+attemptSecondFactor
+MFA verification
+OTP authenticator screens
+backup code screens
+second-factor routes
+
+==================================================
+LOGIN FLOW
+==================================================
+
+Use simple authentication only:
+
+STEP 1
+User enters:
+- email
+- password
+
+STEP 2
+Clerk validates credentials
+
+STEP 3
+Create session
+
+STEP 4
+Redirect directly to dashboard
+
+==================================================
+REMOVE MFA ERROR BLOCKS
+==================================================
+
+Delete error messages like:
+
+"Your account has MFA enabled"
+"Two-factor authentication required"
+"MFA verification needed"
+
+Replace with standard auth errors only.
+
+==================================================
+CLEAN AUTH UI
+==================================================
+
+Remove:
+- MFA forms
+- OTP authenticator input
+- second-step login pages
+- MFA warning banners
+
+Keep only:
+- login page
+- signup page
+- forgot password
+
+==================================================
+CLERK INSTANCE SETTINGS
+==================================================
+
+Ensure these are disabled:
+
+User & Authentication
+→ Multi-Factor
+→ OFF
+
+User & Authentication
+→ Two-step verification
+→ OFF
+
+==================================================
+REMOVE UNUSED CODE
+==================================================
+
+Delete:
+- MFA components
+- MFA routes
+- MFA hooks
+- MFA utilities
+- second-factor handlers
+
+==================================================
+SESSION FLOW
+==================================================
+
+After login:
+- create Clerk session
+- redirect instantly
+- no second verification step
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle authentication should become:
+- simple
+- fast
+- password-only
+- mobile friendly
+- no MFA interruptions
+- no second-factor checks
+
+Users should log in directly using only:
+- email
+- password
