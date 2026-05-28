@@ -22,6 +22,7 @@ import OrgLoans from "./OrgLoans";
 import OrgReports from "./OrgReports";
 import OrgNotifications from "./OrgNotifications";
 import OrgSettings from "./OrgSettings";
+import OrgBilling from "./OrgBilling";
 import AgentOverview from "../agent/AgentOverview";
 import AgentCustomers from "../agent/AgentCustomers";
 
@@ -52,6 +53,7 @@ export default function OrgDashboard() {
     { id: "loans", label: "Loans & EMI", icon: CreditCard },
     { id: "reports", label: "Reports", icon: FileText },
     { id: "notifications", label: "Notifications", icon: Bell, badge: unreadCount },
+    { id: "billing", label: "Billing", icon: CreditCard },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 
@@ -179,6 +181,7 @@ export default function OrgDashboard() {
           <TabsContent value="loans" className="mt-0"><OrgLoans /></TabsContent>
           <TabsContent value="reports" className="mt-0"><OrgReports /></TabsContent>
           <TabsContent value="notifications" className="mt-0"><OrgNotifications /></TabsContent>
+          <TabsContent value="billing" className="mt-0"><OrgBilling /></TabsContent>
           <TabsContent value="settings" className="mt-0"><OrgSettings /></TabsContent>
           <TabsContent value="daily" className="mt-0"><AgentOverview /></TabsContent>
           <TabsContent value="customerLedger" className="mt-0">

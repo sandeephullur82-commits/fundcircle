@@ -1,0 +1,332 @@
+Update the complete FundCircle subscription and onboarding flow.
+
+==================================================
+FINAL SUBSCRIPTION ARCHITECTURE
+==================================================
+
+PLANS:
+1. Free
+2. Starter
+3. Growth
+4. Enterprise
+
+ALL PLANS:
+- Same features
+- Different usage limits only
+
+==================================================
+FREE PLAN
+==================================================
+
+Price:
+FREE
+
+Limits:
+- 1 Agent
+- 25 Customers
+- 250 Collections/month
+
+Restrictions:
+- FundCircle branding visible
+- Basic analytics only
+
+==================================================
+STARTER PLAN
+==================================================
+
+Price:
+₹999/month
+
+Limits:
+- 5 Agents
+- 100 Customers
+- 1,000 Collections/month
+
+==================================================
+GROWTH PLAN
+==================================================
+
+Price:
+₹4,999/month
+
+Limits:
+- 25 Agents
+- 1,000 Customers
+- 10,000 Collections/month
+
+==================================================
+ENTERPRISE PLAN
+==================================================
+
+Price:
+₹14,999/month
+
+Limits:
+- Unlimited Agents
+- Unlimited Customers
+- Unlimited Collections
+
+==================================================
+UPDATED OWNER SIGNUP FLOW
+==================================================
+
+Landing Page
+↓
+Register Organization
+↓
+Sign Up
+↓
+OTP Verification
+↓
+Create Clerk Session
+↓
+Show Organization Onboarding
+
+IMPORTANT:
+DO NOT show onboarding before OTP verification succeeds.
+
+==================================================
+ORGANIZATION ONBOARDING FLOW
+==================================================
+
+STEP 1:
+Organization Details
+
+Fields:
+- Organization Name
+- Owner Name
+- Phone Number (10 digits only)
+- Address
+- Logo Upload
+
+Currency:
+ONLY Indian Rupee (₹)
+
+==================================================
+STEP 2:
+Select Subscription Plan
+
+Show 4 plan cards:
+- Free
+- Starter
+- Growth
+- Enterprise
+
+Each card shows:
+- Price
+- Agent limit
+- Customer limit
+- Collection limit
+
+==================================================
+FREE PLAN FLOW
+==================================================
+
+If Free selected:
+- skip payment
+- create subscription directly
+
+==================================================
+PAID PLAN FLOW
+==================================================
+
+If:
+Starter
+Growth
+Enterprise
+
+THEN:
+show internal payment modal.
+
+==================================================
+PAYMENT MODAL
+==================================================
+
+Fields:
+- Card Holder Name
+- Card Number
+- Expiry
+- CVV
+
+Use internal simulated payment flow.
+
+NO external payment gateway.
+
+==================================================
+PAYMENT SUCCESS FLOW
+==================================================
+
+After successful payment:
+
+1. Create Firestore organization
+2. Create subscription record
+3. Create payment record
+4. Create owner membership
+5. Create usage tracking
+6. Redirect:
+   /dashboard/owner
+
+==================================================
+FIRESTORE STRUCTURE
+==================================================
+
+organizations/{orgId}
+{
+  organizationName,
+  ownerId,
+
+  plan: "free",
+
+  limits: {
+    maxAgents: 1,
+    maxCustomers: 25,
+    maxCollectionsPerMonth: 250
+  },
+
+  usage: {
+    activeAgents: 0,
+    activeCustomers: 0,
+    collectionsThisMonth: 0
+  },
+
+  subscriptionStatus: "ACTIVE"
+}
+
+==================================================
+SUBSCRIPTIONS COLLECTION
+==================================================
+
+subscriptions/{subscriptionId}
+{
+  organizationId,
+  plan,
+  billingCycle,
+  amount,
+  status,
+  startedAt,
+  expiresAt
+}
+
+==================================================
+PAYMENTS COLLECTION
+==================================================
+
+payments/{paymentId}
+{
+  organizationId,
+  amount,
+  paymentStatus,
+  billingCycle,
+  createdAt
+}
+
+==================================================
+LIMIT ENFORCEMENT FLOW
+==================================================
+
+When owner tries:
+- add agent
+- add customer
+- add collection
+
+CHECK PLAN LIMITS FIRST.
+
+==================================================
+EXAMPLE
+==================================================
+
+if (usage.activeAgents >= limits.maxAgents) {
+   showUpgradeModal()
+   return
+}
+
+==================================================
+UPGRADE MODAL
+==================================================
+
+Message:
+
+"You reached your current plan limit."
+
+Show:
+- current usage
+- recommended upgrade
+- upgrade button
+
+==================================================
+OWNER DASHBOARD BILLING SECTION
+==================================================
+
+Add:
+- Current Plan Card
+- Usage Progress Bars
+- Upgrade Plan Button
+- Payment History
+- Subscription Status
+
+==================================================
+PLAN CARD EXAMPLE
+==================================================
+
+Current Plan: FREE
+
+Agents:
+1 / 1
+
+Customers:
+12 / 25
+
+Collections:
+45 / 250
+
+==================================================
+REALTIME USAGE TRACKING
+==================================================
+
+Use Firestore realtime listeners.
+
+Dashboard usage updates instantly when:
+- agent added
+- customer added
+- collections created
+
+==================================================
+SESSION REDIRECT FLOW
+==================================================
+
+After successful:
+- signup
+- onboarding
+- payment
+- login
+
+ALWAYS redirect authenticated user directly to their dashboard.
+
+NEVER redirect authenticated users back to landing page.
+
+==================================================
+ROLE REDIRECTS
+==================================================
+
+OWNER
+→ /dashboard/owner
+
+AGENT
+→ /dashboard/agent
+
+CUSTOMER
+→ /dashboard/customer
+
+==================================================
+FINAL REQUIREMENT
+==================================================
+
+The entire subscription system must behave like a modern SaaS billing architecture with:
+- realtime usage tracking
+- plan-based limits
+- smooth onboarding
+- internal payment simulation
+- automatic role-based dashboard access
+- responsive UI
+- Clerk authentication
+- Firestore realtime sync

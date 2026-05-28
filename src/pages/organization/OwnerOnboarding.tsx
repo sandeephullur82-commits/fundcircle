@@ -7,86 +7,73 @@ import { db } from "@/lib/firebase";
 import { membershipIdFor } from "@/lib/services";
 import { toast } from "sonner";
 import {
-  Building2,
-  Phone,
-  MapPin,
-  Globe,
-  ArrowRight,
-  ArrowLeft,
-  CreditCard,
-  Check,
-  Zap,
-  Star,
-  Crown,
-  Shield,
-  Sparkles,
-  Loader2,
-  IndianRupee,
-  Users,
-  UserCheck,
+  Building2, Phone, MapPin, ArrowRight, ArrowLeft,
+  CreditCard, Check, Zap, TrendingUp, Crown, Shield,
+  Sparkles, Loader2, IndianRupee, Users, User, Globe,
 } from "lucide-react";
 
 const CURRENCY = { code: "INR", symbol: "₹", label: "Indian Rupee (₹)" };
 
-const PLANS = [
+type PlanId = "free" | "starter" | "growth" | "enterprise";
+
+interface Plan {
+  id: PlanId;
+  name: string;
+  price: number;
+  color: string;
+  gradient: string;
+  borderActive: string;
+  icon: React.ElementType;
+  popular?: boolean;
+  limits: { maxAgents: number; maxCustomers: number; maxCollectionsPerMonth: number };
+  features: string[];
+}
+
+const PLANS: Plan[] = [
   {
-    id: "starter" as const,
+    id: "free",
+    name: "Free",
+    price: 0,
+    color: "slate",
+    gradient: "from-slate-400 to-slate-500",
+    borderActive: "border-slate-400 ring-slate-200",
+    icon: Sparkles,
+    limits: { maxAgents: 1, maxCustomers: 25, maxCollectionsPerMonth: 250 },
+    features: ["1 Pigmy Collector", "25 Customers", "250 Collections/month", "Basic analytics", "FundCircle branding"],
+  },
+  {
+    id: "starter",
     name: "Starter",
-    monthlyPrice: 499,
-    yearlyPrice: 4990,
-    maxAgents: 5,
-    maxCustomers: 100,
+    price: 999,
     color: "sky",
+    gradient: "from-sky-500 to-blue-500",
+    borderActive: "border-sky-400 ring-sky-200",
     icon: Zap,
-    features: [
-      "Up to 5 Pigmy Collectors",
-      "Up to 100 Customers",
-      "Realtime collection tracking",
-      "Basic analytics dashboard",
-      "CSV export reports",
-      "Email support",
-    ],
+    limits: { maxAgents: 5, maxCustomers: 100, maxCollectionsPerMonth: 1000 },
+    features: ["5 Pigmy Collectors", "100 Customers", "1,000 Collections/month", "Advanced analytics", "Priority email support"],
   },
   {
-    id: "professional" as const,
-    name: "Professional",
-    monthlyPrice: 1499,
-    yearlyPrice: 14990,
-    maxAgents: 25,
-    maxCustomers: 1000,
+    id: "growth",
+    name: "Growth",
+    price: 4999,
     color: "violet",
-    icon: Star,
+    gradient: "from-violet-500 to-fuchsia-500",
+    borderActive: "border-violet-400 ring-violet-200",
+    icon: TrendingUp,
     popular: true,
-    features: [
-      "Up to 25 Pigmy Collectors",
-      "Up to 1,000 Customers",
-      "Realtime collection tracking",
-      "Advanced analytics + trends",
-      "CSV + Excel exports",
-      "Loan & EMI management",
-      "SMS notifications",
-      "Priority support",
-    ],
+    limits: { maxAgents: 25, maxCustomers: 1000, maxCollectionsPerMonth: 10000 },
+    features: ["25 Pigmy Collectors", "1,000 Customers", "10,000 Collections/month", "Full analytics suite", "Loan & EMI management", "SMS notifications"],
   },
   {
-    id: "enterprise" as const,
+    id: "enterprise",
     name: "Enterprise",
-    monthlyPrice: 4999,
-    yearlyPrice: 49990,
-    maxAgents: -1,
-    maxCustomers: -1,
+    price: 14999,
     color: "amber",
+    gradient: "from-amber-500 to-orange-500",
+    borderActive: "border-amber-400 ring-amber-200",
     icon: Crown,
-    features: [
-      "Unlimited Pigmy Collectors",
-      "Unlimited Customers",
-      "Realtime collection tracking",
-      "Full analytics suite",
-      "All export formats",
-      "Loan & EMI management",
-      "Custom integrations",
-      "Dedicated account manager",
-    ],
+    limits: { maxAgents: -1, maxCustomers: -1, maxCollectionsPerMonth: -1 },
+    features: ["Unlimited Collectors", "Unlimited Customers", "Unlimited Collections", "Full analytics suite", "Custom integrations", "Dedicated account manager"],
   },
 ];
 
@@ -96,21 +83,11 @@ function generateInvoiceNumber() {
 }
 
 function slugify(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .substring(0, 28)
-    + "-" + Math.random().toString(36).substring(2, 6);
+  return name.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_]+/g, "-").substring(0, 28) + "-" + Math.random().toString(36).substring(2, 6);
 }
 
 function formatCardNumber(value: string) {
-  return value
-    .replace(/\D/g, "")
-    .substring(0, 16)
-    .replace(/(.{4})/g, "$1 ")
-    .trim();
+  return value.replace(/\D/g, "").substring(0, 16).replace(/(.{4})/g, "$1 ").trim();
 }
 
 function formatExpiry(value: string) {
@@ -119,7 +96,9 @@ function formatExpiry(value: string) {
   return digits;
 }
 
-const STEPS = ["Organization", "Subscription", "Payment"];
+function formatLimit(val: number) {
+  return val === -1 ? "Unlimited" : val.toLocaleString();
+}
 
 export default function OwnerOnboarding() {
   const { user } = useUser();
@@ -129,11 +108,11 @@ export default function OwnerOnboarding() {
   const [step, setStep] = useState(0);
 
   const [orgName, setOrgName] = useState("");
+  const [ownerName, setOwnerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
 
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
-  const [selectedPlan, setSelectedPlan] = useState<"starter" | "professional" | "enterprise">("professional");
+  const [selectedPlan, setSelectedPlan] = useState<PlanId>("growth");
 
   const [cardHolder, setCardHolder] = useState("");
   const [cardNumber, setCardNumber] = useState("");
@@ -145,8 +124,9 @@ export default function OwnerOnboarding() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
-  const amount = billingCycle === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
-  const currencySymbol = CURRENCY.symbol;
+  const isFree = selectedPlan === "free";
+  const STEPS = isFree ? ["Organization", "Plan"] : ["Organization", "Plan", "Payment"];
+  const totalSteps = STEPS.length;
 
   const validateStep0 = () => {
     const errs: Record<string, string> = {};
@@ -170,12 +150,107 @@ export default function OwnerOnboarding() {
 
   const handleNext = () => {
     if (step === 0 && !validateStep0()) return;
-    setStep((s) => Math.min(s + 1, 2));
+    setStep((s) => Math.min(s + 1, totalSteps - 1));
   };
 
   const handleBack = () => {
     setErrors({});
     setStep((s) => Math.max(s - 1, 0));
+  };
+
+  const getEffectiveName = () =>
+    ownerName.trim() || user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
+
+  const createOrgInFirestore = async (orgId: string) => {
+    await setDoc(doc(db, "organizations", orgId), {
+      id: orgId,
+      organizationId: orgId,
+      name: orgName.trim(),
+      ownerName: getEffectiveName(),
+      slug: "",
+      phone: phone.trim(),
+      address: address.trim(),
+      currency: CURRENCY.code,
+      ownerClerkUserId: user!.id,
+      ownerEmail: user!.primaryEmailAddress?.emailAddress || "",
+      plan: selectedPlan,
+      limits: plan.limits,
+      usage: { activeAgents: 0, activeCustomers: 0, collectionsThisMonth: 0 },
+      subscriptionStatus: "ACTIVE",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  };
+
+  const createMembershipInFirestore = async (orgId: string) => {
+    const membershipDocId = membershipIdFor(orgId, user!.id);
+    const name = getEffectiveName();
+    const membershipData = {
+      id: membershipDocId,
+      organizationId: orgId,
+      clerkUserId: user!.id,
+      clerkRole: "org:owner",
+      role: "OWNER",
+      organizationName: orgName.trim(),
+      fullName: name,
+      name,
+      email: user!.primaryEmailAddress?.emailAddress || "",
+      phone: phone.trim(),
+      status: "ACTIVE",
+      profileCompleted: true,
+      actsAsAgent: true,
+      collectorEnabled: true,
+      assignedArea: "Main Area",
+      joinedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    await setDoc(doc(db, "organizationMembers", membershipDocId), membershipData, { merge: true });
+    await setDoc(doc(db, "memberships", membershipDocId), membershipData, { merge: true });
+    await setDoc(doc(db, "users", user!.id), {
+      id: user!.id,
+      name,
+      email: user!.primaryEmailAddress?.emailAddress || "",
+      role: "organization_owner",
+      organizationId: orgId,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  };
+
+  const handleLaunchFree = async () => {
+    if (!isLoaded || !createOrganization || !user) {
+      toast.error("Please wait while we load your account.");
+      return;
+    }
+    setProcessing(true);
+    try {
+      const slug = slugify(orgName);
+      const org = await createOrganization({ name: orgName.trim(), slug });
+      await createOrgInFirestore(org.id);
+      await createMembershipInFirestore(org.id);
+      const subRef = doc(collection(db, "subscriptions"));
+      await setDoc(subRef, {
+        id: subRef.id,
+        organizationId: org.id,
+        plan: "free",
+        billingCycle: "free",
+        amount: 0,
+        currency: CURRENCY.code,
+        status: "active",
+        startedAt: serverTimestamp(),
+        expiresAt: null,
+        createdAt: serverTimestamp(),
+      });
+      if (setActive) await setActive({ organization: org.id });
+      setSuccess(true);
+      await new Promise((r) => setTimeout(r, 1500));
+      navigate("/dashboard/owner", { replace: true });
+    } catch (err: any) {
+      console.error("Onboarding error:", err);
+      toast.error(err?.errors?.[0]?.message || err?.message || "Something went wrong. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const handlePayAndLaunch = async () => {
@@ -184,129 +259,50 @@ export default function OwnerOnboarding() {
       toast.error("Please wait while we load your account.");
       return;
     }
-
     setProcessing(true);
     try {
-      await new Promise((r) => setTimeout(r, 2400));
-
+      await new Promise((r) => setTimeout(r, 2000));
       const slug = slugify(orgName);
       const org = await createOrganization({ name: orgName.trim(), slug });
+      await createOrgInFirestore(org.id);
+      await createMembershipInFirestore(org.id);
 
-      await setDoc(doc(db, "organizations", org.id), {
-        id: org.id,
-        organizationId: org.id,
-        name: orgName.trim(),
-        slug,
-        phone: phone.trim(),
-        address: address.trim(),
-        currency: CURRENCY.code,
-        ownerClerkUserId: user.id,
-        ownerEmail: user.primaryEmailAddress?.emailAddress || "",
-        subscriptionPlanId: selectedPlan,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-
-      const membershipDocId = membershipIdFor(org.id, user.id);
-      const membershipData = {
-        id: membershipDocId,
-        organizationId: org.id,
-        clerkUserId: user.id,
-        clerkRole: "org:owner",
-        role: "OWNER",
-        organizationName: orgName.trim(),
-        fullName: user.fullName || `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-        name: user.fullName || `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-        email: user.primaryEmailAddress?.emailAddress || "",
-        phone: phone.trim(),
-        status: "ACTIVE",
-        profileCompleted: true,
-        actsAsAgent: true,
-        collectorEnabled: true,
-        assignedArea: "Main Area",
-        joinedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-
-      await setDoc(doc(db, "organizationMembers", membershipDocId), membershipData, { merge: true });
-      await setDoc(doc(db, "memberships", membershipDocId), membershipData, { merge: true });
-      await setDoc(doc(db, "users", user.id), {
-        id: user.id,
-        name: membershipData.name,
-        email: user.primaryEmailAddress?.emailAddress || "",
-        role: "organization_owner",
-        organizationId: org.id,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-
-      const subscriptionRef = doc(collection(db, "subscriptions"));
-      const subscriptionId = subscriptionRef.id;
       const invoiceNumber = generateInvoiceNumber();
-
-      const now = new Date();
-      const expiresAt = new Date(now);
-      if (billingCycle === "monthly") expiresAt.setMonth(expiresAt.getMonth() + 1);
-      else expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-
-      await setDoc(subscriptionRef, {
-        id: subscriptionId,
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+      const subRef = doc(collection(db, "subscriptions"));
+      await setDoc(subRef, {
+        id: subRef.id,
         organizationId: org.id,
-        planId: selectedPlan,
+        plan: selectedPlan,
         planName: plan.name,
-        billingCycle,
-        amount,
+        billingCycle: "monthly",
+        amount: plan.price,
         currency: CURRENCY.code,
         status: "active",
-        maxAgents: plan.maxAgents,
-        maxCustomers: plan.maxCustomers,
         startedAt: serverTimestamp(),
         expiresAt: expiresAt.getTime(),
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-
-      const paymentRef = doc(collection(db, "payments"));
-      const paymentId = paymentRef.id;
-      const cardLast4 = cardNumber.replace(/\s/g, "").slice(-4);
-
-      await setDoc(paymentRef, {
-        id: paymentId,
+      const payRef = doc(collection(db, "payments"));
+      await setDoc(payRef, {
+        id: payRef.id,
         organizationId: org.id,
-        subscriptionId,
-        amount,
+        subscriptionId: subRef.id,
+        amount: plan.price,
         currency: CURRENCY.code,
-        billingCycle,
+        billingCycle: "monthly",
         paymentStatus: "success",
         invoiceNumber,
-        cardLast4,
-        paidAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      });
-
-      const invoiceRef = doc(collection(db, "invoices"));
-      await setDoc(invoiceRef, {
-        id: invoiceRef.id,
-        organizationId: org.id,
-        subscriptionId,
-        paymentId,
-        invoiceNumber,
-        amount,
-        currency: CURRENCY.code,
+        cardLast4: cardNumber.replace(/\s/g, "").slice(-4),
         planName: plan.name,
-        billingCycle,
-        status: "paid",
-        issuedAt: serverTimestamp(),
         paidAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       });
-
-      if (setActive) {
-        await setActive({ organization: org.id });
-      }
-
+      if (setActive) await setActive({ organization: org.id });
       setSuccess(true);
-      await new Promise((r) => setTimeout(r, 1800));
+      await new Promise((r) => setTimeout(r, 1500));
       navigate("/dashboard/owner", { replace: true });
     } catch (err: any) {
       console.error("Onboarding error:", err);
@@ -335,6 +331,7 @@ export default function OwnerOnboarding() {
       </div>
 
       <div className="relative z-10 mx-auto max-w-3xl px-4 py-10">
+        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -344,6 +341,7 @@ export default function OwnerOnboarding() {
                 <p className="text-sm font-semibold text-slate-700">Organization Setup</p>
               </div>
             </div>
+            {/* Step Indicator */}
             <div className="hidden sm:flex items-center gap-2">
               {STEPS.map((label, i) => (
                 <React.Fragment key={label}>
@@ -363,21 +361,14 @@ export default function OwnerOnboarding() {
                 </React.Fragment>
               ))}
             </div>
-          </div>
-          {/* Mobile step progress dots */}
-          <div className="sm:hidden mt-4 flex items-center gap-2">
-            {STEPS.map((label, i) => (
-              <React.Fragment key={label}>
-                <div className={`h-2 rounded-full transition-all duration-300 ${
-                  i < step ? "bg-emerald-500 w-6" :
-                  i === step ? "bg-sky-500 w-8" :
-                  "bg-slate-200 w-4"
-                }`} />
-                {i === step && (
-                  <span className="text-xs font-semibold text-slate-600 ml-1">{label} ({step + 1}/{STEPS.length})</span>
-                )}
-              </React.Fragment>
-            ))}
+            {/* Mobile step badge */}
+            <div className="sm:hidden">
+              <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                step === 0 ? "bg-sky-100 text-sky-700" : step === 1 ? "bg-violet-100 text-violet-700" : "bg-amber-100 text-amber-700"
+              }`}>
+                {STEPS[step]} ({step + 1}/{totalSteps})
+              </span>
+            </div>
           </div>
         </div>
 
@@ -393,35 +384,38 @@ export default function OwnerOnboarding() {
                 <Check className="w-8 h-8 text-emerald-600" />
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-2">Organization Created!</h2>
-              <p className="text-slate-500 text-sm mb-6">Your workspace is live. Redirecting to your dashboard…</p>
-              <div className="flex justify-center">
+              <p className="text-slate-500 text-sm mb-1">
+                {isFree ? "Your free workspace is live." : `${plan.name} plan activated.`} Redirecting to your dashboard…
+              </p>
+              <div className="flex justify-center mt-4">
                 <Loader2 className="w-5 h-5 text-sky-500 animate-spin" />
               </div>
             </motion.div>
+
           ) : step === 0 ? (
+            /* ─── STEP 0: Organization Details ─── */
             <motion.div
               key="step0"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
+              initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
               className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl shadow-slate-200/40"
             >
               <div className="mb-7">
                 <div className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1 text-xs font-bold text-sky-600 mb-3">
-                  <Building2 className="w-3.5 h-3.5" /> Step 1 of 3
+                  <Building2 className="w-3.5 h-3.5" /> Step 1 of {totalSteps}
                 </div>
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Tell us about your organization</h1>
                 <p className="text-sm text-slate-500 mt-1">This information will appear on your reports and invoices.</p>
               </div>
 
               <div className="space-y-5">
+                {/* Org Name */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                     Organization Name <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
-                    <Building2 className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
+                    <Building2 className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       value={orgName}
@@ -433,10 +427,27 @@ export default function OwnerOnboarding() {
                   {errors.orgName && <p className="mt-1 text-xs text-red-500">{errors.orgName}</p>}
                 </div>
 
+                {/* Owner Name */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Owner Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={ownerName}
+                      onChange={(e) => setOwnerName(e.target.value)}
+                      placeholder={user?.fullName || "Your full name"}
+                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-400 focus:ring-2 focus:ring-sky-200 focus:outline-none transition-all"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">Defaults to your Clerk account name if left blank.</p>
+                </div>
+
+                {/* Phone */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Phone Number</label>
                   <div className="relative">
-                    <Phone className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
+                    <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <input
                       type="tel"
                       value={phone}
@@ -454,10 +465,11 @@ export default function OwnerOnboarding() {
                   {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone}</p>}
                 </div>
 
+                {/* Address */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Address</label>
                   <div className="relative">
-                    <MapPin className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
+                    <MapPin className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       value={address}
@@ -468,10 +480,11 @@ export default function OwnerOnboarding() {
                   </div>
                 </div>
 
+                {/* Currency (readonly) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Currency</label>
                   <div className="relative">
-                    <Globe className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
+                    <Globe className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <div className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed select-none">
                       {CURRENCY.label}
                     </div>
@@ -489,95 +502,67 @@ export default function OwnerOnboarding() {
                 </button>
               </div>
             </motion.div>
+
           ) : step === 1 ? (
+            /* ─── STEP 1: Plan Selection ─── */
             <motion.div
               key="step1"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
+              initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
               className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl shadow-slate-200/40"
             >
               <div className="mb-6">
                 <div className="inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-3 py-1 text-xs font-bold text-violet-600 mb-3">
-                  <Sparkles className="w-3.5 h-3.5" /> Step 2 of 3
+                  <IndianRupee className="w-3.5 h-3.5" /> Step 2 of {totalSteps}
                 </div>
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Choose your plan</h1>
-                <p className="text-sm text-slate-500 mt-1">Start with any plan — you can upgrade anytime.</p>
+                <p className="text-sm text-slate-500 mt-1">All plans include the same features — only usage limits differ.</p>
               </div>
 
-              <div className="flex items-center justify-center mb-6">
-                <div className="flex items-center gap-1 rounded-full bg-slate-100 p-1">
-                  <button
-                    onClick={() => setBillingCycle("monthly")}
-                    className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${billingCycle === "monthly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                  >
-                    Monthly
-                  </button>
-                  <button
-                    onClick={() => setBillingCycle("yearly")}
-                    className={`flex items-center gap-1 rounded-full px-4 py-1.5 text-xs font-bold transition-all ${billingCycle === "yearly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                  >
-                    Yearly <span className="text-emerald-600 font-bold">−17%</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {PLANS.map((p) => {
                   const Icon = p.icon;
-                  const price = billingCycle === "monthly" ? p.monthlyPrice : p.yearlyPrice;
                   const isSelected = selectedPlan === p.id;
-                  const colorMap: Record<string, string> = {
-                    sky: isSelected ? "border-sky-400 ring-2 ring-sky-200 bg-sky-50/50" : "border-slate-200 hover:border-sky-200",
-                    violet: isSelected ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50" : "border-slate-200 hover:border-violet-200",
-                    amber: isSelected ? "border-amber-400 ring-2 ring-amber-200 bg-amber-50/50" : "border-slate-200 hover:border-amber-200",
-                  };
-                  const iconMap: Record<string, string> = {
-                    sky: "bg-sky-100 text-sky-600",
-                    violet: "bg-violet-100 text-violet-600",
-                    amber: "bg-amber-100 text-amber-600",
-                  };
                   return (
                     <button
                       key={p.id}
                       onClick={() => setSelectedPlan(p.id)}
-                      className={`relative rounded-2xl border p-5 text-left transition-all ${colorMap[p.color]}`}
+                      className={`relative text-left rounded-2xl border-2 p-4 transition-all ${
+                        isSelected
+                          ? `${p.borderActive} bg-white ring-2 shadow-md`
+                          : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                      }`}
                     >
                       {p.popular && (
-                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full bg-violet-500 px-3 py-0.5 text-[10px] font-bold text-white">
-                          Popular
-                        </div>
+                        <span className="absolute -top-2.5 left-4 rounded-full bg-violet-500 px-2.5 py-0.5 text-[10px] font-bold text-white shadow">
+                          Most Popular
+                        </span>
                       )}
-                      <div className={`mb-3 w-8 h-8 rounded-lg flex items-center justify-center ${iconMap[p.color]}`}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <p className="text-sm font-bold text-slate-800 mb-0.5">{p.name}</p>
-                      <div className="flex items-baseline gap-0.5 mb-3">
-                        <span className="text-lg font-extrabold text-slate-900">{currencySymbol}{price.toLocaleString()}</span>
-                        <span className="text-xs text-slate-400">/{billingCycle === "monthly" ? "mo" : "yr"}</span>
-                      </div>
-                      <ul className="space-y-1">
-                        {p.features.slice(0, 3).map((f) => (
-                          <li key={f} className="flex items-start gap-1.5 text-xs text-slate-600">
-                            <Check className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />{f}
-                          </li>
-                        ))}
-                        {p.features.length > 3 && (
-                          <li className="text-xs text-slate-400 pl-4">+{p.features.length - 3} more</li>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className={`inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br ${p.gradient} shadow-sm`}>
+                          <Icon className="w-4 h-4 text-white" />
+                        </div>
+                        {isSelected && (
+                          <div className="h-5 w-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                            <Check className="w-3 h-3 text-white" />
+                          </div>
                         )}
-                      </ul>
-                      {isSelected && (
-                        <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                      )}
+                      </div>
+                      <p className="text-sm font-bold text-slate-900">{p.name}</p>
+                      <p className="text-lg font-extrabold text-slate-900 mt-0.5">
+                        {p.price === 0 ? "Free" : <>{CURRENCY.symbol}{p.price.toLocaleString()}<span className="text-xs font-normal text-slate-400">/mo</span></>}
+                      </p>
+                      <div className="mt-3 space-y-1.5 text-xs text-slate-500">
+                        <div className="flex items-center gap-1.5"><Users className="w-3 h-3 shrink-0" />{formatLimit(p.limits.maxAgents)} Collectors</div>
+                        <div className="flex items-center gap-1.5"><User className="w-3 h-3 shrink-0" />{formatLimit(p.limits.maxCustomers)} Customers</div>
+                        <div className="flex items-center gap-1.5"><IndianRupee className="w-3 h-3 shrink-0" />{formatLimit(p.limits.maxCollectionsPerMonth)} Collections/mo</div>
+                      </div>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="mt-8 flex justify-between">
+              <div className="mt-6 flex justify-between items-center">
                 <button
                   onClick={handleBack}
                   className="flex items-center gap-2 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-600 px-5 py-3 text-sm font-semibold transition-all"
@@ -585,39 +570,51 @@ export default function OwnerOnboarding() {
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
                 <button
-                  onClick={handleNext}
-                  className="flex items-center gap-2 rounded-xl bg-violet-500 hover:bg-violet-600 text-white px-6 py-3 text-sm font-bold shadow-md shadow-violet-300/40 transition-all active:scale-[0.98]"
+                  onClick={isFree ? handleLaunchFree : handleNext}
+                  disabled={processing}
+                  className={`flex items-center gap-2 rounded-xl text-white px-6 py-3 text-sm font-bold shadow-md transition-all active:scale-[0.98] disabled:opacity-70 ${
+                    isFree
+                      ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-300/40"
+                      : "bg-sky-500 hover:bg-sky-600 shadow-sky-300/40"
+                  }`}
                 >
-                  Continue <ArrowRight className="w-4 h-4" />
+                  {processing ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</>
+                  ) : isFree ? (
+                    <><Sparkles className="w-4 h-4" /> Launch for Free</>
+                  ) : (
+                    <>Continue to Payment <ArrowRight className="w-4 h-4" /></>
+                  )}
                 </button>
               </div>
             </motion.div>
+
           ) : (
+            /* ─── STEP 2: Payment ─── */
             <motion.div
               key="step2"
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
+              initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
               transition={{ duration: 0.25 }}
-              className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/40"
+              className="rounded-2xl sm:rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl shadow-slate-200/40"
             >
               <div className="mb-6">
-                <div className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 mb-3">
-                  <CreditCard className="w-3.5 h-3.5" /> Step 3 of 3 — Payment
+                <div className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1 text-xs font-bold text-amber-600 mb-3">
+                  <CreditCard className="w-3.5 h-3.5" /> Step 3 of 3
                 </div>
-                <h1 className="text-2xl font-bold text-slate-900">Complete your setup</h1>
-                <p className="text-sm text-slate-500 mt-1">Your subscription will be activated instantly.</p>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Payment Details</h1>
+                <p className="text-sm text-slate-500 mt-1">Demo payment system — no real charges are made.</p>
               </div>
 
+              {/* Selected plan summary */}
               <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-4">
                 <img src="/fundcircle-logo.png" alt="FC" className="w-10 h-10 rounded-xl object-cover object-top shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-900">{orgName || "Your Organization"}</p>
-                  <p className="text-xs text-slate-500">{plan.name} Plan · {billingCycle === "monthly" ? "Monthly" : "Yearly"} billing</p>
+                  <p className="text-sm font-bold text-slate-900">{orgName}</p>
+                  <p className="text-xs text-slate-500">{plan.name} Plan · Monthly billing</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-lg font-extrabold text-slate-900">{currencySymbol}{amount.toLocaleString()}</p>
-                  <p className="text-xs text-slate-400">/{billingCycle === "monthly" ? "month" : "year"}</p>
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-extrabold text-slate-900">{CURRENCY.symbol}{plan.price.toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">/month</p>
                 </div>
               </div>
 
@@ -637,7 +634,7 @@ export default function OwnerOnboarding() {
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Card Number</label>
                   <div className="relative">
-                    <CreditCard className="absolute left-3.5 top-3.5 w-4.5 h-4.5 text-slate-400" />
+                    <CreditCard className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
                       value={cardNumber}
@@ -678,7 +675,7 @@ export default function OwnerOnboarding() {
                 </div>
               </div>
 
-              <div className="mt-2 flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-100 p-3">
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-100 p-3">
                 <Shield className="w-4 h-4 text-emerald-500 shrink-0" />
                 <p className="text-xs text-slate-500">This is a demo payment system. No real charges are made.</p>
               </div>
@@ -694,12 +691,12 @@ export default function OwnerOnboarding() {
                 <button
                   onClick={handlePayAndLaunch}
                   disabled={processing}
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-violet-500 hover:from-sky-600 hover:to-violet-600 text-white px-7 py-3 text-sm font-bold shadow-lg shadow-sky-300/40 transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
+                  className={`flex items-center gap-2 rounded-xl bg-gradient-to-r ${plan.gradient} text-white px-7 py-3 text-sm font-bold shadow-lg transition-all active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
                   {processing ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
                   ) : (
-                    <><Check className="w-4 h-4" /> Pay {currencySymbol}{amount.toLocaleString()} & Launch</>
+                    <><Check className="w-4 h-4" /> Pay {CURRENCY.symbol}{plan.price.toLocaleString()} & Launch</>
                   )}
                 </button>
               </div>
