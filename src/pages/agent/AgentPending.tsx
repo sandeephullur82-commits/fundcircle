@@ -1,3 +1,4 @@
+import React from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { Membership, Collection } from "@/types";

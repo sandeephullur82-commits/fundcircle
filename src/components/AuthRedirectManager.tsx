@@ -3,6 +3,7 @@ import { useUser } from "@clerk/clerk-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const AUTH_ONLY_PATHS = [
+  "/",
   "/sign-in",
   "/sign-up",
   "/organization/signin",
@@ -16,6 +17,7 @@ const PROTECTED_PREFIXES = [
   "/dashboard",
   "/onboarding",
   "/complete-profile",
+  "/billing",
   "/organization/create",
   "/organization/invitation",
   "/profile",

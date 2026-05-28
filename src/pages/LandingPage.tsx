@@ -252,9 +252,18 @@ export default function LandingPage() {
   const handleNavbarSignIn = () => navigate("/workspace-selection");
   const handleSignupIntent = () => navigate("/sign-up");
 
-  const handleRoleCardOwnerLogin = () => navigate("/sign-in?role=owner");
-  const handleRoleCardAgentLogin = () => navigate("/sign-in?role=agent");
-  const handleRoleCardCustomerLogin = () => navigate("/sign-in?role=customer");
+  const handleRoleCardOwnerLogin = () => {
+    localStorage.setItem("preferredLoginRole", "owner");
+    navigate("/sign-in");
+  };
+  const handleRoleCardAgentLogin = () => {
+    localStorage.setItem("preferredLoginRole", "pigmy_collector");
+    navigate("/sign-in");
+  };
+  const handleRoleCardCustomerLogin = () => {
+    localStorage.setItem("preferredLoginRole", "customer");
+    navigate("/sign-in");
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950 overflow-x-hidden">

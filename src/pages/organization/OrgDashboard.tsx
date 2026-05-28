@@ -3,7 +3,7 @@ import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
   Bell, Menu, CalendarDays, ClipboardList, LayoutDashboard,
 } from "lucide-react";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";

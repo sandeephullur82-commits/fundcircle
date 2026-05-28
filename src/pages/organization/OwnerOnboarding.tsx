@@ -102,10 +102,18 @@ function formatLimit(val: number) {
 
 export default function OwnerOnboarding() {
   const { user } = useUser();
-  const { isLoaded, createOrganization, setActive } = useOrganizationList();
+  const { isLoaded, createOrganization, setActive, userMemberships } = useOrganizationList({ userMemberships: true });
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
+
+  // If user already has an organization membership, redirect to their dashboard
+  React.useEffect(() => {
+    if (!isLoaded) return;
+    if (userMemberships?.data?.length) {
+      navigate("/router", { replace: true });
+    }
+  }, [isLoaded, userMemberships?.data, navigate]);
 
   const [orgName, setOrgName] = useState("");
   const [ownerName, setOwnerName] = useState("");

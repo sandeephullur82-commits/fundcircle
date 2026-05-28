@@ -12,7 +12,7 @@ export default function SignInPage() {
       ctaRoleLabel="Create Account"
     >
       <div className="space-y-6">
-        <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+        <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" forceRedirectUrl="/auth/callback" />
       </div>
     </AuthLayout>
   );

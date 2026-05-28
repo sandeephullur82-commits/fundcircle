@@ -50,17 +50,15 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const { isLoaded, isSignedIn, user } = useUser();
   const { organization } = useOrganization();
   const { isLoaded: isOrgListLoaded, userMemberships, setActive } = useOrganizationList({ userMemberships: true });
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [timedOut, setTimedOut] = useState(false);
 
+  // Compute activeOrgId directly from state — avoids useState+useEffect race condition
+  const activeOrgId = organization?.id || userMemberships?.data?.[0]?.organization?.id || null;
+
+  // Set the active org in Clerk if none is active yet
   useEffect(() => {
-    if (!isOrgListLoaded) return;
-    if (organization?.id) { setActiveOrgId(organization.id); return; }
-    if (userMemberships?.data?.length) {
-      const firstOrgId = userMemberships.data[0].organization.id;
-      setActiveOrgId(firstOrgId);
-      if (setActive) setActive({ organization: firstOrgId }).catch(() => undefined);
-    }
+    if (!isOrgListLoaded || organization?.id || !userMemberships?.data?.length || !setActive) return;
+    setActive({ organization: userMemberships.data[0].organization.id }).catch(() => undefined);
   }, [isOrgListLoaded, organization?.id, userMemberships?.data, setActive]);
 
   const membershipId = user && activeOrgId ? membershipIdFor(activeOrgId, user.id) : null;
@@ -71,9 +69,13 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     return () => clearTimeout(timer);
   }, []);
 
-  if (!isLoaded || (!isOrgListLoaded && !timedOut) || (membershipDocLoading && !timedOut)) {
-    return <LoadingWorkspace />;
-  }
+  // Only block on membershipDoc loading when we actually have an ID to look up
+  const isLoading =
+    !isLoaded ||
+    (!isOrgListLoaded && !timedOut) ||
+    (membershipId !== null && membershipDocLoading && !timedOut);
+
+  if (isLoading) return <LoadingWorkspace />;
   if (!isSignedIn || !user) return <Navigate to="/sign-in" replace />;
   if (!membershipDoc) return <Navigate to="/router" replace />;
 
@@ -89,15 +91,15 @@ function RoleRouter() {
   const { isLoaded: isOrgListLoaded, userMemberships, userInvitations, setActive } = useOrganizationList({ userMemberships: true, userInvitations: true });
   const [timedOut, setTimedOut] = useState(false);
 
-  const selectedOrgs = userMemberships?.data || [];
-  const activeOrgId = organization?.id || selectedOrgs?.[0]?.organization?.id;
+  // Compute activeOrgId directly — avoids useState+useEffect race condition
+  const activeOrgId = organization?.id || userMemberships?.data?.[0]?.organization?.id || null;
   const membershipDocId = user && activeOrgId ? membershipIdFor(activeOrgId, user.id) : null;
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipDocId);
 
   useEffect(() => {
-    if (!user || !isOrgListLoaded || organization?.id || !selectedOrgs?.length || !setActive) return;
-    setActive({ organization: selectedOrgs[0].organization.id }).catch(() => {});
-  }, [user, isOrgListLoaded, organization?.id, selectedOrgs, setActive]);
+    if (!user || !isOrgListLoaded || organization?.id || !userMemberships?.data?.length || !setActive) return;
+    setActive({ organization: userMemberships.data[0].organization.id }).catch(() => {});
+  }, [user, isOrgListLoaded, organization?.id, userMemberships?.data, setActive]);
 
   useEffect(() => {
     const timer = setTimeout(() => setTimedOut(true), 8000);
@@ -106,9 +108,11 @@ function RoleRouter() {
 
   if (!user) return <Navigate to="/sign-in" replace />;
 
-  if ((!isOrgListLoaded || membershipDocLoading) && !timedOut) {
-    return <LoadingWorkspace />;
-  }
+  // Only block on membershipDoc loading when we have an ID to look up
+  const isLoading =
+    (!isOrgListLoaded || (membershipDocId !== null && membershipDocLoading)) && !timedOut;
+
+  if (isLoading) return <LoadingWorkspace />;
 
   if (!membershipDoc) {
     if (userInvitations?.data?.length) return <Navigate to="/organization/invitation" replace />;

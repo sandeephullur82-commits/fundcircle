@@ -1,8 +1,8 @@
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Menu, X } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
 
 type NavItem =
   | { label: string; href: string; scrollTo?: never }
