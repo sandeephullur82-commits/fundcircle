@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useOrganizationList, useUser } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -107,13 +107,15 @@ export default function OwnerOnboarding() {
 
   const [step, setStep] = useState(0);
 
-  // If user already has an organization membership, redirect to their dashboard
+  // If user already has an org membership (and we're not mid-creation), send to dashboard
   React.useEffect(() => {
     if (!isLoaded) return;
+    if (success) return; // Don't redirect mid-creation flow
     if (userMemberships?.data?.length) {
+      console.log("[FC Onboarding] User already has org — redirecting to router");
       navigate("/router", { replace: true });
     }
-  }, [isLoaded, userMemberships?.data, navigate]);
+  }, [isLoaded, success, userMemberships?.data, navigate]);
 
   const [orgName, setOrgName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -129,7 +131,9 @@ export default function OwnerOnboarding() {
 
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const plan = PLANS.find((p) => p.id === selectedPlan)!;
   const isFree = selectedPlan === "free";
@@ -225,6 +229,11 @@ export default function OwnerOnboarding() {
     }, { merge: true });
   };
 
+  const doNavigateToDashboard = (orgId: string) => {
+    sessionStorage.setItem("fc_onboarding_org_id", orgId);
+    navigate("/router", { replace: true, state: { orgId } });
+  };
+
   const handleLaunchFree = async () => {
     if (!isLoaded || !createOrganization || !user) {
       toast.error("Please wait while we load your account.");
@@ -232,10 +241,20 @@ export default function OwnerOnboarding() {
     }
     setProcessing(true);
     try {
+      console.log("[FC Onboarding] Step 1: Creating Clerk organization…");
       const slug = slugify(orgName);
       const org = await createOrganization({ name: orgName.trim(), slug });
+      console.log("[FC Onboarding] Step 1 ✓ Clerk org created:", org.id);
+
+      console.log("[FC Onboarding] Step 2: Writing Firestore organization doc…");
       await createOrgInFirestore(org.id);
+      console.log("[FC Onboarding] Step 2 ✓ organizations/{id} written");
+
+      console.log("[FC Onboarding] Step 3: Writing membership + user docs…");
       await createMembershipInFirestore(org.id);
+      console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
+
+      console.log("[FC Onboarding] Step 4: Writing subscription doc…");
       const subRef = doc(collection(db, "subscriptions"));
       await setDoc(subRef, {
         id: subRef.id,
@@ -249,12 +268,23 @@ export default function OwnerOnboarding() {
         expiresAt: null,
         createdAt: serverTimestamp(),
       });
+      console.log("[FC Onboarding] Step 4 ✓ subscriptions/{id} written");
+
+      console.log("[FC Onboarding] Step 5: Setting Clerk active organization…");
       if (setActive) await setActive({ organization: org.id });
+      console.log("[FC Onboarding] Step 5 ✓ Clerk active org set");
+
+      setCreatedOrgId(org.id);
       setSuccess(true);
-      await new Promise((r) => setTimeout(r, 1500));
-      navigate("/dashboard/owner", { replace: true });
+      console.log("[FC Onboarding] ✓ All steps complete — showing success screen");
+
+      // Schedule auto-redirect; use a ref so we can clear it on manual click
+      successTimerRef.current = setTimeout(() => {
+        console.log("[FC Onboarding] Auto-redirecting to dashboard…");
+        doNavigateToDashboard(org.id);
+      }, 1500);
     } catch (err: any) {
-      console.error("Onboarding error:", err);
+      console.error("[FC Onboarding] Error:", err);
       toast.error(err?.errors?.[0]?.message || err?.message || "Something went wrong. Please try again.");
     } finally {
       setProcessing(false);
@@ -269,12 +299,23 @@ export default function OwnerOnboarding() {
     }
     setProcessing(true);
     try {
-      await new Promise((r) => setTimeout(r, 2000));
+      // Simulate payment processing
+      await new Promise((r) => setTimeout(r, 1500));
+
+      console.log("[FC Onboarding] Step 1: Creating Clerk organization…");
       const slug = slugify(orgName);
       const org = await createOrganization({ name: orgName.trim(), slug });
-      await createOrgInFirestore(org.id);
-      await createMembershipInFirestore(org.id);
+      console.log("[FC Onboarding] Step 1 ✓ Clerk org created:", org.id);
 
+      console.log("[FC Onboarding] Step 2: Writing Firestore organization doc…");
+      await createOrgInFirestore(org.id);
+      console.log("[FC Onboarding] Step 2 ✓ organizations/{id} written");
+
+      console.log("[FC Onboarding] Step 3: Writing membership + user docs…");
+      await createMembershipInFirestore(org.id);
+      console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
+
+      console.log("[FC Onboarding] Step 4: Writing subscription + payment docs…");
       const invoiceNumber = generateInvoiceNumber();
       const expiresAt = new Date();
       expiresAt.setMonth(expiresAt.getMonth() + 1);
@@ -308,12 +349,22 @@ export default function OwnerOnboarding() {
         paidAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       });
+      console.log("[FC Onboarding] Step 4 ✓ subscription + payment written");
+
+      console.log("[FC Onboarding] Step 5: Setting Clerk active organization…");
       if (setActive) await setActive({ organization: org.id });
+      console.log("[FC Onboarding] Step 5 ✓ Clerk active org set");
+
+      setCreatedOrgId(org.id);
       setSuccess(true);
-      await new Promise((r) => setTimeout(r, 1500));
-      navigate("/dashboard/owner", { replace: true });
+      console.log("[FC Onboarding] ✓ All steps complete — showing success screen");
+
+      successTimerRef.current = setTimeout(() => {
+        console.log("[FC Onboarding] Auto-redirecting to dashboard…");
+        doNavigateToDashboard(org.id);
+      }, 1500);
     } catch (err: any) {
-      console.error("Onboarding error:", err);
+      console.error("[FC Onboarding] Error:", err);
       toast.error(err?.errors?.[0]?.message || err?.message || "Something went wrong. Please try again.");
     } finally {
       setProcessing(false);
@@ -393,10 +444,22 @@ export default function OwnerOnboarding() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-2">Organization Created!</h2>
               <p className="text-slate-500 text-sm mb-1">
-                {isFree ? "Your free workspace is live." : `${plan.name} plan activated.`} Redirecting to your dashboard…
+                {isFree ? "Your free workspace is live." : `${plan.name} plan activated.`}
               </p>
-              <div className="flex justify-center mt-4">
+              <p className="text-slate-400 text-xs mt-1">Redirecting to your dashboard…</p>
+              <div className="flex flex-col items-center gap-3 mt-5">
                 <Loader2 className="w-5 h-5 text-sky-500 animate-spin" />
+                {createdOrgId && (
+                  <button
+                    onClick={() => {
+                      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+                      doNavigateToDashboard(createdOrgId);
+                    }}
+                    className="text-xs text-sky-600 hover:text-sky-700 underline underline-offset-2 transition-colors"
+                  >
+                    Go to dashboard now
+                  </button>
+                )}
               </div>
             </motion.div>
 
