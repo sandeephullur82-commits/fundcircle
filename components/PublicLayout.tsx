@@ -23,8 +23,8 @@ const FOOTER_PRODUCT: NavItem[] = [
 ];
 
 const FOOTER_PLATFORM: NavItem[] = [
-  { label: "Clerk Auth", href: "/platform/clerk-auth" },
-  { label: "Firestore", href: "/platform/firestore" },
+  { label: "Authentication", href: "/platform/auth" },
+  { label: "Realtime Sync", href: "/platform/realtime" },
   { label: "Multi-Tenant", href: "/platform/multi-tenant" },
   { label: "Role Access", href: "/platform/role-access" },
 ];
@@ -197,7 +197,7 @@ export function PublicNavbar() {
                 Sign In
               </button>
               <button
-                onClick={() => navigate("/sign-up")}
+                onClick={() => navigate("/auth/sign-up")}
                 className="rounded-xl bg-gradient-to-r from-sky-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-300/30 transition hover:brightness-110 flex items-center gap-1.5"
               >
                 Get Started <ArrowRight className="w-3.5 h-3.5" />
@@ -271,7 +271,7 @@ export function PublicFooter() {
               <span className="font-bold text-white">FundCircle</span>
             </Link>
             <p className="text-sm leading-6 text-slate-400">
-              Enterprise pigmy collection platform built on Clerk and Firestore.
+              Enterprise pigmy collection platform for microfinance organizations.
             </p>
           </div>
 

@@ -3,10 +3,12 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { Loader2, UserCheck } from "lucide-react";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { db } from "@/lib/firebase";
 import { membershipIdFor } from "@/lib/services";
 import { normalizeClerkRole, getDashboardPath, isAgentRole, isCustomerRole } from "@/lib/auth/get-user-role";
+import AuthLayout from "@/src/pages/auth/AuthLayout";
 
 export default function CompleteProfilePage() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -77,7 +79,6 @@ export default function CompleteProfilePage() {
       await setDoc(doc(db, "organizationMembers", membershipId), profileValues, { merge: true });
       await setDoc(doc(db, "memberships", membershipId), profileValues, { merge: true });
 
-      // Sync customers collection on profile completion
       if (isCustomerRole(role)) {
         await setDoc(doc(db, "customers", membershipId), {
           fullName: fullName.trim(),
@@ -115,86 +116,102 @@ export default function CompleteProfilePage() {
 
   if (!isLoaded || !orgListLoaded || membershipLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-slate-500 text-sm">Loading your profile workflow...</div>
+      <div className="min-h-screen bg-[#09090f] flex items-center justify-center">
+        <Loader2 className="h-7 w-7 text-violet-400 animate-spin" />
       </div>
     );
   }
 
   if (!membershipDoc) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-lg">
-          <h1 className="text-xl font-semibold text-slate-900">Unable to load profile workflow</h1>
-          <p className="mt-3 text-sm text-slate-600">Your account does not appear to have an active organization membership yet.</p>
+      <AuthLayout>
+        <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50 text-center">
+          <p className="text-white font-semibold mb-2">No active membership found</p>
+          <p className="text-sm text-white/45 mb-6">Your account does not appear to have an active organization membership yet.</p>
           <button
             onClick={() => navigate("/router", { replace: true })}
-            className="mt-6 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-sm font-semibold text-white"
           >
             Return to app
           </button>
         </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-10 px-4">
-      <div className="mx-auto max-w-2xl rounded-[2rem] bg-white p-8 shadow-xl shadow-slate-200/50">
-        <div className="space-y-3 pb-6 border-b border-slate-200">
-          <p className="text-xs uppercase tracking-[0.35em] text-slate-500">Complete your workspace profile</p>
-          <h1 className="text-3xl font-bold text-slate-900">Finish your account setup</h1>
-          <p className="text-sm leading-6 text-slate-600">
-            Complete your profile before you can access collections and customer dashboards.
-          </p>
+    <AuthLayout>
+      <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50">
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-gradient-to-br from-violet-600/25 to-blue-600/25">
+            <UserCheck className="h-6 w-6 text-violet-400" />
+          </div>
+          <h2 className="text-[1.6rem] font-bold text-white leading-tight">Complete your profile</h2>
+          <p className="mt-1.5 text-sm text-white/45">Finish your account setup to access your dashboard</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-8 grid gap-6">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">Full name</label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
+              Full name
+            </label>
             <input
               value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Your full name"
               required
+              autoFocus
+              className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">Phone number</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
+              Phone number
+            </label>
             <input
               type="tel"
               inputMode="numeric"
               maxLength={10}
               value={phone}
-              onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").substring(0, 10))}
-              placeholder="9876543210"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").substring(0, 10))}
+              placeholder="10-digit mobile number"
               required
+              className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
             />
-            <p className="text-xs text-slate-400">Enter 10-digit Indian mobile number</p>
+            <p className="text-[11px] text-white/30">Enter 10-digit Indian mobile number</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">{userRoleLabel}</label>
+          <div className="space-y-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
+              {userRoleLabel}
+            </label>
             <textarea
               value={assignedArea}
-              onChange={(event) => setAssignedArea(event.target.value)}
-              className="w-full min-h-[110px] rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
-              placeholder={isAgentRole(role) ? "Enter your assigned area or collection zone" : "Enter your address"}
+              onChange={(e) => setAssignedArea(e.target.value)}
+              placeholder={isAgentRole(role) ? "Enter your assigned collection zone" : "Enter your address"}
               required
+              rows={3}
+              className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20 resize-none"
             />
           </div>
 
           <button
             type="submit"
             disabled={isSaving}
-            className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:from-violet-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
           >
-            {isSaving ? "Saving..." : "Complete profile"}
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Saving profile…
+              </>
+            ) : (
+              "Complete profile"
+            )}
           </button>
         </form>
       </div>
-    </div>
+    </AuthLayout>
   );
 }

@@ -28,7 +28,7 @@ import {
 const featureItems = [
   { title: "Real-time Collection Tracking", icon: BarChart3, desc: "Live Firestore sync across all devices instantly." },
   { title: "Multi-Tenant Organizations", icon: Layers, desc: "Isolated workspaces with full data separation." },
-  { title: "Clerk Authentication", icon: ShieldCheck, desc: "Enterprise-grade auth with OTP and org invitations." },
+  { title: "Enterprise Authentication", icon: ShieldCheck, desc: "Enterprise-grade auth with OTP verification and org invitations." },
   { title: "Firestore Realtime Sync", icon: Database, desc: "Every action updates dashboards instantly." },
   { title: "Agent Management", icon: Users, desc: "Invite, track, and manage field collectors." },
   { title: "Customer Wallet Tracking", icon: Wallet, desc: "Savings history and balance at a glance." },
@@ -299,7 +299,7 @@ export default function LandingPage() {
                   </span>
                 </h1>
                 <p className="text-lg leading-8 text-slate-600">
-                  Manage pigmy collections, customers, collectors, analytics, and savings operations in one realtime platform. Powered by Clerk and Firestore.
+                  Manage pigmy collections, customers, collectors, analytics, and savings operations in one realtime platform.
                 </p>
               </div>
 
@@ -412,7 +412,7 @@ export default function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Choose Your Workspace</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Select the role that fits your team.</h2>
               <p className="mt-4 text-base leading-7 text-slate-600">
-                FundCircle uses a unified Clerk authentication gateway for all roles. Every workspace is secured, isolated, and realtime-synced.
+                FundCircle uses a unified enterprise authentication gateway for all roles. Every workspace is secured, isolated, and realtime-synced.
               </p>
             </div>
 
@@ -612,7 +612,7 @@ export default function LandingPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">How it works</p>
                   <h3 className="text-xl font-bold text-slate-950 mb-3">Fast onboarding for modern finance teams.</h3>
                   <p className="text-sm leading-7 text-slate-600">
-                    From organization setup to agent and customer onboarding, FundCircle keeps every collection step synced with Clerk and Firestore for secure enterprise operations.
+                    From organization setup to agent and customer onboarding, FundCircle keeps every collection step synced in realtime for secure enterprise operations.
                   </p>
                 </div>
                 <div className="grid gap-3 grid-cols-2">
@@ -716,12 +716,12 @@ export default function LandingPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Security</p>
               <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Built on trusted enterprise security.</h2>
               <p className="mt-4 text-base text-slate-600">
-                FundCircle combines Clerk authentication, Firestore persistence, and role-based access control to power your financial collection operations at scale.
+                FundCircle combines enterprise authentication, realtime persistence, and role-based access control to power your financial collection operations at scale.
               </p>
             </div>
             <div className="grid gap-5 md:grid-cols-3">
               {[
-                { title: "Clerk Enterprise Auth", icon: ShieldCheck, desc: "OTP verification, organization management, and custom roles built on Clerk." },
+                { title: "Enterprise Authentication", icon: ShieldCheck, desc: "OTP verification, organization management, and custom roles with full security." },
                 { title: "Firestore Security Rules", icon: Database, desc: "Multi-tenant data isolation with Firestore security rules per organization." },
                 { title: "Role-Based Access", icon: Lock, desc: "Owner, Collector, and Customer roles enforce strict access boundaries." },
               ].map((item) => (
@@ -750,7 +750,7 @@ export default function LandingPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.35em] text-sky-500 mb-3">Get Started Today</p>
                 <h2 className="text-3xl font-bold text-slate-950 sm:text-4xl">Start Managing Collections Smarter</h2>
                 <p className="mt-4 text-base leading-7 text-slate-600">
-                  Launch your enterprise collection workflow with secure Clerk authentication, Firestore realtime sync, and polished agent and customer experiences.
+                  Launch your enterprise collection workflow with secure authentication, realtime sync, and polished agent and customer experiences.
                 </p>
               </div>
               <div className="flex flex-wrap gap-4 shrink-0">
@@ -821,7 +821,7 @@ export default function LandingPage() {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 mb-1">3. Data Security</h3>
-                <p>All data is encrypted in transit (TLS) and at rest. Authentication is handled by Clerk, which provides enterprise-grade security including OTP verification and session management. Firestore security rules enforce strict per-organization data isolation.</p>
+                <p>All data is encrypted in transit (TLS) and at rest. Our enterprise-grade authentication system provides OTP verification and session management. Strict security rules enforce per-organization data isolation.</p>
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 mb-1">4. Data Retention</h3>
@@ -866,7 +866,7 @@ export default function LandingPage() {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 mb-1">5. Service Availability</h3>
-                <p>We target 99.9% uptime and provide maintenance windows with advance notice. FundCircle is not liable for data loss or business impact resulting from outages beyond our reasonable control, including third-party service failures (Clerk, Firebase).</p>
+                <p>We target 99.9% uptime and provide maintenance windows with advance notice. FundCircle is not liable for data loss or business impact resulting from outages beyond our reasonable control, including third-party service failures.</p>
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 mb-1">6. Termination</h3>
@@ -916,7 +916,7 @@ export default function LandingPage() {
               <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-900 mb-4">Platform</h3>
               <ul className="space-y-2 text-sm">
                 {[
-                  { label: "Clerk Auth", id: "reports" },
+                  { label: "Authentication", id: "reports" },
                   { label: "Firestore", id: "analytics" },
                   { label: "Multi-Tenant", id: "features" },
                   { label: "Role Access", id: "roles" },

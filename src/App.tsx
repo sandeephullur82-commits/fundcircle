@@ -169,6 +169,7 @@ export default function App() {
           {/* Onboarding & profile */}
           <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />
           <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
+          <Route path="/auth/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
 
           {/* Org management */}
           <Route path="/organization/create" element={<SignedIn><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgCreate /></RoleProtectedRoute></SignedIn>} />

@@ -3,6 +3,7 @@ import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-reac
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { resolveUserRedirectTarget } from "@/lib/auth/redirect-user";
+import { Loader2 } from "lucide-react";
 
 export default function AuthCallbackPage() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -43,7 +44,6 @@ export default function AuthCallbackPage() {
           try {
             await setActive({ organization: redirect.organizationId });
           } catch {
-            // ignore; still navigate
           }
         }
 
@@ -59,15 +59,27 @@ export default function AuthCallbackPage() {
   }, [isLoaded, isSignedIn, user, orgListLoaded, organization?.id, setActive, userMemberships?.data, userInvitations?.data, navigate]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="max-w-sm w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-200/50">
-        <div className="mb-5 flex justify-center">
-          <img src="/fundcircle-logo.png" alt="FundCircle" className="h-14 w-14 rounded-2xl object-cover object-top shadow-lg" />
+    <div className="min-h-screen bg-[#09090f] flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-48 -left-40 h-[650px] w-[650px] rounded-full bg-violet-700/20 blur-[130px]" />
+      <div className="pointer-events-none absolute -bottom-48 -right-40 h-[550px] w-[550px] rounded-full bg-blue-600/18 blur-[120px]" />
+
+      <div className="relative z-10 flex flex-col items-center gap-6 text-center">
+        <div className="flex flex-col items-center gap-3 mb-2">
+          <img
+            src="/fundcircle-logo.png"
+            alt="FundCircle"
+            className="h-12 w-12 rounded-2xl object-cover object-top shadow-2xl shadow-violet-900/60 ring-1 ring-white/10"
+          />
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">FundCircle</h1>
+            <p className="text-[11px] text-white/35 font-medium tracking-[0.15em] uppercase mt-0.5">Micro-Savings Platform</p>
+          </div>
         </div>
-        <div className="mb-4 flex justify-center">
-          <div className="w-8 h-8 rounded-full border-[3px] border-sky-500 border-t-transparent animate-spin" />
+
+        <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] px-10 py-8 backdrop-blur-2xl shadow-2xl shadow-black/50 flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 text-violet-400 animate-spin" />
+          <p className="text-sm font-medium text-white/50">{status}</p>
         </div>
-        <p className="text-sm font-medium text-slate-500">{status}</p>
       </div>
     </div>
   );
