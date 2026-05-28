@@ -1,0 +1,239 @@
+Convert the entire FundCircle platform into a FULL OFFLINE-FIRST PWA (Progressive Web App).
+
+==================================================
+GOAL
+==================================================
+
+FundCircle must behave like a real Android application.
+
+The application must:
+
+• Install on Android/mobile home screen
+• Work offline
+• Cache pages and assets
+• Store collections locally
+• Sync automatically when internet returns
+• Load instantly
+• Support poor network environments for pigmy agents
+• Feel like a native mobile app
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+
+• React
+• Vite
+• TypeScript
+• TailwindCSS
+• vite-plugin-pwa
+• Dexie.js
+• IndexedDB
+• Service Workers
+
+==================================================
+INSTALL REQUIRED PACKAGES
+==================================================
+
+Run and configure:
+
+npm install vite-plugin-pwa -D
+npm install dexie
+
+==================================================
+PWA CONFIGURATION
+==================================================
+
+Configure vite.config.ts:
+
+• Add VitePWA plugin
+• Enable auto update
+• Enable service worker
+• Enable offline caching
+• Enable app install support
+• Enable standalone display mode
+
+==================================================
+MANIFEST
+==================================================
+
+Create manifest with:
+
+name: FundCircle
+short_name: FundCircle
+theme_color: #0b1020
+background_color: #0b1020
+display: standalone
+orientation: portrait
+start_url: /
+
+==================================================
+APP EXPERIENCE
+==================================================
+
+The app should open like a real mobile application.
+
+Hide browser feeling.
+
+Use:
+• standalone mode
+• smooth transitions
+• mobile-first layout
+• bottom spacing safe areas
+• touch-friendly buttons
+• responsive sidebars
+• full screen loading
+
+==================================================
+OFFLINE DATABASE
+==================================================
+
+Create Dexie database:
+
+Tables:
+• offlineCollections
+• offlineCustomers
+• offlineAgents
+• syncQueue
+• pendingPayments
+
+Store:
+• collection entries
+• customer details
+• payment updates
+• loan updates
+• attendance
+• notifications
+
+==================================================
+OFFLINE COLLECTION FLOW
+==================================================
+
+When internet is OFF:
+
+• Collections still work
+• Save locally in IndexedDB
+• Add to sync queue
+• Show “Pending Sync”
+• Never lose data
+
+When internet returns:
+
+• Automatically sync queued data
+• Clear sync queue
+• Update Supabase
+• Refresh dashboard realtime
+
+==================================================
+NETWORK DETECTION
+==================================================
+
+Detect:
+
+navigator.onLine
+
+Create realtime badge:
+
+ONLINE:
+• green badge
+• “Connected”
+
+OFFLINE:
+• orange/red badge
+• “Offline Mode”
+
+==================================================
+SERVICE WORKER
+==================================================
+
+Cache:
+
+• routes
+• dashboard
+• CSS
+• JS bundles
+• icons
+• fonts
+• images
+
+Enable:
+• instant reload
+• offline fallback
+• stale while revalidate
+• background sync
+
+==================================================
+LOADING PERFORMANCE
+==================================================
+
+Improve loading speed:
+
+• lazy loading
+• route splitting
+• preload dashboard
+• skeleton loaders
+• remove blocking requests
+• optimize images
+• cache APIs
+
+==================================================
+MOBILE RESPONSIVE
+==================================================
+
+Make entire platform mobile-first.
+
+Desktop:
+• sidebar layout
+
+Mobile:
+• collapsible sidebar
+• bottom navigation
+• touch optimized
+• fixed action buttons
+
+==================================================
+INSTALL EXPERIENCE
+==================================================
+
+Show custom install popup:
+
+“Install FundCircle App”
+
+Buttons:
+• Install
+• Later
+
+==================================================
+OFFLINE ALERTS
+==================================================
+
+Show floating toast:
+
+• “Offline mode enabled”
+• “Syncing data...”
+• “All data synced”
+• “Connection restored”
+
+==================================================
+SECURITY
+==================================================
+
+Offline data must:
+• use encrypted storage where possible
+• isolate organization data
+• maintain tenant separation
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle should behave like:
+
+• Android App
+• Offline-first fintech platform
+• Enterprise field collection system
+• Real-time sync platform
+
+The build must be production-grade, ultra-fast, mobile responsive, installable, and fully optimized for poor network environments.
+

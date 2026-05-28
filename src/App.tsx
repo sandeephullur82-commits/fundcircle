@@ -8,6 +8,7 @@ import { getDashboardPath, normalizeClerkRole } from "@/lib/auth/get-user-role";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { getCached, setCached } from "@/lib/authCache";
 import { Toaster } from "@/components/ui/sonner";
+import { PWAInstallPrompt, OfflineToast } from "@/src/components/pwa";
 
 import LandingPage from "./pages/LandingPage";
 import AuthCallbackPage from "./pages/AuthCallback";
@@ -325,6 +326,8 @@ export default function App() {
       </BrowserRouter>
       <SignedIn><AuthSyncService /></SignedIn>
       <Toaster />
+      <OfflineToast />
+      <PWAInstallPrompt />
     </ClerkProvider>
   );
 }
