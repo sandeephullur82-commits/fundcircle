@@ -128,31 +128,32 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col pb-16">
+    <div className="min-h-screen bg-slate-50 flex flex-col pb-4">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
           <BrandMark className="text-lg font-extrabold" fundClassName="text-slate-900" />
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-full text-xs">
-              <button className={`px-2.5 py-1 rounded-full font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('en')}>EN</button>
-              <button className={`px-2.5 py-1 rounded-full font-medium transition-colors ${language === 'kn' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('kn')}>ಕನ್ನಡ</button>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-0.5 bg-slate-100 p-0.5 rounded-full text-xs">
+              <button className={`px-2 py-1 rounded-full font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('en')}>EN</button>
+              <button className={`px-2 py-1 rounded-full font-medium transition-colors ${language === 'kn' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('kn')}>ಕನ್ನಡ</button>
             </div>
             <SignOutButton>
-              <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-800 hover:bg-slate-100/60 transition-colors">
-                <LogOut className="w-4 h-4 mr-2" /> {t("logout")}
+              <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-800 hover:bg-slate-100/60 h-8 px-2 transition-colors">
+                <LogOut className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">{t("logout")}</span>
               </Button>
             </SignOutButton>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full space-y-6">
-        <Card className="bg-gradient-to-br from-purple-600 via-purple-700 to-indigo-800 text-white shadow-xl overflow-hidden relative border-none rounded-3xl">
+      <main className="flex-1 p-3 md:p-8 max-w-5xl mx-auto w-full space-y-4 md:space-y-6">
+        <Card className="bg-gradient-to-br from-purple-600 via-purple-700 to-indigo-800 text-white shadow-xl overflow-hidden relative border-none rounded-2xl md:rounded-3xl">
           <div className="absolute -right-10 -top-10 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
           <div className="absolute -left-10 -bottom-10 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
-          <CardContent className="p-8 relative z-10">
+          <CardContent className="p-5 sm:p-8 relative z-10">
             <p className="text-purple-100/90 font-semibold tracking-wide uppercase text-xs mb-2">{t("totalSavingsBalance")}</p>
-            <h1 className="text-4xl md:text-5xl font-extrabold mb-6 tracking-tight">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold mb-4 md:mb-6 tracking-tight">
               ₹{(profile?.balance || 0).toLocaleString()}
             </h1>
             <div className="flex flex-wrap gap-4">

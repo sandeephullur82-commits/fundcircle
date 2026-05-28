@@ -67,13 +67,11 @@ export default function AgentDashboard() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-2">
-          <BrandMark size="sm" />
-        </div>
+        <BrandMark size="sm" />
         <Sheet>
           <SheetTrigger render={
-            <Button variant="ghost" size="icon">
-              <Menu className="w-5 h-5" />
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Menu className="w-4 h-4" />
             </Button>
           } />
           <SheetContent side="left" className="w-[280px] p-0">
@@ -98,7 +96,7 @@ export default function AgentDashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-5xl mx-auto">
+      <main className="flex-1 p-3 md:p-8 overflow-y-auto w-full max-w-5xl mx-auto pb-20 md:pb-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="hidden" />
           <TabsContent value="overview" className="mt-0">
@@ -115,6 +113,26 @@ export default function AgentDashboard() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 px-1 transition-colors ${
+                isActive ? "text-emerald-600" : "text-slate-400"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-[10px] font-semibold leading-none">{item.label.split(" ")[0]}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

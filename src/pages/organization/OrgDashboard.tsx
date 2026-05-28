@@ -30,6 +30,20 @@ import OrgBilling from "./OrgBilling";
 import AgentOverview from "../agent/AgentOverview";
 import AgentCustomers from "../agent/AgentCustomers";
 
+const BOTTOM_NAV_ADMIN = [
+  { id: "overview", label: "Dashboard", icon: LayoutDashboard },
+  { id: "customers", label: "Customers", icon: Users },
+  { id: "collections", label: "Collections", icon: Wallet },
+  { id: "reports", label: "Reports", icon: FileText },
+  { id: "settings", label: "Settings", icon: Settings },
+];
+
+const BOTTOM_NAV_COLLECTOR = [
+  { id: "daily", label: "Today", icon: CalendarDays },
+  { id: "customerLedger", label: "Customers", icon: Users },
+  { id: "collectionEntry", label: "Collections", icon: ClipboardList },
+];
+
 export default function OrgDashboard() {
   const { isLoaded: isUserLoaded, user, isSignedIn } = useUser();
   const { isLoaded: isOrgLoaded, organization } = useOrganization();
@@ -138,53 +152,51 @@ export default function OrgDashboard() {
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <BrandMark size="sm" />
             <span className="text-slate-300 font-light">·</span>
-            <span className="font-semibold text-slate-700 truncate max-w-[130px]">{orgName}</span>
+            <span className="font-semibold text-slate-700 truncate max-w-[120px] text-sm">{orgName}</span>
           </div>
-          <Sheet>
-            <SheetTrigger render={
-              <Button variant="ghost" size="icon">
-                <Menu className="w-5 h-5" />
-              </Button>
-            } />
-            <SheetContent side="left" className="w-[280px] p-0">
-              <SidebarContent
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                orgName={orgName}
-                user={user}
-                menuItems={menuItems}
-                isOwner={isOwner}
-                mode={mode}
-                setMode={setMode}
-                unreadCount={unreadCount}
-                membershipLoading={membershipDocLoading}
-              />
-            </SheetContent>
-          </Sheet>
+          <div className="flex items-center gap-1 shrink-0">
+            {isOwner && (
+              <div className="flex rounded-lg bg-slate-100 p-0.5 gap-0.5 mr-1">
+                <button
+                  onClick={() => { setMode("admin"); setActiveTab("overview"); }}
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${mode === "admin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                >
+                  Admin
+                </button>
+                <button
+                  onClick={() => { setMode("collector"); setActiveTab("daily"); }}
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${mode === "collector" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                >
+                  Collector
+                </button>
+              </div>
+            )}
+            <Sheet>
+              <SheetTrigger render={
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Menu className="w-4 h-4" />
+                </Button>
+              } />
+              <SheetContent side="left" className="w-[280px] p-0">
+                <SidebarContent
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  orgName={orgName}
+                  user={user}
+                  menuItems={menuItems}
+                  isOwner={isOwner}
+                  mode={mode}
+                  setMode={setMode}
+                  unreadCount={unreadCount}
+                  membershipLoading={membershipDocLoading}
+                />
+              </SheetContent>
+            </Sheet>
+          </div>
         </div>
-        {isOwner && (
-          <div className="flex gap-2">
-            <Button
-              variant={mode === "admin" ? "default" : "outline"}
-              size="sm"
-              className="flex-1 text-xs"
-              onClick={() => { setMode("admin"); setActiveTab("overview"); }}
-            >
-              Admin Mode
-            </Button>
-            <Button
-              variant={mode === "collector" ? "default" : "outline"}
-              size="sm"
-              className="flex-1 text-xs"
-              onClick={() => { setMode("collector"); setActiveTab("daily"); }}
-            >
-              Collector Mode
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Desktop Sidebar */}
@@ -204,41 +216,43 @@ export default function OrgDashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-7xl mx-auto">
+      <main className="flex-1 p-3 md:p-8 overflow-y-auto w-full max-w-7xl mx-auto pb-20 md:pb-8">
         {visibleRequests.length > 0 && (
-          <div className="mb-6 space-y-2">
+          <div className="mb-4 space-y-2">
             {visibleRequests.slice(0, 3).map((req: any) => (
               <div
                 key={req.id}
-                className="flex items-center gap-4 rounded-2xl bg-amber-50 border border-amber-200 px-5 py-3.5 shadow-sm"
+                className="rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3 shadow-sm"
               >
-                <ArrowUpCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-amber-900">
-                    {req.requestedByName || "An agent"} requested a subscription upgrade
-                  </p>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    Customer limit reached on the <span className="capitalize font-medium">{req.currentPlan || "Free"}</span> plan.
-                  </p>
+                <div className="flex items-start gap-3">
+                  <ArrowUpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-900 leading-snug">
+                      {req.requestedByName || "An agent"} requested a subscription upgrade
+                    </p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Customer limit reached on the <span className="capitalize font-medium">{req.currentPlan || "Free"}</span> plan.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleIgnoreRequest(req.id)}
+                    className="text-amber-400 hover:text-amber-600 shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex gap-2 mt-3">
                   <button
                     onClick={() => { setActiveTab("billing"); setDismissedRequestIds(prev => new Set([...prev, req.id])); }}
-                    className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-xs font-bold transition-all"
+                    className="flex-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white py-2 text-xs font-bold transition-all text-center"
                   >
                     Upgrade Plan
                   </button>
                   <button
                     onClick={() => handleIgnoreRequest(req.id)}
-                    className="rounded-xl border border-amber-200 hover:border-amber-300 bg-white text-amber-700 hover:bg-amber-50 px-3 py-2 text-xs font-semibold transition-all"
+                    className="flex-1 rounded-xl border border-amber-200 bg-white text-amber-700 py-2 text-xs font-semibold transition-all text-center"
                   >
                     Ignore
-                  </button>
-                  <button
-                    onClick={() => handleIgnoreRequest(req.id)}
-                    className="text-amber-400 hover:text-amber-600 w-6 h-6 flex items-center justify-center rounded-lg hover:bg-amber-100 transition-all"
-                  >
-                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -264,6 +278,26 @@ export default function OrgDashboard() {
           <TabsContent value="collectionEntry" className="mt-0"><OrgCollections /></TabsContent>
         </Tabs>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
+        {(mode === "admin" ? BOTTOM_NAV_ADMIN : BOTTOM_NAV_COLLECTOR).map((item) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 px-1 transition-colors ${
+                isActive ? "text-sky-600" : "text-slate-400"
+              }`}
+            >
+              <Icon className={`w-5 h-5 ${isActive ? "text-sky-600" : "text-slate-400"}`} />
+              <span className="text-[10px] font-semibold leading-none">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

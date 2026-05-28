@@ -45,15 +45,13 @@ export default function OrgOverview() {
   const pendingLoans = loans.filter(l => l.status === "pending");
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Dashboard Overview</h2>
-          <p className="text-slate-500">Real-time platform metrics and activity.</p>
-        </div>
+    <div className="space-y-4 md:space-y-6">
+      <div>
+        <h2 className="text-xl md:text-2xl font-bold text-slate-900">Dashboard Overview</h2>
+        <p className="text-slate-500 text-sm">Real-time platform metrics and activity.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <MetricCard 
           title="Today's Collection" 
           value={`₹${todayTotal.toLocaleString()}`} 
@@ -151,16 +149,16 @@ export default function OrgOverview() {
 function MetricCard({ title, value, icon, trend, bg }: any) {
   return (
     <Card className="shadow-sm border-slate-200">
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-slate-500">{title}</h3>
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${bg}`}>
+      <CardContent className="p-4 md:p-6">
+        <div className="flex items-center justify-between mb-3 md:mb-4">
+          <h3 className="text-xs md:text-sm font-medium text-slate-500 leading-tight pr-1">{title}</h3>
+          <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center shrink-0 ${bg}`}>
             {icon}
           </div>
         </div>
         <div className="flex flex-col">
-          <span className="text-2xl font-bold text-slate-900">{value}</span>
-          <span className="text-xs text-slate-500 mt-1">{trend}</span>
+          <span className="text-xl md:text-2xl font-bold text-slate-900">{value}</span>
+          <span className="text-[10px] md:text-xs text-slate-500 mt-1 leading-tight">{trend}</span>
         </div>
       </CardContent>
     </Card>

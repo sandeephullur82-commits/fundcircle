@@ -189,15 +189,16 @@ export default function OrgAgents() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <Input
-              placeholder="Search collectors by name, email or phone…"
-              className="pl-10"
+              placeholder="Search collectors…"
+              className="pl-10 h-11"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -253,6 +254,45 @@ export default function OrgAgents() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="md:hidden">
+            {loading ? (
+              <div className="p-4 space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-16 bg-slate-100 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : collectors.length === 0 ? (
+              <div className="py-12 text-center">
+                <UserCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-slate-500 text-sm font-medium">No collectors yet.</p>
+                <p className="text-slate-400 text-xs mt-1">Click "Add Collector" to invite your first pigmy collector.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {collectors.map(collector => {
+                  const s = getStatus((collector as any).status);
+                  return (
+                    <div key={collector.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-900 text-sm truncate">
+                          {collector.fullName || (collector as any).name || <span className="text-slate-400 italic">Pending setup</span>}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{collector.email || "—"}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {collector.phone || "—"} · {(collector as any).assignedArea || "Unassigned"}
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border shrink-0 ${s.className}`}>
+                        {s.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

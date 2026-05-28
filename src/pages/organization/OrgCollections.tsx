@@ -27,51 +27,79 @@ export default function OrgCollections() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date & Time</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Collected By</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(collLoading || usersLoading) ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8">Loading...</TableCell></TableRow>
-              ) : sortedCollections.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No collections found.</TableCell></TableRow>
-              ) : (
-                sortedCollections.map(col => {
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date & Time</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Collected By</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(collLoading || usersLoading) ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8">Loading...</TableCell></TableRow>
+                ) : sortedCollections.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No collections found.</TableCell></TableRow>
+                ) : (
+                  sortedCollections.map(col => {
+                    const customer = customers.find(c => c.id === col.customerId);
+                    const agent = agents.find(a => a.id === col.agentId);
+                    const d = (col.timestamp as any)?.toDate?.() || new Date(col.timestamp);
+                    return (
+                      <TableRow key={col.id}>
+                        <TableCell className="text-sm text-slate-600">{d ? format(d, 'MMM d, yyyy - p') : 'N/A'}</TableCell>
+                        <TableCell className="font-medium">{customer?.name || "Unknown"}</TableCell>
+                        <TableCell className="text-slate-600">{agent?.name || "Unknown"}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${col.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}`}>
+                            {col.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-slate-900">₹{col.amount.toLocaleString()}</TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="md:hidden">
+            {(collLoading || usersLoading) ? (
+              <div className="p-4 space-y-3">
+                {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-slate-100 rounded-xl animate-pulse" />)}
+              </div>
+            ) : sortedCollections.length === 0 ? (
+              <div className="py-10 text-center text-slate-500 text-sm">No collections found.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {sortedCollections.map(col => {
                   const customer = customers.find(c => c.id === col.customerId);
                   const agent = agents.find(a => a.id === col.agentId);
                   const d = (col.timestamp as any)?.toDate?.() || new Date(col.timestamp);
-                  
                   return (
-                    <TableRow key={col.id}>
-                      <TableCell className="text-sm text-slate-600">
-                        {d ? format(d, 'MMM d, yyyy - p') : 'N/A'}
-                      </TableCell>
-                      <TableCell className="font-medium">{customer?.name || "Unknown"}</TableCell>
-                      <TableCell className="text-slate-600">{agent?.name || "Unknown"}</TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          col.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"
-                        }`}>
+                    <div key={col.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-900 text-sm truncate">{customer?.name || "Unknown"}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">by {agent?.name || "Unknown"}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{d ? format(d, 'MMM d, yyyy · h:mm a') : 'N/A'}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-bold text-slate-900 text-sm">₹{col.amount.toLocaleString()}</p>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium mt-1 ${col.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"}`}>
                           {col.status}
                         </span>
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-slate-900">
-                        ₹{col.amount.toLocaleString()}
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                    </div>
                   );
-                })
-              )}
-            </TableBody>
-          </Table>
+                })}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

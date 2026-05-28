@@ -322,15 +322,16 @@ export default function OrgCustomers() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <Input
-              placeholder="Search customers by name, email or phone…"
-              className="pl-10"
+              placeholder="Search customers…"
+              className="pl-10 h-11"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -392,6 +393,46 @@ export default function OrgCustomers() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Mobile Card List */}
+          <div className="md:hidden">
+            {loading ? (
+              <div className="p-4 space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : filteredCustomers.length === 0 ? (
+              <div className="py-12 text-center">
+                <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-slate-500 text-sm font-medium">No customers found.</p>
+                <p className="text-slate-400 text-xs mt-1">Click "Invite Customer" to add your first savings member.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {filteredCustomers.map(customer => {
+                  const agent = agents.find(a => a.id === ((customer as any).assignedAgentId || customer.agentId));
+                  const statusCls = statusClass(customer.status as string);
+                  return (
+                    <div key={customer.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-slate-900 text-sm truncate">
+                          {customer.fullName || (customer as any).name || <span className="text-slate-400 italic">Pending setup</span>}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{customer.email || "—"} · {customer.phone || "—"}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Collector: {(customer as any).assignedAgentName || agent?.fullName || "Unassigned"}
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border shrink-0 ${statusCls}`}>
+                        {(customer as any).status || "INVITED"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

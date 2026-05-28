@@ -1,0 +1,255 @@
+Transform the entire FundCircle platform into a FULL OFFLINE-FIRST Progressive Web Application (PWA).
+
+==================================================
+GOAL
+==================================================
+
+FundCircle must work:
+- with internet
+- slow internet
+- unstable network
+- completely offline
+
+The application should behave like:
+- native Android app
+- fintech field collection app
+- enterprise offline banking system
+
+==================================================
+CORE OFFLINE FEATURES
+==================================================
+
+Implement:
+
+- Progressive Web App (PWA)
+- Offline-first architecture
+- Service workers
+- IndexedDB local storage
+- Background synchronization
+- Intelligent caching
+- Offline queue processing
+- Realtime sync recovery
+- Installable Android experience
+
+==================================================
+PWA FEATURES
+==================================================
+
+Enable:
+
+- install app on Android
+- install app on desktop
+- splash screen
+- app icon
+- standalone mode
+- offline startup
+- app manifest
+- push notification support
+
+==================================================
+SERVICE WORKER
+==================================================
+
+Create advanced service worker system.
+
+Cache:
+- HTML
+- CSS
+- JS
+- fonts
+- logos
+- dashboard assets
+- API responses
+- offline pages
+
+Strategies:
+- cache first
+- network fallback
+- stale while revalidate
+
+==================================================
+OFFLINE AUTHENTICATION
+==================================================
+
+Allow authenticated users to:
+- stay logged in offline
+- access cached dashboard
+- access assigned customers
+- access collection forms
+
+Store:
+- session data securely
+- encrypted user cache
+- organization info
+
+==================================================
+OFFLINE COLLECTION SYSTEM
+==================================================
+
+Agents must be able to:
+
+- create collections offline
+- add customers offline
+- record payments offline
+- update customer notes offline
+- generate temporary receipts offline
+
+==================================================
+OFFLINE QUEUE SYSTEM
+==================================================
+
+When offline:
+- save actions locally
+- queue pending requests
+- mark records as pending sync
+
+When internet returns:
+- automatically sync all pending records
+- retry failed syncs
+- resolve conflicts intelligently
+
+==================================================
+SYNC ENGINE
+==================================================
+
+Build robust sync system.
+
+Features:
+- automatic retry
+- realtime sync recovery
+- duplicate prevention
+- transaction integrity
+- optimistic UI updates
+- timestamp conflict resolution
+
+==================================================
+INDEXEDDB STORAGE
+==================================================
+
+Use IndexedDB for:
+
+- customers
+- collections
+- agents
+- transactions
+- pending actions
+- cached analytics
+- notifications
+
+==================================================
+OFFLINE DASHBOARD
+==================================================
+
+Dashboard must:
+- load instantly offline
+- show cached analytics
+- show pending sync count
+- show network status
+
+==================================================
+NETWORK STATUS DETECTION
+==================================================
+
+Add global network monitor.
+
+States:
+- Online
+- Offline
+- Syncing
+- Pending Uploads
+
+Show:
+- floating sync indicator
+- realtime connection badge
+
+==================================================
+OFFLINE UI
+==================================================
+
+When offline:
+- show offline badge
+- disable unsupported actions
+- allow local operations
+- display sync queue count
+
+==================================================
+BACKGROUND SYNC
+==================================================
+
+Implement background sync:
+
+- sync collections automatically
+- sync customer updates
+- sync notifications
+- retry failed requests silently
+
+==================================================
+PUSH NOTIFICATIONS
+==================================================
+
+Support:
+- payment reminders
+- sync completed
+- pending sync warnings
+- collection alerts
+
+==================================================
+INSTALLABLE APP
+==================================================
+
+App should install like native Android app.
+
+Include:
+- custom splash screen
+- app icon
+- standalone mode
+- hidden browser UI
+- smooth launch animation
+
+==================================================
+MOBILE FIELD OPTIMIZATION
+==================================================
+
+Optimize for field agents:
+- low-end Android devices
+- weak internet
+- battery efficiency
+- fast startup
+- offline performance
+
+==================================================
+SECURITY
+==================================================
+
+Secure offline storage:
+- encrypted local database
+- secure tokens
+- protected sync engine
+- organization isolation
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+- React
+- Vite
+- Workbox
+- IndexedDB
+- Dexie.js
+- Service Workers
+- Supabase realtime sync
+- Background Sync API
+
+==================================================
+FINAL RESULT
+==================================================
+
+FundCircle should behave like:
+
+- Google Pay offline experience
+- enterprise banking field app
+- native Android collection platform
+- ultra-fast fintech PWA
+
+The app must work smoothly even without internet.
