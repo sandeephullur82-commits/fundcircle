@@ -1,0 +1,145 @@
+You are a Senior Clerk Authentication Engineer.
+
+The custom FundCircle sign-in UI shows:
+
+“Sign in could not be completed. Please try again.”
+
+The UI works visually, but Clerk authentication session creation is failing.
+
+==================================================
+FIX THE CUSTOM SIGN-IN FLOW
+==================================================
+
+Use ONLY Clerk backend SDK APIs.
+
+==================================================
+REQUIRED SIGN-IN FLOW
+==================================================
+
+Use this exact flow:
+
+1. Create sign-in instance
+2. Authenticate email/password
+3. Verify status === "complete"
+4. Call setActive()
+5. Redirect user based on Firestore role
+
+==================================================
+CORRECT IMPLEMENTATION
+==================================================
+
+Use:
+
+const { signIn, setActive } = useSignIn()
+
+On submit:
+
+const result = await signIn.create({
+  identifier: email,
+  password,
+})
+
+IF:
+result.status === "complete"
+
+THEN:
+
+await setActive({
+  session: result.createdSessionId,
+})
+
+==================================================
+AFTER SESSION CREATION
+==================================================
+
+After successful setActive():
+
+1. Read Firestore user profile
+2. Read role field
+
+Redirect:
+
+owner
+→ /dashboard/owner
+
+agent
+→ /dashboard/agent
+
+customer
+→ /dashboard/customer
+
+==================================================
+IMPORTANT FIXES
+==================================================
+
+REMOVE:
+- Old custom session logic
+- Manual JWT handling
+- Manual cookie handling
+- Firebase Auth login
+- Duplicate auth providers
+- Legacy sign-in handlers
+
+==================================================
+VERIFY CLERK SETTINGS
+==================================================
+
+In Clerk dashboard:
+
+ENABLE:
+- Email + password authentication
+
+DISABLE:
+- Unused authentication methods
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Show real Clerk errors:
+
+Examples:
+- Invalid password
+- User not found
+- Email not verified
+
+Do NOT show generic:
+“Sign in could not be completed”
+
+==================================================
+ADD DEBUG LOGGING
+==================================================
+
+Temporarily log:
+
+console.log(result)
+
+Check:
+- result.status
+- result.createdSessionId
+
+==================================================
+COMMON FAILURE
+==================================================
+
+Most likely problem:
+
+setActive() is missing or not receiving:
+
+result.createdSessionId
+
+Without this:
+- Session never becomes active
+- Clerk rejects sign-in completion
+- User stays unauthenticated
+
+==================================================
+FINAL RESULT
+==================================================
+
+Custom FundCircle auth should:
+- Sign in successfully
+- Create Clerk session properly
+- Redirect by role
+- Never show Clerk default UI
+- Never show generic auth failure

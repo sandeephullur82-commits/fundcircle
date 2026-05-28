@@ -1,8 +1,38 @@
 import React, { useState, useEffect } from "react";
 import { useSignIn, useUser } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import AuthLayout from "./AuthLayout";
+
+function clerkErrorMessage(err: any): string {
+  const code = err?.errors?.[0]?.code || "";
+  const long = err?.errors?.[0]?.longMessage || "";
+  const short = err?.errors?.[0]?.message || "";
+
+  if (code === "form_password_incorrect") return "Incorrect password. Please try again.";
+  if (code === "form_identifier_not_found") return "No account found with that email address.";
+  if (code === "form_param_format_invalid") return "Please enter a valid email address.";
+  if (code === "too_many_requests") return "Too many attempts. Please wait a moment and try again.";
+  if (code === "session_exists") return "You are already signed in.";
+  if (code === "user_locked") return "This account has been locked. Please contact support.";
+
+  return long || short || "An unexpected error occurred. Please try again.";
+}
+
+function statusMessage(status: string): string {
+  switch (status) {
+    case "needs_first_factor":
+      return "Additional verification required. Please check your Clerk dashboard — email/password auth may not be fully enabled.";
+    case "needs_second_factor":
+      return "Two-factor authentication is required but not yet supported in this interface.";
+    case "needs_new_password":
+      return "You need to set a new password. Please use the forgot password flow.";
+    case "needs_identifier":
+      return "Please enter your email address.";
+    default:
+      return `Sign-in returned unexpected status: "${status}". Please contact support.`;
+  }
+}
 
 export default function SignInPage() {
   const { isLoaded: userLoaded, isSignedIn } = useUser();
@@ -22,26 +52,37 @@ export default function SignInPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isLoaded || !signIn || loading) return;
+    if (!isLoaded || !signIn || !setActive || loading) return;
     setError("");
     setLoading(true);
+
     try {
       const result = await signIn.create({
         identifier: email.trim().toLowerCase(),
         password,
       });
-      if (result.status === "complete") {
-        await setActive({ session: result.createdSessionId });
-        navigate("/router", { replace: true });
+
+      console.log("[FundCircle Sign-In] result status:", result.status);
+      console.log("[FundCircle Sign-In] createdSessionId:", result.createdSessionId);
+
+      if (result.status === "complete" && result.createdSessionId) {
+        try {
+          await setActive({ session: result.createdSessionId });
+          navigate("/router", { replace: true });
+        } catch (activateErr: any) {
+          console.error("[FundCircle Sign-In] setActive failed:", activateErr);
+          setError(clerkErrorMessage(activateErr));
+        }
+      } else if (result.status === "complete" && !result.createdSessionId) {
+        console.error("[FundCircle Sign-In] status complete but no createdSessionId");
+        setError("Session could not be established. Please try again.");
       } else {
-        setError("Sign in could not be completed. Please try again.");
+        console.warn("[FundCircle Sign-In] non-complete status:", result.status, result);
+        setError(statusMessage(result.status));
       }
     } catch (err: any) {
-      const msg =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        "Invalid email or password.";
-      setError(msg);
+      console.error("[FundCircle Sign-In] error:", err);
+      setError(clerkErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -57,8 +98,9 @@ export default function SignInPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
 
@@ -73,6 +115,7 @@ export default function SignInPage() {
               placeholder="you@example.com"
               required
               autoFocus
+              autoComplete="email"
               className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
             />
           </div>
@@ -96,6 +139,7 @@ export default function SignInPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
                 className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 pr-11 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
               />
               <button
