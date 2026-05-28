@@ -250,19 +250,19 @@ export default function LandingPage() {
   const navigate = useNavigate();
 
   const handleNavbarSignIn = () => navigate("/workspace-selection");
-  const handleSignupIntent = () => navigate("/sign-up");
+  const handleSignupIntent = () => navigate("/auth/sign-up");
 
   const handleRoleCardOwnerLogin = () => {
     localStorage.setItem("preferredLoginRole", "owner");
-    navigate("/sign-in");
+    navigate("/auth/sign-in");
   };
   const handleRoleCardAgentLogin = () => {
     localStorage.setItem("preferredLoginRole", "pigmy_collector");
-    navigate("/sign-in");
+    navigate("/auth/sign-in");
   };
   const handleRoleCardCustomerLogin = () => {
     localStorage.setItem("preferredLoginRole", "customer");
-    navigate("/sign-in");
+    navigate("/auth/sign-in");
   };
 
   return (

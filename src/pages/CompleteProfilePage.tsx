@@ -46,7 +46,7 @@ export default function CompleteProfilePage() {
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user) {
-      navigate("/sign-in", { replace: true });
+      navigate("/auth/sign-in", { replace: true });
     }
   }, [isLoaded, isSignedIn, user, navigate]);
 

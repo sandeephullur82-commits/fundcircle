@@ -1,0 +1,187 @@
+You are a Senior Principal Authentication Architect.
+
+Completely REMOVE the default Clerk UI components from the entire FundCircle application.
+
+REMOVE:
+- <SignIn />
+- <SignUp />
+- <UserButton />
+- Clerk hosted auth pages
+- Clerk default verification screens
+- Clerk forgot password pages
+- Clerk reset password pages
+- Clerk development mode UI
+- Clerk account portal UI
+- All Clerk prebuilt components
+
+KEEP ONLY:
+- Clerk backend authentication engine
+- Clerk sessions
+- Clerk OTP/email verification APIs
+- Clerk secure token management
+
+==================================================
+BUILD FULLY CUSTOM AUTHENTICATION UI
+==================================================
+
+Create a complete modern dark-theme custom authentication system for FundCircle.
+
+==================================================
+AUTH PAGES
+==================================================
+
+Create:
+
+1. /auth/sign-up
+2. /auth/sign-in
+3. /auth/verify-email
+4. /auth/forgot-password
+5. /auth/reset-password
+6. /auth/complete-profile
+
+==================================================
+DESIGN SYSTEM
+==================================================
+
+Style:
+- Modern fintech SaaS
+- Dark glassmorphism UI
+- Fully responsive mobile-first
+- Smooth animations
+- Purple-blue gradients
+- Rounded 2xl cards
+- No Clerk branding visible
+- No “secured by clerk”
+- No “development mode”
+- No external hosted auth pages
+
+==================================================
+SIGN UP FLOW
+==================================================
+
+Custom Sign Up Form Fields:
+- Full Name
+- Email
+- Password
+- Confirm Password
+- Checkbox terms
+
+After submit:
+- Use Clerk backend API programmatically
+- Send ONLY ONE OTP email
+- Redirect to /auth/verify-email
+
+==================================================
+VERIFY EMAIL FLOW
+==================================================
+
+Custom OTP screen:
+- 6 digit input
+- Auto focus
+- Auto next input
+- Resend timer
+- Verify button
+- Loading states
+
+After success:
+- Create Firestore user profile
+- Create default role
+- Redirect to onboarding
+
+==================================================
+SIGN IN FLOW
+==================================================
+
+Custom Sign In UI:
+- Email
+- Password
+- Forgot password
+
+Use ONLY Clerk backend auth methods.
+
+After success:
+- Read Firestore role
+- Redirect dynamically:
+
+OWNER
+→ /dashboard/owner
+
+AGENT
+→ /dashboard/agent
+
+CUSTOMER
+→ /dashboard/customer
+
+==================================================
+FORGOT PASSWORD FLOW
+==================================================
+
+Create fully custom reset flow:
+
+Step 1:
+Enter email
+
+Step 2:
+Send Clerk reset OTP
+
+Step 3:
+Verify OTP
+
+Step 4:
+Enter new password
+
+Step 5:
+Password updated success
+
+==================================================
+REMOVE ALL DUPLICATE OTP ISSUES
+==================================================
+
+IMPORTANT:
+Currently OTP sends multiple times.
+
+Fix this by:
+- Removing ALL custom OTP logic
+- Removing Firebase auth OTP
+- Removing duplicate useEffect calls
+- Removing duplicate API triggers
+- Prevent multiple submit clicks
+- Ensure Clerk sendVerification() runs ONLY ONCE
+
+==================================================
+AUTH IMPLEMENTATION RULES
+==================================================
+
+Use:
+- Clerk SDK methods ONLY
+- No Clerk UI components
+- No hosted Clerk pages
+- No redirectToSignIn()
+
+Use:
+- Custom React pages
+- Custom Tailwind styling
+- Custom loading states
+- Custom validation
+- Custom error handling
+
+==================================================
+SECURITY
+==================================================
+
+Use:
+- Clerk session tokens
+- Protected routes
+- Middleware auth guards
+- Role-based route protection
+
+==================================================
+FINAL RESULT
+==================================================
+
+The application must look like a completely independent enterprise SaaS platform.
+
+Users should NEVER know Clerk is being used internally.
+
+Only the backend auth engine should use Clerk.
+Everything visible must be fully custom.

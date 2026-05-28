@@ -9,11 +9,15 @@ import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { Toaster } from "@/components/ui/sonner";
 
 import LandingPage from "./pages/LandingPage";
-import SignInPage from "./pages/SignInPage";
-import SignUpPage from "./pages/SignUpPage";
 import AuthCallbackPage from "./pages/AuthCallback";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import NotFoundPage from "./pages/NotFoundPage";
+
+import CustomSignInPage from "./pages/auth/SignInPage";
+import CustomSignUpPage from "./pages/auth/SignUpPage";
+import VerifyEmailPage from "./pages/auth/VerifyEmailPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 
 import OrgDashboard from "./pages/organization/OrgDashboard";
 import OwnerOnboarding from "./pages/organization/OwnerOnboarding";
@@ -42,7 +46,7 @@ function LoadingWorkspace({ message = "Loading your workspace…" }: { message?:
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
   if (!isLoaded) return <LoadingWorkspace message="Checking your session…" />;
-  if (!isSignedIn) return <Navigate to="/sign-in" replace />;
+  if (!isSignedIn) return <Navigate to="/auth/sign-in" replace />;
   return <>{children}</>;
 }
 
@@ -52,10 +56,8 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
   const { isLoaded: isOrgListLoaded, userMemberships, setActive } = useOrganizationList({ userMemberships: true });
   const [timedOut, setTimedOut] = useState(false);
 
-  // Compute activeOrgId directly from state — avoids useState+useEffect race condition
   const activeOrgId = organization?.id || userMemberships?.data?.[0]?.organization?.id || null;
 
-  // Set the active org in Clerk if none is active yet
   useEffect(() => {
     if (!isOrgListLoaded || organization?.id || !userMemberships?.data?.length || !setActive) return;
     setActive({ organization: userMemberships.data[0].organization.id }).catch(() => undefined);
@@ -69,14 +71,13 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     return () => clearTimeout(timer);
   }, []);
 
-  // Only block on membershipDoc loading when we actually have an ID to look up
   const isLoading =
     !isLoaded ||
     (!isOrgListLoaded && !timedOut) ||
     (membershipId !== null && membershipDocLoading && !timedOut);
 
   if (isLoading) return <LoadingWorkspace />;
-  if (!isSignedIn || !user) return <Navigate to="/sign-in" replace />;
+  if (!isSignedIn || !user) return <Navigate to="/auth/sign-in" replace />;
   if (!membershipDoc) return <Navigate to="/router" replace />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
@@ -91,7 +92,6 @@ function RoleRouter() {
   const { isLoaded: isOrgListLoaded, userMemberships, userInvitations, setActive } = useOrganizationList({ userMemberships: true, userInvitations: true });
   const [timedOut, setTimedOut] = useState(false);
 
-  // Compute activeOrgId directly — avoids useState+useEffect race condition
   const activeOrgId = organization?.id || userMemberships?.data?.[0]?.organization?.id || null;
   const membershipDocId = user && activeOrgId ? membershipIdFor(activeOrgId, user.id) : null;
   const { data: membershipDoc, loading: membershipDocLoading } = useDocumentRealtime<any>("organizationMembers", membershipDocId);
@@ -106,9 +106,8 @@ function RoleRouter() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (!user) return <Navigate to="/sign-in" replace />;
+  if (!user) return <Navigate to="/auth/sign-in" replace />;
 
-  // Only block on membershipDoc loading when we have an ID to look up
   const isLoading =
     (!isOrgListLoaded || (membershipDocId !== null && membershipDocLoading)) && !timedOut;
 
@@ -148,17 +147,24 @@ export default function App() {
           {/* Landing */}
           <Route path="/" element={<LandingPage />} />
 
-          {/* Auth */}
-          <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
-          <Route path="/sign-in/*" element={<SignInPage />} />
-          <Route path="/sign-up/*" element={<SignUpPage />} />
+          {/* Custom auth pages */}
+          <Route path="/auth/sign-in" element={<CustomSignInPage />} />
+          <Route path="/auth/sign-up" element={<CustomSignUpPage />} />
+          <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-          {/* Auth redirects for legacy paths */}
-          <Route path="/organization/signin/*" element={<Navigate to="/sign-in" replace />} />
-          <Route path="/organization/signup/*" element={<Navigate to="/sign-up" replace />} />
-          <Route path="/agent/login/*" element={<Navigate to="/sign-in" replace />} />
-          <Route path="/customer/signin/*" element={<Navigate to="/sign-in" replace />} />
+          {/* Legacy sign-in/sign-up paths → redirect to new custom pages */}
+          <Route path="/sign-in/*" element={<Navigate to="/auth/sign-in" replace />} />
+          <Route path="/sign-up/*" element={<Navigate to="/auth/sign-up" replace />} />
+          <Route path="/organization/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+          <Route path="/organization/signup/*" element={<Navigate to="/auth/sign-up" replace />} />
+          <Route path="/agent/login/*" element={<Navigate to="/auth/sign-in" replace />} />
+          <Route path="/customer/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+
+          {/* Workspace */}
+          <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
 
           {/* Onboarding & profile */}
           <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />

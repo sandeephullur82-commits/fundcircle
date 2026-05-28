@@ -32,7 +32,7 @@ export default function AuthRedirectManager() {
     // routing, can unmount the auth component mid-flow, and causes a second
     // OTP email to be sent.
     if (!isSignedIn && isProtectedPath(pathname)) {
-      navigate("/sign-in", { replace: true });
+      navigate("/auth/sign-in", { replace: true });
     }
   }, [isLoaded, isSignedIn, navigate, pathname]);
 

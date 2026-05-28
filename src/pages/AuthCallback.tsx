@@ -16,7 +16,7 @@ export default function AuthCallbackPage() {
 
     const performRedirect = async () => {
       if (!isSignedIn || !user) {
-        navigate("/sign-in", { replace: true });
+        navigate("/auth/sign-in", { replace: true });
         return;
       }
 
@@ -51,7 +51,7 @@ export default function AuthCallbackPage() {
       } catch (error: any) {
         console.error("Auth callback failed:", error);
         toast.error(error?.message || "Unable to finish authentication.");
-        navigate("/sign-in", { replace: true });
+        navigate("/auth/sign-in", { replace: true });
       }
     };
 

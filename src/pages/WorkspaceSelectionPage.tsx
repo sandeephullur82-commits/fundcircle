@@ -51,11 +51,11 @@ export default function WorkspaceSelectionPage() {
     try {
       if (typeof window !== "undefined") {
         window.localStorage.setItem("preferredLoginRole", roleId);
-        navigate("/sign-in");
+        navigate("/auth/sign-in");
       }
     } catch (error) {
       console.error("Error selecting role:", error);
-      navigate("/sign-in");
+      navigate("/auth/sign-in");
     }
   };
 
