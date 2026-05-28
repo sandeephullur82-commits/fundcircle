@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { BrandMark } from "@/components/BrandLogo";
 import {
   Building2,
   Users,
@@ -148,18 +149,11 @@ function LandingNavbar({
       }`}
     >
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-4 py-4 sm:px-6 lg:px-10">
-        <button onClick={() => scrollTo("hero")} className="flex items-center gap-2 focus:outline-none">
-          <img
-            src="/fundcircle-logo.png"
-            alt="FundCircle"
-            className="h-10 w-10 rounded-xl object-cover object-top shrink-0 shadow-md"
+        <button onClick={() => scrollTo("hero")} className="flex items-center focus:outline-none">
+          <BrandMark
+            className="text-2xl font-extrabold"
+            fundClassName={scrolled ? "text-white" : "text-slate-900"}
           />
-          <div className="hidden sm:block">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-slate-400">FundCircle</p>
-            <p className={`text-sm font-bold leading-tight transition-colors duration-300 ${scrolled ? "text-white" : "text-slate-900"}`}>
-              Enterprise Collection Platform
-            </p>
-          </div>
         </button>
 
         <nav className="hidden md:flex items-center gap-1">

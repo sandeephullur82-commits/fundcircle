@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
+import { BrandMark } from "@/components/BrandLogo";
 import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
 import AgentPending from "./AgentPending";
@@ -66,12 +67,8 @@ export default function AgentDashboard() {
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <img src="/fundcircle-logo.png" alt="FC" className="h-8 w-8 rounded-xl object-cover object-top shadow-md shrink-0" />
-          <div>
-            <p className="text-xs font-semibold text-slate-900">Collector Portal</p>
-            <p className="text-xs text-slate-400">{organization?.name}</p>
-          </div>
+        <div className="flex items-center gap-2">
+          <BrandMark className="text-base font-extrabold" fundClassName="text-slate-900" />
         </div>
         <Sheet>
           <SheetTrigger render={
@@ -125,14 +122,9 @@ export default function AgentDashboard() {
 function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className="p-5 border-b border-slate-100 shrink-0">
-        <div className="flex items-center gap-3">
-          <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-md shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Collector Portal</p>
-            <p className="text-sm font-bold text-slate-900 truncate">{organization?.name || "FundCircle"}</p>
-          </div>
-        </div>
+      <div className="px-5 py-4 border-b border-slate-100 shrink-0">
+        <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 mt-0.5">Collector Portal</p>
       </div>
 
       <div className="flex-1 py-3 px-3 space-y-0.5">

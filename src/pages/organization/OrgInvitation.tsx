@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Users, ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import { useLanguage } from "@/lib/languageContext";
 import { activatePendingInvite } from "@/lib/services";
+import { BrandMark } from "@/components/BrandLogo";
 
 export default function OrgInvitation() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -58,11 +59,8 @@ export default function OrgInvitation() {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
       <div className="w-full max-w-lg space-y-6">
         <div className="flex justify-between items-center px-1">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white font-extrabold text-lg shadow-sm">
-              FC
-            </div>
-            <span className="font-bold text-xl text-slate-900 tracking-tight">FundCircle</span>
+          <Link to="/" className="flex items-center gap-1">
+            <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
           </Link>
           <div className="text-xs font-bold text-slate-400 text-right">Organization Invitations</div>
         </div>
@@ -139,7 +137,7 @@ export default function OrgInvitation() {
             to="/"
             className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to FundCircle
+            <ArrowLeft className="w-4 h-4" /> Back to Home
           </Link>
         </div>
       </div>

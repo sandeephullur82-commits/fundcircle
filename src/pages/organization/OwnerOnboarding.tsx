@@ -11,6 +11,7 @@ import {
   CreditCard, Check, Zap, TrendingUp, Crown, Shield,
   Sparkles, Loader2, IndianRupee, Users, User, Globe,
 } from "lucide-react";
+import { BrandMark } from "@/components/BrandLogo";
 
 const CURRENCY = { code: "INR", symbol: "₹", label: "Indian Rupee (₹)" };
 
@@ -393,12 +394,9 @@ export default function OwnerOnboarding() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-lg shadow-sky-300/30 shrink-0" />
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-widest">FundCircle</p>
-                <p className="text-sm font-semibold text-slate-700">Organization Setup</p>
-              </div>
+            <div className="flex flex-col">
+              <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+              <p className="text-xs text-slate-400 font-medium mt-0.5">Organization Setup</p>
             </div>
             {/* Step Indicator */}
             <div className="hidden sm:flex items-center gap-2">
@@ -678,7 +676,9 @@ export default function OwnerOnboarding() {
 
               {/* Selected plan summary */}
               <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 flex items-center gap-4">
-                <img src="/fundcircle-logo.png" alt="FC" className="w-10 h-10 rounded-xl object-cover object-top shrink-0" />
+                <div className="shrink-0 flex items-center justify-center w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm">
+                  <BrandMark className="text-xs font-black leading-none" fundClassName="text-slate-900" />
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-slate-900">{orgName}</p>
                   <p className="text-xs text-slate-500">{plan.name} Plan · Monthly billing</p>

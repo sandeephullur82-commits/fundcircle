@@ -1,0 +1,183 @@
+Update the entire FundCircle project branding system globally.
+
+Replace ALL old project title/header/logo text sections across the entire application with the new modern FundCircle text branding design.
+
+==================================================
+GLOBAL BRANDING UPDATE
+==================================================
+
+Use ONLY text branding.
+Remove:
+- old image logo
+- old small icon logo
+- old stacked logo layout
+- duplicate brand names
+- extra top spacing
+- extra bottom spacing
+- outdated title styles
+
+==================================================
+NEW BRAND DESIGN
+==================================================
+
+Primary Brand:
+FundCircle
+
+Style:
+- Modern fintech SaaS branding
+- Premium enterprise feel
+- Clean typography
+- Bold minimal UI
+- Gradient text for "Circle"
+- White text for "Fund"
+
+==================================================
+BRAND TITLE STYLE
+==================================================
+
+Fund:
+- pure white
+
+Circle:
+Use gradient:
+linear-gradient(
+90deg,
+#00d4ff 0%,
+#3b82f6 45%,
+#7c3aed 75%,
+#d946ef 100%
+)
+
+==================================================
+SUBTITLE
+==================================================
+
+Enterprise Collection Platform
+
+Style:
+- uppercase
+- letter spacing 6px
+- low opacity white
+- premium SaaS appearance
+
+==================================================
+GLOBAL HEADER STRUCTURE
+==================================================
+
+<div class="brand-header">
+
+  <div class="brand-logo">
+    <span class="fund">Fund</span>
+    <span class="circle">Circle</span>
+  </div>
+
+  <div class="brand-subtitle">
+    Enterprise Collection Platform
+  </div>
+
+</div>
+
+==================================================
+GLOBAL CSS
+==================================================
+
+.brand-header{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+}
+
+.brand-logo{
+  font-size:42px;
+  font-weight:800;
+  line-height:1;
+  letter-spacing:-1px;
+  font-family:'Poppins',sans-serif;
+}
+
+.fund{
+  color:#ffffff;
+}
+
+.circle{
+  background:linear-gradient(
+    90deg,
+    #00d4ff 0%,
+    #3b82f6 45%,
+    #7c3aed 75%,
+    #d946ef 100%
+  );
+
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+
+.brand-subtitle{
+  font-size:14px;
+  font-weight:500;
+  letter-spacing:6px;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.55);
+}
+
+==================================================
+APPLY EVERYWHERE
+==================================================
+
+Update branding in:
+- landing page
+- auth pages
+- onboarding
+- dashboard
+- owner portal
+- agent portal
+- customer portal
+- sidebar
+- mobile navigation
+- loading screens
+- splash screens
+- modals
+- invite pages
+- navbar
+- browser title
+- metadata title
+- PWA title
+- manifest
+- email templates
+- notifications
+- loading placeholders
+
+==================================================
+REMOVE EXTRA SPACING
+==================================================
+
+Reduce unnecessary:
+- top padding
+- bottom padding
+- empty margins
+- oversized hero spacing
+
+Make branding compact and premium.
+
+==================================================
+BACKGROUND
+==================================================
+
+Use:
+background: oklch(0.208 0.042 265.755);
+
+==================================================
+FINAL RESULT
+==================================================
+
+The entire FundCircle platform should feel like:
+- premium fintech SaaS
+- modern enterprise dashboard
+- clean dark UI
+- futuristic collection platform
+- ultra polished production application
+
+Ensure all pages use consistent branding globally.

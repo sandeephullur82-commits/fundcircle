@@ -17,6 +17,7 @@ import { db } from "@/lib/firebase";
 import { membershipIdFor, ignoreUpgradeRequest } from "@/lib/services";
 import { useDocumentRealtime, useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Navigate } from "react-router-dom";
+import { BrandMark } from "@/components/BrandLogo";
 import OrgOverview from "./OrgOverview";
 import OrgCustomers from "./OrgCustomers";
 import OrgAgents from "./OrgAgents";
@@ -137,9 +138,10 @@ export default function OrgDashboard() {
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-3 sticky top-0 z-20">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <img src="/fundcircle-logo.png" alt="FC" className="h-8 w-8 rounded-xl object-cover object-top shrink-0" />
-            <span className="font-bold text-slate-900 truncate max-w-[180px] sm:max-w-xs">{orgName}</span>
+          <div className="flex items-center gap-2">
+            <BrandMark className="text-base font-extrabold" fundClassName="text-slate-900" />
+            <span className="text-slate-300 font-light">·</span>
+            <span className="font-semibold text-slate-700 truncate max-w-[130px]">{orgName}</span>
           </div>
           <Sheet>
             <SheetTrigger render={
@@ -269,14 +271,9 @@ export default function OrgDashboard() {
 function SidebarContent({ activeTab, setActiveTab, orgName, user, menuItems, isOwner, mode, setMode, unreadCount, membershipLoading }: any) {
   return (
     <div className="flex flex-col h-full">
-      <div className="p-5 border-b border-slate-100">
-        <div className="flex items-center gap-3">
-          <img src="/fundcircle-logo.png" alt="FC" className="h-10 w-10 rounded-xl object-cover object-top shadow-md shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">FundCircle</p>
-            <p className="text-sm font-bold text-slate-900 truncate">{orgName}</p>
-          </div>
-        </div>
+      <div className="px-5 py-4 border-b border-slate-100">
+        <BrandMark className="text-xl font-extrabold" fundClassName="text-slate-900" />
+        <p className="text-sm font-bold text-slate-900 truncate mt-0.5">{orgName}</p>
       </div>
 
       {/* Mode Switch — skeleton while role loads */}
