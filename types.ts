@@ -1,4 +1,6 @@
-export type Role = "organization_owner" | "agent" | "customer" | "OWNER";
+export type AppRole = "organization_owner" | "pigmy_collector" | "customer";
+export type FirestoreRole = "OWNER" | "AGENT" | "CUSTOMER" | "PIGMY_COLLECTOR";
+export type Role = AppRole | FirestoreRole | string;
 
 export interface Organization {
   id: string;
@@ -24,9 +26,10 @@ export interface User {
   phone?: string;
   assignedArea?: string;
   agentId?: string;
+  assigned_to_user_id?: string;
   balance?: number;
   invitationId?: string;
-  status?: "pending" | "active";
+  status?: "pending" | "active" | "PENDING" | "ACTIVE" | "INVITED";
   createdAt: number;
 }
 
@@ -34,16 +37,24 @@ export interface Membership {
   id: string;
   organizationId: string;
   clerkUserId: string;
+  clerkRole?: string;
   role: Role;
   name: string;
+  fullName?: string;
   email: string;
   phone?: string;
   createdAt: number;
   assignedArea?: string;
   agentId?: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  assigned_to_user_id?: string;
   balance?: number;
   invitationId?: string;
-  status?: "pending" | "active";
+  profileCompleted?: boolean;
+  actsAsAgent?: boolean;
+  collectorEnabled?: boolean;
+  status?: "pending" | "active" | "PENDING" | "ACTIVE" | "INVITED";
 }
 
 export interface Collection {
@@ -57,6 +68,7 @@ export interface Collection {
   collectedByRole?: "OWNER" | "AGENT" | string;
   collectedByUserId?: string;
   collectedByName?: string;
+  assigned_to_user_id?: string;
   receiptUrl?: string;
 }
 

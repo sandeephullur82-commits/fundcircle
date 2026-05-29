@@ -95,7 +95,7 @@ export default function OrgCreate() {
       }
 
       toast.success("Organization directory created successfully!");
-      navigate("/router");
+      navigate("/dashboard/owner", { replace: true, state: { orgId: org.id } });
     } catch (err: any) {
       console.error(err);
       toast.error(err.errors?.[0]?.message || err.message || "Failed to create organization");

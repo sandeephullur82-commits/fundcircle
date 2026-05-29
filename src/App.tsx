@@ -206,29 +206,33 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     if (cachedRole) {
       const normalizedCached = normalizeClerkRole(cachedRole);
       console.log("[FC RoleProtectedRoute] Using cached role:", cachedRole);
-      if (allowedRoles.includes(normalizedCached!)) return <>{children}</>;
+      if (normalizedCached && allowedRoles.includes(normalizedCached)) return <>{children}</>;
     }
     const clerkMembership = userMemberships?.data?.find(
       (m) => m.organization?.id === activeOrgId
     );
     const clerkRole = clerkMembership?.role;
     console.log("[FC RoleProtectedRoute] Clerk role fallback:", clerkRole);
-    if (clerkRole === "org:admin" && allowedRoles.includes("organization_owner")) {
+    const normalizedClerkRole = normalizeClerkRole(clerkRole);
+    if (normalizedClerkRole && allowedRoles.includes(normalizedClerkRole)) {
       return <>{children}</>;
     }
-    return (
-      <LoadingWorkspace
-        message="Could not load workspace data. Please check your connection."
-        onRetry={() => window.location.reload()}
-      />
-    );
+    if (allowedRoles.includes("organization_owner")) {
+      return (
+        <LoadingWorkspace
+          message="Could not load workspace data. Please check your connection."
+          onRetry={() => window.location.reload()}
+        />
+      );
+    }
+    return <Navigate to="/dashboard/owner" replace />;
   }
 
   if (!membershipDoc) return <Navigate to="/router" replace />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
   console.log("[FC RoleProtectedRoute] Normalized role:", normalizedRole, "allowed:", allowedRoles);
-  if (!allowedRoles.includes(normalizedRole)) return <Navigate to="/router" replace />;
+  if (!normalizedRole || !allowedRoles.includes(normalizedRole)) return <Navigate to="/router" replace />;
 
   return <>{children}</>;
 }
@@ -309,19 +313,36 @@ function RoleRouter() {
     return <Navigate to={dashPath} replace />;
   }
 
-  // Clerk-level membership fallback (Firestore timed out)
+  // Clerk-level membership fallback (Firestore timed out or slow)
   if (isOrgListLoaded && userMemberships?.data?.length) {
     const firstMembership = userMemberships.data[0];
     const clerkRole = firstMembership.role;
     const orgId = firstMembership.organization?.id || navOrgId;
-    console.log("[FC RoleRouter] Clerk role fallback:", clerkRole, "orgId:", orgId);
+    const normalizedClerkRole = normalizeClerkRole(clerkRole);
+    console.log("[FC RoleRouter] Clerk role fallback:", clerkRole, "→", normalizedClerkRole, "orgId:", orgId);
 
-    if (clerkRole === "org:admin" && orgId) {
+    if (normalizedClerkRole === "organization_owner" && orgId) {
       console.log("[FC RoleRouter] Redirecting to /dashboard/owner");
       return <Navigate to="/dashboard/owner" replace state={{ orgId }} />;
     }
 
+    if (normalizedClerkRole === "pigmy_collector" && orgId) {
+      console.log("[FC RoleRouter] Redirecting to /dashboard/agent");
+      return <Navigate to="/dashboard/agent" replace state={{ orgId }} />;
+    }
+
+    if (normalizedClerkRole === "customer" && orgId) {
+      console.log("[FC RoleRouter] Redirecting to /dashboard/customer");
+      return <Navigate to="/dashboard/customer" replace state={{ orgId }} />;
+    }
+
     if (!timedOut) return <DashboardShimmer />;
+
+    // Final fallback — authenticated but role unclear, send to owner dashboard if they have an org
+    if (orgId) {
+      console.log("[FC RoleRouter] Role unclear but has org — defaulting to owner dashboard");
+      return <Navigate to="/dashboard/owner" replace state={{ orgId }} />;
+    }
 
     return (
       <LoadingWorkspace

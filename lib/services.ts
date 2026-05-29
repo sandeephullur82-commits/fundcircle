@@ -387,18 +387,33 @@ export async function addAgent(organizationId: string, agentData: Partial<Member
   });
 }
 
-export async function recordCollection(organizationId: string, collectionData: Pick<Collection, "customerId" | "agentId" | "amount" | "status" | "collectedByRole" | "collectedByUserId" | "collectedByName">) {
+export async function recordCollection(organizationId: string, collectionData: Pick<Collection, "customerId" | "agentId" | "amount" | "status" | "collectedByRole" | "collectedByUserId" | "collectedByName"> & { assigned_to_user_id?: string }) {
   // Service-layer guard: only ACTIVE customers may have collections recorded
   const membershipId = `${organizationId}_${collectionData.customerId}`;
   const memberSnap = await getDoc(doc(db, "organizationMembers", membershipId));
-  if (!memberSnap.exists() || memberSnap.data()?.status !== "ACTIVE") {
+  if (!memberSnap.exists()) {
+    throw new Error("Customer record not found in this organization.");
+  }
+  const memberStatus = (memberSnap.data()?.status || "").toString().toUpperCase();
+  if (memberStatus !== "ACTIVE") {
     throw new Error("This customer has not activated their account yet.");
   }
+
+  // Determine the collector identity — OWNER or AGENT both use same engine
+  const collectedByRole = collectionData.collectedByRole || "AGENT";
+  const collectedByUserId = collectionData.collectedByUserId || collectionData.agentId;
+  const collectedByName = collectionData.collectedByName || "Collector";
+  // assigned_to_user_id: the user (OWNER or AGENT) responsible for this customer
+  const assignedToUserId = collectionData.assigned_to_user_id || collectionData.agentId;
 
   // First, add the collection record
   const collRef = await addDoc(collection(db, "collections"), {
     ...collectionData,
     organizationId,
+    collectedByRole,
+    collectedByUserId,
+    collectedByName,
+    assigned_to_user_id: assignedToUserId,
     timestamp: serverTimestamp(),
   });
 
@@ -411,9 +426,10 @@ export async function recordCollection(organizationId: string, collectionData: P
     type: "deposit",
     timestamp: serverTimestamp(),
     referenceId: collRef.id,
-    collectedByRole: collectionData.collectedByRole || "AGENT",
-    collectedByUserId: collectionData.collectedByUserId || collectionData.agentId,
-    collectedByName: collectionData.collectedByName || "Collector",
+    collectedByRole,
+    collectedByUserId,
+    collectedByName,
+    assigned_to_user_id: assignedToUserId,
   });
 
   // If collection is completed, increment customer balance
@@ -708,6 +724,7 @@ export async function sendOrganizationInvitation(options: {
         organizationId,
         assignedAgentId: assignedAgentId || "",
         assignedAgentName: assignedAgentName || "",
+        assigned_to_user_id: assignedAgentId || agentId || invitedBy || "",
         fullName: "",
         phone: "",
         address: "",
@@ -1037,6 +1054,7 @@ export async function reassignCustomer(params: {
   await updateDoc(doc(db, "organizationMembers", customerId), {
     assignedAgentId: newCollectorId,
     assignedAgentName: newCollectorName,
+    assigned_to_user_id: newCollectorId,
     updatedAt: serverTimestamp(),
   });
 
@@ -1044,6 +1062,7 @@ export async function reassignCustomer(params: {
     await updateDoc(doc(db, "customers", customerId), {
       assignedAgentId: newCollectorId,
       assignedAgentName: newCollectorName,
+      assigned_to_user_id: newCollectorId,
       updatedAt: serverTimestamp(),
     });
   } catch (_) {}
