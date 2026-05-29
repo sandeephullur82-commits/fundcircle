@@ -15,13 +15,17 @@ export default function AuthLayout({ children, maxWidth = "max-w-[440px]" }: Aut
       <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[320px] w-[320px] rounded-full bg-indigo-500/8 blur-[90px]" />
 
       <div className={`relative z-10 w-full ${maxWidth}`}>
-        <div className="mb-5 flex items-center justify-between">
-          <BackToHomeButton dark />
-          <div className="flex justify-center flex-1">
-            <BrandLogo size="lg" />
-          </div>
-          <div className="w-[140px]" />
+        {/* Logo — always centered */}
+        <div className="flex justify-center mb-5">
+          <BrandLogo size="md" />
         </div>
+
+        {/* Back button — left-aligned, directly above card */}
+        <div className="mb-3">
+          <BackToHomeButton dark />
+        </div>
+
+        {/* Auth card */}
         {children}
       </div>
     </div>

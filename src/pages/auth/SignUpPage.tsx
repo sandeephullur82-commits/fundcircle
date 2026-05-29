@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSignUp, useUser } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
 export default function SignUpPage() {
@@ -68,25 +68,30 @@ export default function SignUpPage() {
     }
   };
 
+  const inputClass =
+    "w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25";
+
+  const labelClass = "block text-[11px] font-semibold uppercase tracking-wider text-white/95";
+
   return (
     <AuthLayout>
-      <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50">
+      {/* Card — dark glassmorphism with strong separation */}
+      <div className="rounded-3xl border border-white/[0.14] bg-white/[0.07] p-8 backdrop-blur-2xl shadow-2xl shadow-black/70 ring-1 ring-inset ring-white/[0.05]">
         <div className="mb-7">
           <h2 className="text-[1.6rem] font-bold text-white leading-tight">Create your account</h2>
-          <p className="mt-1.5 text-sm text-white/45">Start managing your savings circle today</p>
+          <p className="mt-1.5 text-sm text-white/85">Start managing your savings circle today</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-500/25 bg-red-500/12 px-4 py-3 text-sm text-red-300">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
-              Full name
-            </label>
+            <label className={labelClass}>Full name</label>
             <input
               type="text"
               value={fullName}
@@ -94,29 +99,25 @@ export default function SignUpPage() {
               placeholder="Raj Kumar"
               required
               autoFocus
-              className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
+              className={inputClass}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
-              Email address
-            </label>
+            <label className={labelClass}>Email address</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
-              className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
+              className={inputClass}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
-                Password
-              </label>
+              <label className={labelClass}>Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -124,12 +125,12 @@ export default function SignUpPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Min. 8 chars"
                   required
-                  className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 pr-10 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
+                  className={`${inputClass} pr-10`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -138,9 +139,7 @@ export default function SignUpPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
-                Confirm
-              </label>
+              <label className={labelClass}>Confirm</label>
               <div className="relative">
                 <input
                   type={showConfirm ? "text" : "password"}
@@ -148,12 +147,12 @@ export default function SignUpPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repeat"
                   required
-                  className="w-full rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-3 pr-10 text-sm text-white placeholder-white/25 outline-none transition focus:border-violet-500/60 focus:bg-white/[0.09] focus:ring-2 focus:ring-violet-500/20"
+                  className={`${inputClass} pr-10`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
                   tabIndex={-1}
                 >
                   {showConfirm ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -167,9 +166,9 @@ export default function SignUpPage() {
               type="checkbox"
               checked={agreedToTerms}
               onChange={(e) => setAgreedToTerms(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-white/10 accent-violet-500"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/25 bg-white/10 accent-violet-500"
             />
-            <span className="text-sm text-white/40 leading-relaxed">
+            <span className="text-sm text-white/75 leading-relaxed">
               I agree to the{" "}
               <Link
                 to="/terms"
@@ -192,7 +191,7 @@ export default function SignUpPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:from-violet-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition hover:from-violet-500 hover:to-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
           >
             {loading ? (
               <>
@@ -205,7 +204,7 @@ export default function SignUpPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-white/40">
+        <p className="mt-6 text-center text-sm text-white/65">
           Already have an account?{" "}
           <Link
             to="/auth/sign-in"
