@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useSignUp } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2, Mail, RefreshCw } from "lucide-react";
+import { Loader2, Mail, RefreshCw, Pencil } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
 export default function VerifyEmailPage() {
@@ -87,8 +87,6 @@ export default function VerifyEmailPage() {
         await setActive({ session: result.createdSessionId });
         sessionStorage.removeItem("fc_signup_email");
         console.log("[FC VerifyEmail] Session active — redirecting to /auth/callback");
-        // Navigate to /auth/callback which properly resolves the role and redirects
-        // (avoids blank-screen flash from <SignedIn> race condition on /router)
         navigate("/auth/callback", { replace: true });
       } else {
         setError("Verification incomplete. Please try again.");
@@ -123,54 +121,96 @@ export default function VerifyEmailPage() {
     }
   };
 
+  const handleEditEmail = () => {
+    navigate("/auth/sign-up", { replace: true });
+  };
+
+  const allFilled = otp.join("").length === 6;
+
   return (
-    <AuthLayout>
-      <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50">
-        <div className="mb-7 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-gradient-to-br from-violet-600/25 to-blue-600/25">
-            <Mail className="h-6 w-6 text-violet-400" />
+    <AuthLayout hideBackButton>
+      <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur-2xl shadow-2xl shadow-black/60">
+
+        {/* Header */}
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-600/30 to-blue-600/30 shadow-lg shadow-violet-900/20">
+            <Mail className="h-7 w-7 text-violet-300" />
           </div>
-          <h2 className="text-[1.6rem] font-bold text-white leading-tight">Check your email</h2>
-          <p className="mt-1.5 text-sm text-white/45">
-            We sent a 6-digit verification code to{" "}
-            {email && (
-              <span className="font-semibold text-white/70">{email}</span>
-            )}
+          <h2 className="text-[1.75rem] font-bold text-white leading-tight tracking-tight">
+            Check your email
+          </h2>
+          <p className="mt-2 text-sm text-white/50">
+            We sent a 6-digit code to
           </p>
+
+          {/* Editable email */}
+          <button
+            type="button"
+            onClick={handleEditEmail}
+            className="mt-2 inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2 transition hover:bg-white/[0.10] hover:border-violet-500/40 group"
+            aria-label="Change email address"
+          >
+            <span className="text-sm font-semibold text-white">{email || "your email"}</span>
+            <Pencil className="h-3.5 w-3.5 text-white/40 group-hover:text-violet-400 transition-colors" />
+          </button>
         </div>
 
         <form onSubmit={handleVerify} className="space-y-6">
+          {/* Error */}
           {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400 text-center">
+            <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-300 text-center">
               {error}
             </div>
           )}
 
-          <div className="flex items-center justify-center gap-2.5" onPaste={handlePaste}>
+          {/* OTP inputs */}
+          <div
+            className="flex items-center justify-center gap-3"
+            onPaste={handlePaste}
+            role="group"
+            aria-label="One-time password input"
+          >
             {otp.map((digit, i) => (
               <input
                 key={i}
                 ref={(el) => { inputRefs.current[i] = el; }}
                 type="text"
                 inputMode="numeric"
+                pattern="[0-9]*"
                 maxLength={1}
                 value={digit}
                 autoFocus={i === 0}
+                autoComplete={i === 0 ? "one-time-code" : "off"}
+                aria-label={`Digit ${i + 1} of 6`}
                 onChange={(e) => handleChange(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
-                className="h-12 w-11 rounded-xl border border-white/[0.12] bg-white/[0.07] text-center text-xl font-bold text-white outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25 caret-violet-400 selection:bg-violet-500/30"
+                className={[
+                  "h-14 w-12 rounded-xl text-center text-2xl font-bold text-white outline-none transition-all duration-150 caret-violet-400 selection:bg-violet-500/30",
+                  "border-2 bg-white/[0.07]",
+                  digit
+                    ? "border-violet-500 bg-white/[0.10] shadow-[0_0_0_3px_rgba(139,92,246,0.18)]"
+                    : "border-white/20 hover:border-white/35",
+                  "focus:border-violet-400 focus:bg-white/[0.12] focus:shadow-[0_0_0_3px_rgba(139,92,246,0.25)]",
+                  "sm:h-16 sm:w-14 sm:text-3xl",
+                ].join(" ")}
               />
             ))}
           </div>
 
+          {/* Verify button */}
           <button
             type="submit"
-            disabled={loading || otp.join("").length !== 6}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:from-violet-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={loading || !allFilled}
+            className={[
+              "flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-4 text-base font-semibold text-white shadow-lg transition-all duration-150",
+              allFilled && !loading
+                ? "bg-gradient-to-r from-violet-600 to-blue-600 shadow-violet-900/40 hover:from-violet-500 hover:to-blue-500 hover:shadow-violet-800/50 hover:scale-[1.01] active:scale-[0.99]"
+                : "bg-white/10 cursor-not-allowed opacity-50 shadow-none",
+            ].join(" ")}
           >
             {loading ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-5 w-5 animate-spin" />
                 Verifying…
               </>
             ) : (
@@ -178,15 +218,18 @@ export default function VerifyEmailPage() {
             )}
           </button>
 
+          {/* Resend */}
           <div className="text-center">
             {countdown > 0 ? (
-              <p className="text-sm text-white/30">Resend code in {countdown}s</p>
+              <p className="text-sm text-white/35">
+                Resend code in <span className="font-medium text-white/55">{countdown}s</span>
+              </p>
             ) : (
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resending}
-                className="inline-flex items-center gap-1.5 text-sm text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${resending ? "animate-spin" : ""}`} />
                 {resending ? "Sending…" : "Resend code"}

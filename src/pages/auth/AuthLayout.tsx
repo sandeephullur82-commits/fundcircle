@@ -5,9 +5,10 @@ import BackToHomeButton from "@/components/BackToHomeButton";
 interface AuthLayoutProps {
   children: React.ReactNode;
   maxWidth?: string;
+  hideBackButton?: boolean;
 }
 
-export default function AuthLayout({ children, maxWidth = "max-w-[440px]" }: AuthLayoutProps) {
+export default function AuthLayout({ children, maxWidth = "max-w-[440px]", hideBackButton = false }: AuthLayoutProps) {
   return (
     <div className="min-h-screen bg-[oklch(0.208_0.042_265.755)] flex flex-col items-center justify-center p-4 relative overflow-x-hidden">
       <div className="pointer-events-none absolute -top-48 -left-40 h-[650px] w-[650px] rounded-full bg-violet-700/20 blur-[130px]" />
@@ -21,9 +22,11 @@ export default function AuthLayout({ children, maxWidth = "max-w-[440px]" }: Aut
         </div>
 
         {/* Back button — left-aligned, directly above card */}
-        <div className="mb-3">
-          <BackToHomeButton dark />
-        </div>
+        {!hideBackButton && (
+          <div className="mb-3">
+            <BackToHomeButton dark />
+          </div>
+        )}
 
         {/* Auth card */}
         {children}
