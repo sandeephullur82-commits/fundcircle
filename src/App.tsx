@@ -193,10 +193,15 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     }
   }, [membershipDoc, user?.id]);
 
+  // KEY FIX: also wait when doc is null but we haven't timed out — Firestore with
+  // persistentLocalCache fires onSnapshot immediately with null on a cache miss
+  // (brand-new doc not yet in IndexedDB). The real server response arrives shortly
+  // after. If we redirect on that first null we loop forever. Wait for timeout instead.
   const isLoading =
     !isLoaded ||
     (!isOrgListLoaded && !timedOut) ||
-    (membershipId !== null && membershipDocLoading && !timedOut);
+    (membershipId !== null && membershipDocLoading && !timedOut) ||
+    (membershipId !== null && !membershipDoc && !timedOut);
 
   if (isLoading) return <DashboardShimmer />;
   if (!isSignedIn || !user) return <Navigate to="/auth/sign-in" replace />;
@@ -227,8 +232,6 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     }
     return <Navigate to="/dashboard/owner" replace />;
   }
-
-  if (!membershipDoc) return <Navigate to="/router" replace />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
   console.log("[FC RoleProtectedRoute] Normalized role:", normalizedRole, "allowed:", allowedRoles);
@@ -285,19 +288,26 @@ function RoleRouter() {
 
   if (!user) return <Navigate to="/auth/sign-in" replace />;
 
-  // Instant redirect using cached role (avoids Firestore wait on repeat visits)
-  if (user && !membershipDoc && !membershipDocLoading) {
+  // Instant redirect using cached role — only when Firestore gave a real server
+  // response (not a cache miss). A cache miss sets loading=false with data=null
+  // before the network response arrives, so only use cache if timedOut or confirmed.
+  if (user && !membershipDoc && !membershipDocLoading && timedOut) {
     const cachedRole = getCached<string>(`role_${user.id}`);
     if (cachedRole) {
       const normalizedRole = normalizeClerkRole(cachedRole);
       const dashPath = getDashboardPath(normalizedRole);
-      console.log("[FC RoleRouter] Cached role redirect:", cachedRole, "→", dashPath);
+      console.log("[FC RoleRouter] Cached role redirect (after timeout):", cachedRole, "→", dashPath);
       return <Navigate to={dashPath} replace />;
     }
   }
 
+  // KEY FIX: treat "null doc but not timed out" as still loading — prevents
+  // premature /onboarding redirect on Firestore cache miss for new orgs.
   const isLoading =
-    (!isOrgListLoaded || (membershipDocId !== null && membershipDocLoading)) && !timedOut;
+    (!isOrgListLoaded ||
+      (membershipDocId !== null && membershipDocLoading) ||
+      (membershipDocId !== null && !membershipDoc)) &&
+    !timedOut;
 
   if (isLoading) return <DashboardShimmer />;
 

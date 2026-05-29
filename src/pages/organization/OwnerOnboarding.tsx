@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor, createDefaultOwnerCollector } from "@/lib/services";
+import { setCached } from "@/lib/authCache";
 import { toast } from "sonner";
 import {
   Building2, Phone, MapPin, ArrowRight, ArrowLeft,
@@ -268,6 +269,11 @@ export default function OwnerOnboarding() {
       await createMembershipInFirestore(org.id);
       console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
 
+      // Pre-cache the owner role so the timeout fallback in RoleProtectedRoute
+      // resolves instantly instead of waiting the full 5 s.
+      setCached(`role_${user.id}`, "org:owner");
+      console.log("[FC Onboarding] Role cached for instant fallback");
+
       console.log("[FC Onboarding] Step 3.5: Creating default owner collector…");
       await createDefaultOwnerCollector({
         organizationId: org.id,
@@ -339,6 +345,9 @@ export default function OwnerOnboarding() {
       console.log("[FC Onboarding] Step 3: Writing membership + user docs…");
       await createMembershipInFirestore(org.id);
       console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
+
+      setCached(`role_${user.id}`, "org:owner");
+      console.log("[FC Onboarding] Role cached for instant fallback");
 
       console.log("[FC Onboarding] Step 3.5: Creating default owner collector…");
       await createDefaultOwnerCollector({

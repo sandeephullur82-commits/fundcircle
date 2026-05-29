@@ -9,6 +9,7 @@ import { useLanguage } from "@/lib/languageContext";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor } from "@/lib/services";
+import { setCached } from "@/lib/authCache";
 
 export default function OrgCreate() {
   const { isLoaded, createOrganization, setActive } = useOrganizationList();
@@ -88,11 +89,18 @@ export default function OrgCreate() {
 
         await setDoc(doc(db, "memberships", ownerDocId), ownerMembership, { merge: true });
         await setDoc(doc(db, "organizationMembers", ownerDocId), ownerMembership, { merge: true });
+
+        // Pre-cache role so RoleProtectedRoute timeout fallback resolves instantly
+        setCached(`role_${user.id}`, "org:owner");
       }
 
       if (setActive) {
         await setActive({ organization: org.id });
       }
+
+      // Persist org ID so RoleProtectedRoute can resolve membershipId
+      // before Clerk propagates the active org in its hook
+      sessionStorage.setItem("fc_onboarding_org_id", org.id);
 
       toast.success("Organization directory created successfully!");
       navigate("/dashboard/owner", { replace: true, state: { orgId: org.id } });
