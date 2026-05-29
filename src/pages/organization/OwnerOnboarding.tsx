@@ -152,11 +152,15 @@ export default function OwnerOnboarding() {
   const STEPS = isFree ? ["Organization", "Plan"] : ["Organization", "Plan", "Payment"];
   const totalSteps = STEPS.length;
 
+  const isValidIndianPhone = (p: string) => /^[6-9]\d{9}$/.test(p);
+
   const validateStep0 = () => {
     const errs: Record<string, string> = {};
     if (!orgName.trim()) errs.orgName = "Organization name is required.";
     else if (orgName.trim().length < 3) errs.orgName = "Must be at least 3 characters.";
-    if (phone && phone.length !== 10) errs.phone = "Phone number must be exactly 10 digits.";
+    else if (orgName.trim().length > 100) errs.orgName = "Must be 100 characters or fewer.";
+    if (!phone) errs.phone = "Phone number is required.";
+    else if (!isValidIndianPhone(phone)) errs.phone = "Enter a valid 10-digit Indian mobile number (starting with 6–9).";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -500,6 +504,22 @@ export default function OwnerOnboarding() {
               </div>
 
               <div className="space-y-5">
+                {/* Owner Name — read-only from Clerk */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Owner Name
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                    <div className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-700 font-medium select-none cursor-default">
+                      {user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "—"}
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-400 flex items-center gap-1">
+                    <Shield className="w-3 h-3 shrink-0" /> Synced from your account
+                  </p>
+                </div>
+
                 {/* Org Name */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -510,35 +530,26 @@ export default function OwnerOnboarding() {
                     <input
                       type="text"
                       value={orgName}
+                      maxLength={100}
                       onChange={(e) => { setOrgName(e.target.value); setErrors((er) => ({ ...er, orgName: "" })); }}
                       placeholder="e.g. Mandya Pigmy Cooperative Bank"
-                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm text-slate-900 placeholder-slate-400 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all ${errors.orgName ? "border-red-300 focus:ring-red-200" : "border-slate-200 focus:ring-sky-200 focus:border-sky-400"}`}
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm text-slate-900 placeholder-slate-400 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all ${errors.orgName ? "border-red-400 focus:ring-red-200 focus:border-red-400" : "border-slate-200 focus:ring-sky-200 focus:border-sky-400"}`}
                     />
                   </div>
-                  {errors.orgName && <p className="mt-1 text-xs text-red-500">{errors.orgName}</p>}
+                  {errors.orgName
+                    ? <p className="mt-1.5 text-xs font-medium text-red-500">{errors.orgName}</p>
+                    : <p className="mt-1.5 text-xs text-slate-400">3–100 characters required.</p>
+                  }
                 </div>
 
-                {/* Owner Name */}
+                {/* Phone — required, Indian mobile */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Owner Name</label>
-                  <div className="relative">
-                    <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={ownerName}
-                      onChange={(e) => setOwnerName(e.target.value)}
-                      placeholder={user?.fullName || "Your full name"}
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-400 focus:ring-2 focus:ring-sky-200 focus:outline-none transition-all"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-slate-400">Defaults to your Clerk account name if left blank.</p>
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Phone Number</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
                   <div className="relative">
                     <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                    <span className="absolute left-10 top-3 text-sm text-slate-400 font-medium select-none pointer-events-none">+91</span>
                     <input
                       type="tel"
                       value={phone}
@@ -550,15 +561,20 @@ export default function OwnerOnboarding() {
                       placeholder="9876543210"
                       maxLength={10}
                       inputMode="numeric"
-                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm text-slate-900 placeholder-slate-400 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all ${errors.phone ? "border-red-300 focus:ring-red-200" : "border-slate-200 focus:ring-sky-200 focus:border-sky-400"}`}
+                      className={`w-full pl-[4.5rem] pr-4 py-3 rounded-xl border text-sm text-slate-900 placeholder-slate-400 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 transition-all ${errors.phone ? "border-red-400 focus:ring-red-200 focus:border-red-400" : "border-slate-200 focus:ring-sky-200 focus:border-sky-400"}`}
                     />
                   </div>
-                  {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone}</p>}
+                  {errors.phone
+                    ? <p className="mt-1.5 text-xs font-medium text-red-500">{errors.phone}</p>
+                    : <p className="mt-1.5 text-xs text-slate-400">10-digit Indian mobile number (starts with 6–9).</p>
+                  }
                 </div>
 
-                {/* Address */}
+                {/* Address — optional */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Address</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Address <span className="text-slate-400 font-normal normal-case">(optional)</span>
+                  </label>
                   <div className="relative">
                     <MapPin className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                     <input
@@ -571,26 +587,37 @@ export default function OwnerOnboarding() {
                   </div>
                 </div>
 
-                {/* Currency (readonly) */}
+                {/* Currency — fixed read-only */}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Currency</label>
-                  <div className="relative">
-                    <Globe className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                    <div className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed select-none">
-                      {CURRENCY.label}
-                    </div>
+                  <div className="flex items-center gap-3 w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-100 select-none cursor-default">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 font-extrabold text-base shrink-0">₹</span>
+                    <span className="text-sm font-semibold text-slate-700">Indian Rupee (INR)</span>
+                    <span className="ml-auto text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-200 rounded px-1.5 py-0.5">Fixed</span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-400">Only Indian Rupee (₹) is supported.</p>
                 </div>
               </div>
 
               <div className="mt-8 flex justify-end">
-                <button
-                  onClick={handleNext}
-                  className="flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white px-6 py-3 text-sm font-bold shadow-md shadow-sky-300/40 transition-all active:scale-[0.98]"
-                >
-                  Continue <ArrowRight className="w-4 h-4" />
-                </button>
+                {(() => {
+                  const step0Valid =
+                    orgName.trim().length >= 3 &&
+                    orgName.trim().length <= 100 &&
+                    isValidIndianPhone(phone);
+                  return (
+                    <button
+                      onClick={handleNext}
+                      disabled={!step0Valid}
+                      className={`flex items-center gap-2 rounded-xl text-white px-6 py-3 text-sm font-bold shadow-md transition-all active:scale-[0.98] ${
+                        step0Valid
+                          ? "bg-sky-500 hover:bg-sky-600 shadow-sky-300/40 cursor-pointer"
+                          : "bg-slate-300 shadow-none cursor-not-allowed opacity-60"
+                      }`}
+                    >
+                      Continue <ArrowRight className="w-4 h-4" />
+                    </button>
+                  );
+                })()}
               </div>
             </motion.div>
 
