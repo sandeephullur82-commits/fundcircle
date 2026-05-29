@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useSignIn, useUser } from "@clerk/clerk-react";
+import { useSignIn, useUser, useClerk } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import AuthLayout from "./AuthLayout";
@@ -9,12 +9,16 @@ function clerkErrorMessage(err: any): string {
   const long = err?.errors?.[0]?.longMessage || "";
   const short = err?.errors?.[0]?.message || "";
 
+  console.warn("[FC SignIn] Clerk error code:", code, "| long:", long, "| short:", short);
+
   if (code === "form_password_incorrect") return "Incorrect password. Please try again.";
   if (code === "form_identifier_not_found") return "No account found with that email address.";
   if (code === "form_param_format_invalid") return "Please enter a valid email address.";
   if (code === "too_many_requests") return "Too many attempts. Please wait a moment and try again.";
-  if (code === "session_exists") return "You are already signed in.";
+  if (code === "session_exists") return "You are already signed in. Redirecting…";
   if (code === "user_locked") return "This account has been locked. Please contact support.";
+  if (code === "strategy_for_user_invalid") return "This sign-in method is not set up for your account. Use 'Forgot password' to set one.";
+  if (code === "form_identifier_exists") return "An account with this email already exists.";
 
   return long || short || "An unexpected error occurred. Please try again.";
 }
@@ -22,6 +26,7 @@ function clerkErrorMessage(err: any): string {
 export default function SignInPage() {
   const { isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, signIn, setActive } = useSignIn();
+  const clerk = useClerk();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -30,8 +35,10 @@ export default function SignInPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Redirect already-signed-in users immediately
   useEffect(() => {
     if (userLoaded && isSignedIn) {
+      console.log("[FC SignIn] User already signed in — redirecting to /router");
       navigate("/router", { replace: true });
     }
   }, [userLoaded, isSignedIn, navigate]);
@@ -42,30 +49,80 @@ export default function SignInPage() {
     setError("");
     setLoading(true);
 
+    console.log("[FC SignIn] Attempting sign-in for:", email.trim().toLowerCase());
+    console.log("[FC SignIn] Current signIn status before create():", signIn.status);
+
     try {
+      // If there's an existing incomplete signIn attempt, Clerk will replace it.
+      // If there's an existing session, sign out first to avoid session_exists errors.
+      if (userLoaded && isSignedIn) {
+        console.log("[FC SignIn] Stale session detected — signing out before new attempt");
+        await clerk.signOut();
+      }
+
       const result = await signIn.create({
         identifier: email.trim().toLowerCase(),
         password,
       });
 
+      console.log("[FC SignIn] signIn.create() returned status:", result.status, "| sessionId:", result.createdSessionId);
+
       if (result.status === "complete" && result.createdSessionId) {
+        console.log("[FC SignIn] Sign-in complete — calling setActive with session:", result.createdSessionId);
         await setActive({ session: result.createdSessionId });
+        console.log("[FC SignIn] setActive() done — navigating to /router");
         navigate("/router", { replace: true });
         return;
       }
 
+      if (result.status === "needs_second_factor") {
+        console.warn("[FC SignIn] MFA required — not supported");
+        setError(
+          "Your account has multi-factor authentication (MFA) enabled, which is not currently supported. " +
+          "Please ask your administrator to disable MFA in the Clerk dashboard, then try again."
+        );
+        return;
+      }
+
       if (result.status === "needs_first_factor") {
-        setError("Email/password authentication is not enabled. Contact your administrator.");
+        console.warn("[FC SignIn] needs_first_factor — available strategies:", result.supportedFirstFactors?.map((f: any) => f.strategy));
+        // This can happen if the account was created via invitation but password wasn't set.
+        const hasPassword = result.supportedFirstFactors?.some((f: any) => f.strategy === "password");
+        if (!hasPassword) {
+          setError("No password is set for this account. Please use 'Forgot password' to set one.");
+        } else {
+          setError("Additional verification required. Please try again or use 'Forgot password'.");
+        }
         return;
       }
 
       if (result.status === "needs_new_password") {
-        setError("Your password has expired. Use the forgot password flow to set a new one.");
+        console.warn("[FC SignIn] needs_new_password — redirecting to forgot-password flow");
+        setError("Your password has expired and must be reset. Please use 'Forgot password' to set a new one.");
         return;
       }
 
-      setError("Sign-in returned an unexpected state. Please try again.");
+      if (result.status === "needs_identifier") {
+        console.warn("[FC SignIn] needs_identifier — email was not submitted correctly");
+        setError("Please enter your email address.");
+        return;
+      }
+
+      // Any other unexpected status (including "abandoned" in older Clerk versions)
+      console.error("[FC SignIn] Unexpected status:", result.status, result);
+      try { await clerk.signOut(); } catch { /* ignore */ }
+      setError(`Sign-in returned an unexpected state. Please try again or contact support.`);
+
     } catch (err: any) {
+      console.error("[FC SignIn] Exception during signIn.create():", err);
+
+      // If already signed in, just redirect
+      if (err?.errors?.[0]?.code === "session_exists") {
+        console.log("[FC SignIn] session_exists — redirecting to /router");
+        navigate("/router", { replace: true });
+        return;
+      }
+
       setError(clerkErrorMessage(err));
     } finally {
       setLoading(false);
@@ -74,7 +131,6 @@ export default function SignInPage() {
 
   return (
     <AuthLayout>
-      {/* Card — dark glassmorphism with strong separation */}
       <div className="rounded-3xl border border-white/[0.14] bg-white/[0.07] p-8 backdrop-blur-2xl shadow-2xl shadow-black/70 ring-1 ring-inset ring-white/[0.05]">
         <div className="mb-7">
           <h2 className="text-[1.6rem] font-bold text-white leading-tight">Welcome back</h2>

@@ -367,6 +367,13 @@ function RoleRouter() {
   return <Navigate to="/onboarding" replace />;
 }
 
+// ─── Preserve query params on legacy redirects (critical for __clerk_ticket) ──
+function QueryPreservingRedirect({ to }: { to: string }) {
+  const { search } = useLocation();
+  console.log(`[FC Redirect] ${window.location.pathname}${search} → ${to}${search}`);
+  return <Navigate to={`${to}${search}`} replace />;
+}
+
 // ─── App ───────────────────────────────────────────────────────────────────
 export default function App() {
   if (!clerkPubKey) {
@@ -382,7 +389,12 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <ClerkProvider publishableKey={clerkPubKey} fallbackRedirectUrl="/auth/callback">
+      <ClerkProvider
+        publishableKey={clerkPubKey}
+        signInUrl="/auth/sign-in"
+        signUpUrl="/auth/sign-up"
+        fallbackRedirectUrl="/auth/callback"
+      >
         <BrowserRouter>
           <ScrollToTop />
           <AuthRedirectManager />
@@ -398,13 +410,13 @@ export default function App() {
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-              {/* Legacy sign-in redirects */}
-              <Route path="/sign-in/*" element={<Navigate to="/auth/sign-in" replace />} />
-              <Route path="/sign-up/*" element={<Navigate to="/auth/sign-up" replace />} />
-              <Route path="/organization/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
-              <Route path="/organization/signup/*" element={<Navigate to="/auth/sign-up" replace />} />
-              <Route path="/agent/login/*" element={<Navigate to="/auth/sign-in" replace />} />
-              <Route path="/customer/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+              {/* Legacy sign-in redirects — QueryPreservingRedirect keeps __clerk_ticket intact */}
+              <Route path="/sign-in/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
+              <Route path="/sign-up/*" element={<QueryPreservingRedirect to="/auth/sign-up" />} />
+              <Route path="/organization/signin/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
+              <Route path="/organization/signup/*" element={<QueryPreservingRedirect to="/auth/sign-up" />} />
+              <Route path="/agent/login/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
+              <Route path="/customer/signin/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
 
               <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
 
