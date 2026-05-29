@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { membershipIdFor } from "@/lib/services";
+import { membershipIdFor, createDefaultOwnerCollector } from "@/lib/services";
 import { toast } from "sonner";
 import {
   Building2, Phone, MapPin, ArrowRight, ArrowLeft,
@@ -268,6 +268,17 @@ export default function OwnerOnboarding() {
       await createMembershipInFirestore(org.id);
       console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
 
+      console.log("[FC Onboarding] Step 3.5: Creating default owner collector…");
+      await createDefaultOwnerCollector({
+        organizationId: org.id,
+        clerkUserId: user.id,
+        fullName: getEffectiveName(),
+        email: user.primaryEmailAddress?.emailAddress || "",
+        phone: phone.trim(),
+        organizationName: orgName.trim(),
+      });
+      console.log("[FC Onboarding] Step 3.5 ✓ Default owner collector created");
+
       console.log("[FC Onboarding] Step 4: Writing subscription doc…");
       const subRef = doc(collection(db, "subscriptions"));
       await setDoc(subRef, {
@@ -328,6 +339,17 @@ export default function OwnerOnboarding() {
       console.log("[FC Onboarding] Step 3: Writing membership + user docs…");
       await createMembershipInFirestore(org.id);
       console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
+
+      console.log("[FC Onboarding] Step 3.5: Creating default owner collector…");
+      await createDefaultOwnerCollector({
+        organizationId: org.id,
+        clerkUserId: user.id,
+        fullName: getEffectiveName(),
+        email: user.primaryEmailAddress?.emailAddress || "",
+        phone: phone.trim(),
+        organizationName: orgName.trim(),
+      });
+      console.log("[FC Onboarding] Step 3.5 ✓ Default owner collector created");
 
       console.log("[FC Onboarding] Step 4: Writing subscription + payment docs…");
       const invoiceNumber = generateInvoiceNumber();

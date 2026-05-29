@@ -977,3 +977,42 @@ export async function validateCustomerInvite(
   }
 }
 
+/**
+ * Creates the default "owner collector" record when an organization is created.
+ * The owner automatically acts as the first Pigmy Collector (collector_type = OWNER).
+ * This record appears in agent/collector queries so customers can be assigned immediately.
+ * The owner collector cannot be deleted and is always active.
+ */
+export async function createDefaultOwnerCollector(params: {
+  organizationId: string;
+  clerkUserId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  organizationName: string;
+}): Promise<void> {
+  const { organizationId, clerkUserId, fullName, email, phone, organizationName } = params;
+  const collectorDocId = `${organizationId}_${clerkUserId}_default_collector`;
+  await setDoc(doc(db, "organizationMembers", collectorDocId), {
+    id: collectorDocId,
+    organizationId,
+    clerkUserId,
+    role: "AGENT",
+    clerkRole: "org:owner",
+    collector_type: "OWNER",
+    is_default: true,
+    status: "ACTIVE",
+    fullName,
+    name: fullName,
+    email,
+    phone,
+    organizationName,
+    profileCompleted: true,
+    actsAsAgent: true,
+    assignedArea: "All Areas",
+    joinedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
