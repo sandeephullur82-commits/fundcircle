@@ -107,14 +107,6 @@ export default function ResetPasswordPage() {
         sessionStorage.removeItem("fc_reset_email");
         toast.success("Password updated successfully!");
         navigate("/router", { replace: true });
-      } else if (status === "needs_second_factor") {
-        console.warn("[FC ResetPassword] MFA detected — signing out");
-        try { await clerk.signOut(); } catch { /* ignore */ }
-        setError(
-          "Your account has multi-factor authentication (MFA) enabled. " +
-          "FundCircle does not support MFA. Please ask your administrator to disable " +
-          "MFA in the Clerk dashboard under User Authentication → Multi-factor, then try again."
-        );
       } else {
         console.warn("[FC ResetPassword] Unexpected status:", status);
         setError("Could not complete password reset. Please try again.");

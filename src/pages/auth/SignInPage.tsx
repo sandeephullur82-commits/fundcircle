@@ -88,43 +88,10 @@ export default function SignInPage() {
         return;
       }
 
-      // ── needs_second_factor (MFA) ────────────────────────────────────────
-      if (status === "needs_second_factor") {
-        console.warn("[FC SignIn] MFA required — not supported");
-        setError(
-          "Your account has multi-factor authentication enabled. " +
-          "MFA is not currently supported. Ask your administrator to disable it."
-        );
-        return;
-      }
-
-      // ── needs_first_factor ──────────────────────────────────────────────
-      if (status === "needs_first_factor") {
-        const strategies = result.supportedFirstFactors?.map((f: any) => f.strategy) ?? [];
-        console.warn("[FC SignIn] needs_first_factor — strategies:", strategies);
-        setError(
-          strategies.includes("password")
-            ? "Additional verification required. Please try again or use 'Forgot password'."
-            : "No password is set on this account. Use 'Forgot password' to create one."
-        );
-        return;
-      }
-
-      // ── needs_new_password ───────────────────────────────────────────────
-      if (status === "needs_new_password") {
-        setError("Your password has expired. Use 'Forgot password' to set a new one.");
-        return;
-      }
-
-      // ── needs_identifier ─────────────────────────────────────────────────
-      if (status === "needs_identifier") {
-        setError("Please enter your email address.");
-        return;
-      }
-
-      // ── any other status — attempt recovery ──────────────────────────────
-      // Do NOT show raw Clerk status strings. Try setActive if we have a session,
-      // otherwise ask the user to try again.
+      // ── any non-complete status ──────────────────────────────────────────
+      // With Email + Password only enabled in Clerk, "complete" is the only
+      // expected outcome. Any other status is unexpected — attempt recovery
+      // if a session ID is present, otherwise show a simple retry message.
       console.warn("[FC SignIn] Unexpected status:", status);
       if (result.createdSessionId) {
         console.log("[FC SignIn] Recovery: activating available session…");
@@ -133,7 +100,7 @@ export default function SignInPage() {
         return;
       }
       try { await clerk.signOut(); } catch { /* ignore */ }
-      setError("Sign-in could not be completed. Please try again.");
+      setError("Sign-in failed. Please check your credentials and try again.");
 
     } catch (err: any) {
       console.error("[FC SignIn] Exception:", err);
