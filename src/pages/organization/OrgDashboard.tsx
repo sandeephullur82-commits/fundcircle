@@ -2,7 +2,7 @@ import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
   Bell, Menu, CalendarDays, ClipboardList, LayoutDashboard,
-  ArrowUpCircle, X, SendHorizonal,
+  ArrowUpCircle, X,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
@@ -27,7 +27,6 @@ import OrgReports from "./OrgReports";
 import OrgNotifications from "./OrgNotifications";
 import OrgSettings from "./OrgSettings";
 import OrgBilling from "./OrgBilling";
-import OrgInvitations from "./OrgInvitations";
 import AgentOverview from "../agent/AgentOverview";
 import AgentCustomers from "../agent/AgentCustomers";
 
@@ -68,14 +67,8 @@ export default function OrgDashboard() {
   const { data: upgradeRequests } = useCollectionRealtime<any>("upgradeRequests", [where("status", "==", "PENDING")]);
   const [dismissedRequestIds, setDismissedRequestIds] = useState<Set<string>>(new Set());
 
-  const { data: pendingInvites } = useCollectionRealtime<any>("pendingInvites");
-  const pendingInviteCount = pendingInvites.filter(
-    (i: any) =>
-      (i.status || "").toUpperCase() !== "REVOKED" &&
-      !i.profileCompleted &&
-      (i.status || "").toUpperCase() !== "ACCEPTED" &&
-      (i.status || "").toUpperCase() !== "ACTIVE"
-  ).length;
+  const { data: pendingSetupMembers } = useCollectionRealtime<any>("organizationMembers", [where("status", "==", "PENDING_SETUP")]);
+  const pendingSetupCount = pendingSetupMembers.length;
 
   const clerkRole = normalizeClerkRole((user?.publicMetadata as any)?.role as string | undefined);
   const membershipRoleNormalized = normalizeClerkRole(membershipDoc?.role?.toString() || null);
@@ -94,9 +87,8 @@ export default function OrgDashboard() {
   const adminMenuItems = [
     { id: "overview", label: "Dashboard", icon: LayoutDashboard },
     { id: "customers", label: "Customers", icon: Users },
-    { id: "agents", label: "Collectors", icon: Users },
+    { id: "agents", label: "Collectors", icon: Users, badge: pendingSetupCount || undefined },
     { id: "collections", label: "Collections", icon: Wallet },
-    { id: "invitations", label: "Invitations", icon: SendHorizonal, badge: pendingInviteCount || undefined },
     { id: "loans", label: "Loans & EMI", icon: CreditCard },
     { id: "reports", label: "Reports", icon: FileText },
     { id: "notifications", label: "Notifications", icon: Bell, badge: unreadCount },
@@ -288,7 +280,6 @@ export default function OrgDashboard() {
           <TabsContent value="notifications" className="mt-0"><OrgNotifications /></TabsContent>
           <TabsContent value="billing" className="mt-0"><OrgBilling /></TabsContent>
           <TabsContent value="settings" className="mt-0"><OrgSettings /></TabsContent>
-          <TabsContent value="invitations" className="mt-0"><OrgInvitations /></TabsContent>
           <TabsContent value="daily" className="mt-0"><AgentOverview /></TabsContent>
           <TabsContent value="customerLedger" className="mt-0">
             <AgentCustomers collectorRole={isOwner ? "OWNER" : "AGENT"} collectorName={user?.fullName || ""} collectorId={user?.id || ""} />

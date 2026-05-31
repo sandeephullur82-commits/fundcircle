@@ -8,7 +8,6 @@ const PROTECTED_PREFIXES = [
   "/complete-profile",
   "/billing",
   "/organization/create",
-  "/organization/invitation",
   "/profile",
   "/router",
   "/debug-user",

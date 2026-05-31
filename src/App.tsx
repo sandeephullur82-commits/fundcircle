@@ -21,14 +21,13 @@ import CustomSignUpPage from "./pages/auth/SignUpPage";
 import VerifyEmailPage from "./pages/auth/VerifyEmailPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
-import AcceptInvitationPage from "./pages/auth/AcceptInvitationPage";
+import SetupPasswordPage from "./pages/auth/SetupPasswordPage";
 
 import OrgDashboard from "./pages/organization/OrgDashboard";
 import OwnerOnboarding from "./pages/organization/OwnerOnboarding";
 import AgentDashboard from "./pages/agent/AgentDashboard";
 import CustomerDashboard from "./pages/customer/CustomerDashboard";
 import OrgCreate from "./pages/organization/OrgCreate";
-import OrgInvitation from "./pages/organization/OrgInvitation";
 import OrgSelectorPage from "./pages/OrgSelectorPage";
 import UserProfilePage from "./pages/UserProfilePage";
 import WorkspaceSelectionPage from "./pages/WorkspaceSelectionPage";
@@ -75,7 +74,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
   }
 }
 
-// ─── Loading shimmer (shown while chunks or auth load) ─────────────────────
+// ─── Loading shimmer ────────────────────────────────────────────────────────
 function DashboardShimmer() {
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -139,7 +138,7 @@ function LoadingWorkspace({
   return <DashboardShimmer />;
 }
 
-// ─── ProtectedRoute: shows shimmer while Clerk loads; redirects if not signed in ──
+// ─── ProtectedRoute ────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
   if (!isLoaded) return <DashboardShimmer />;
@@ -170,7 +169,6 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
 
   useEffect(() => {
     if (!isOrgListLoaded || organization?.id || !userMemberships?.data?.length || !setActive) return;
-    // Multi-org non-owners must choose via OrgSelectorPage — never auto-activate for them
     const members = userMemberships.data;
     if (members.length > 1 && members[0]?.role !== "org:admin" && members[0]?.role !== "org:owner") return;
     setActive({ organization: members[0].organization.id }).catch(() => undefined);
@@ -187,7 +185,6 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     return () => clearTimeout(timer);
   }, []);
 
-  // Cache the role when we get it from Firestore — keyed by userId+orgId
   useEffect(() => {
     if (membershipDoc && user?.id && activeOrgId) {
       const role = membershipDoc.clerkRole || membershipDoc.role || null;
@@ -198,10 +195,6 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
     }
   }, [membershipDoc, user?.id, activeOrgId]);
 
-  // KEY FIX: also wait when doc is null but we haven't timed out — Firestore with
-  // persistentLocalCache fires onSnapshot immediately with null on a cache miss
-  // (brand-new doc not yet in IndexedDB). The real server response arrives shortly
-  // after. If we redirect on that first null we loop forever. Wait for timeout instead.
   const isLoading =
     !isLoaded ||
     (!isOrgListLoaded && !timedOut) ||
@@ -218,21 +211,18 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
       console.log("[FC RoleProtectedRoute] Using cached role:", cachedRole);
       if (normalizedCached && allowedRoles.includes(normalizedCached)) return <>{children}</>;
     }
-    const clerkMembership = userMemberships?.data?.find(
-      (m) => m.organization?.id === activeOrgId
-    );
+    const clerkMembership = userMemberships?.data?.find((m) => m.organization?.id === activeOrgId);
     const clerkRole = clerkMembership?.role;
     console.log("[FC RoleProtectedRoute] Clerk role fallback:", clerkRole);
     const normalizedClerkRole = normalizeClerkRole(clerkRole);
     if (normalizedClerkRole && allowedRoles.includes(normalizedClerkRole)) {
       return <>{children}</>;
     }
-    // Both Firestore and Clerk role checks failed (poor connectivity or first login).
-    // Rather than showing a blank screen, render the requested dashboard as a fallback.
-    // A non-owner who somehow reached this route will see nothing useful without data.
     console.log("[FC RoleProtectedRoute] All fallbacks exhausted — rendering as last resort");
     return <>{children}</>;
   }
+
+  if (!membershipDoc) return <DashboardShimmer />;
 
   const normalizedRole = normalizeClerkRole(membershipDoc.clerkRole || membershipDoc.role || null);
   console.log("[FC RoleProtectedRoute] Normalized role:", normalizedRole, "allowed:", allowedRoles);
@@ -245,8 +235,8 @@ function RoleProtectedRoute({ allowedRoles, children }: { allowedRoles: string[]
 function RoleRouter() {
   const { user } = useUser();
   const { organization } = useOrganization();
-  const { isLoaded: isOrgListLoaded, userMemberships, userInvitations, setActive } =
-    useOrganizationList({ userMemberships: true, userInvitations: true });
+  const { isLoaded: isOrgListLoaded, userMemberships, setActive } =
+    useOrganizationList({ userMemberships: true });
   const location = useLocation();
   const [timedOut, setTimedOut] = useState(false);
   const loggedRef = useRef(false);
@@ -258,7 +248,6 @@ function RoleRouter() {
 
   const memberships = userMemberships?.data || [];
 
-  // Agents/customers with multiple orgs must pick via OrgSelectorPage — don't auto-select
   const isMultiOrgNonOwner =
     isOrgListLoaded &&
     !organization?.id &&
@@ -276,10 +265,8 @@ function RoleRouter() {
   const { data: membershipDoc, loading: membershipDocLoading } =
     useDocumentRealtime<any>("organizationMembers", membershipDocId);
 
-  // Activate the first available org if none is active yet (skip for multi-org non-owners)
   useEffect(() => {
     if (!user || !isOrgListLoaded || organization?.id || !memberships.length || !setActive) return;
-    // Multi-org agents/customers go to OrgSelectorPage — don't auto-activate
     if (memberships.length > 1 && memberships[0]?.role !== "org:admin") return;
     const firstOrgId = memberships[0].organization.id;
     console.log("[FC RoleRouter] Auto-activating first Clerk org:", firstOrgId);
@@ -288,7 +275,6 @@ function RoleRouter() {
     );
   }, [user, isOrgListLoaded, organization?.id, memberships, setActive]);
 
-  // Firestore hard timeout
   useEffect(() => {
     const timer = setTimeout(() => {
       console.warn("[FC RoleRouter] Firestore timeout (5s) — falling back to Clerk role");
@@ -297,7 +283,6 @@ function RoleRouter() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Cache resolved Firestore role — keyed by userId+orgId for org-scoped roles
   useEffect(() => {
     if (membershipDoc && user?.id && activeOrgId) {
       const role = membershipDoc.clerkRole || membershipDoc.role || null;
@@ -308,39 +293,29 @@ function RoleRouter() {
     }
   }, [membershipDoc, user?.id, activeOrgId]);
 
-  // Log the full state once per render cycle (after data loads)
   useEffect(() => {
     if (!user || !isOrgListLoaded) return;
     if (loggedRef.current) return;
     loggedRef.current = true;
-
     console.log("────────────────────────────────────────────");
     console.log("[FC RoleRouter] ▶ State snapshot");
     console.log("[FC RoleRouter]   userId          :", user.id);
     console.log("[FC RoleRouter]   activeOrgId     :", activeOrgId ?? "null");
     console.log("[FC RoleRouter]   membershipDocId :", membershipDocId ?? "null (no org)");
-    console.log("[FC RoleRouter]   membershipDoc   :", membershipDoc
-      ? `found — role: ${membershipDoc.clerkRole ?? membershipDoc.role ?? "MISSING"}, profileCompleted: ${membershipDoc.profileCompleted ?? "absent"}`
-      : "null"
-    );
-    console.log("[FC RoleRouter]   Clerk memberships:", userMemberships?.data?.map(m => `${m.organization?.id}:${m.role}`) ?? []);
-    console.log("[FC RoleRouter]   Clerk invitations:", userInvitations?.data?.map(i => `${i.publicOrganizationData?.id}:${i.role}`) ?? []);
+    console.log("[FC RoleRouter]   Clerk memberships:", memberships.map(m => `${m.organization?.id}:${m.role}`));
     console.log("[FC RoleRouter]   timedOut        :", timedOut);
   });
 
-  // ── No user → sign-in ────────────────────────────────────────────────────
   if (!user) {
     console.log("[FC RoleRouter] No user → /auth/sign-in");
     return <Navigate to="/auth/sign-in" replace />;
   }
 
-  // ── Multiple orgs for agent/customer → org selector ──────────────────────
   if (isMultiOrgNonOwner) {
     console.log("[FC RoleRouter] Multi-org non-owner → /org-select");
     return <Navigate to="/org-select" replace />;
   }
 
-  // ── Cached role fast-path (only after Firestore timeout with no doc) ──────
   if (!membershipDoc && !membershipDocLoading && timedOut && activeOrgId) {
     const cachedRole = getCached<string>(`role_${user.id}_${activeOrgId}`);
     if (cachedRole) {
@@ -351,9 +326,6 @@ function RoleRouter() {
     }
   }
 
-  // ── Still loading Firestore ───────────────────────────────────────────────
-  // Treat "null doc but not timed out" as loading to prevent premature /onboarding
-  // redirect on Firestore cache miss (new device / new org / first login).
   const isLoading =
     (!isOrgListLoaded ||
       (membershipDocId !== null && membershipDocLoading) ||
@@ -362,29 +334,17 @@ function RoleRouter() {
 
   if (isLoading) return <DashboardShimmer />;
 
-  // ── Firestore membership found ────────────────────────────────────────────
   if (membershipDoc) {
-    const rawRole      = membershipDoc.clerkRole || membershipDoc.role || null;
+    const rawRole = membershipDoc.clerkRole || membershipDoc.role || null;
     const normalizedRole = normalizeClerkRole(rawRole);
     const profileCompleted = membershipDoc.profileCompleted !== false;
-    const dashPath     = getDashboardPath(normalizedRole);
+    const dashPath = getDashboardPath(normalizedRole);
 
-    console.log("[FC RoleRouter] ────────────────────────────────────────────");
     console.log("[FC RoleRouter] Auth redirect decision (Firestore):");
-    console.log("[FC RoleRouter]   userId          :", user.id);
-    console.log("[FC RoleRouter]   orgId           :", activeOrgId ?? "null");
-    console.log("[FC RoleRouter]   membershipDocId :", membershipDocId);
-    console.log("[FC RoleRouter]   rawRole         :", rawRole ?? "MISSING — check Firestore doc");
-    console.log("[FC RoleRouter]   normalizedRole  :", normalizedRole ?? "null (UNRECOGNIZED — check normalizeClerkRole())");
+    console.log("[FC RoleRouter]   rawRole         :", rawRole ?? "MISSING");
+    console.log("[FC RoleRouter]   normalizedRole  :", normalizedRole ?? "null");
     console.log("[FC RoleRouter]   profileCompleted:", profileCompleted);
     console.log("[FC RoleRouter]   → destination   :", !profileCompleted && (normalizedRole === "pigmy_collector" || normalizedRole === "customer") ? "/complete-profile" : dashPath);
-    console.log("[FC RoleRouter] ────────────────────────────────────────────");
-
-    if (!normalizedRole) {
-      console.error("[FC RoleRouter] ✗ Role '", rawRole, "' not recognized.");
-      console.error("[FC RoleRouter]   Valid Firestore values: OWNER, AGENT, CUSTOMER");
-      console.error("[FC RoleRouter]   Valid Clerk values: org:admin, org:pigmy_collector, org:customer");
-    }
 
     if (!profileCompleted && (normalizedRole === "pigmy_collector" || normalizedRole === "customer")) {
       return <Navigate to="/complete-profile" replace />;
@@ -394,69 +354,32 @@ function RoleRouter() {
     return <Navigate to={dashPath} replace />;
   }
 
-  // ── Clerk membership fallback (Firestore slow or missing) ────────────────
-  if (isOrgListLoaded && userMemberships?.data?.length) {
-    const firstMembership = userMemberships.data[0];
-    const clerkRole       = firstMembership.role;
-    const orgId           = firstMembership.organization?.id || navOrgId;
+  if (isOrgListLoaded && memberships.length) {
+    const firstMembership = memberships[0];
+    const clerkRole = firstMembership.role;
+    const orgId = firstMembership.organization?.id || navOrgId;
     const normalizedClerkRole = normalizeClerkRole(clerkRole);
 
-    console.log("[FC RoleRouter] Clerk membership fallback:");
-    console.log("[FC RoleRouter]   clerkRole          :", clerkRole);
-    console.log("[FC RoleRouter]   normalizedClerkRole:", normalizedClerkRole ?? "UNRECOGNIZED");
-    console.log("[FC RoleRouter]   orgId              :", orgId ?? "null");
-    console.log("[FC RoleRouter]   Note: Firestore doc missing — owner may not have pre-created the collector record OR Firestore is slow");
+    console.log("[FC RoleRouter] Clerk membership fallback — clerkRole:", clerkRole, "orgId:", orgId);
 
-    // Use getDashboardPath as single source of truth for all role→path mapping
     if (normalizedClerkRole && orgId) {
       const dashPath = getDashboardPath(normalizedClerkRole);
       if (dashPath !== "/onboarding") {
-        console.log("[FC RoleRouter] ────────────────────────────────────────────");
-        console.log("[FC RoleRouter] Auth redirect decision (Clerk fallback):");
-        console.log("[FC RoleRouter]   userId    :", user.id);
-        console.log("[FC RoleRouter]   orgId     :", orgId);
-        console.log("[FC RoleRouter]   clerkRole :", clerkRole, "(raw)");
-        console.log("[FC RoleRouter]   normalized:", normalizedClerkRole);
-        console.log("[FC RoleRouter]   → destination:", dashPath);
-        console.log("[FC RoleRouter] ────────────────────────────────────────────");
         return <Navigate to={dashPath} replace state={{ orgId }} />;
       }
     }
-
-    // Clerk role not recognized — wait if Firestore hasn't timed out yet
-    if (!timedOut) {
-      console.log("[FC RoleRouter]   Role unrecognized + Firestore still loading — showing shimmer");
-      return <DashboardShimmer />;
-    }
-
-    // Hard fallback: has org, role unclear → owner dashboard
-    if (orgId) {
-      console.warn("[FC RoleRouter]   Role unclear after timeout — defaulting to /dashboard/owner for orgId:", orgId);
-      return <Navigate to="/dashboard/owner" replace state={{ orgId }} />;
-    }
-
-    return (
-      <LoadingWorkspace
-        message="Workspace data not found. Please try again."
-        onRetry={() => window.location.reload()}
-      />
-    );
   }
 
-  // ── No Clerk membership — check for pending invitations ──────────────────
-  if (isOrgListLoaded && userInvitations?.data?.length) {
-    console.log("[FC RoleRouter] No membership but has pending Clerk invitation(s) →  /organization/invitation");
-    return <Navigate to="/organization/invitation" replace />;
+  if (!timedOut) {
+    console.log("[FC RoleRouter]   Role unrecognized + Firestore still loading — showing shimmer");
+    return <DashboardShimmer />;
   }
 
-  // ── No membership, no invitations — new owner who hasn't created an org ──
-  // LOOP GUARD: if we've been here before (check sessionStorage counter), show
-  // a hard-stop rather than looping /router → /onboarding → /router infinitely.
   const routerVisits = parseInt(sessionStorage.getItem("fc_router_visits") ?? "0", 10) + 1;
   sessionStorage.setItem("fc_router_visits", String(routerVisits));
   if (routerVisits > 3) {
     sessionStorage.removeItem("fc_router_visits");
-    console.error("[FC RoleRouter] ✗ Redirect loop detected (visited /router", routerVisits, "times) — showing recovery UI");
+    console.error("[FC RoleRouter] ✗ Redirect loop detected — showing recovery UI");
     return (
       <LoadingWorkspace
         message="Unable to determine your workspace. Please sign out and try again."
@@ -465,15 +388,8 @@ function RoleRouter() {
     );
   }
 
-  console.log("[FC RoleRouter] No org + no invitations → /onboarding (visit #", routerVisits, ")");
+  console.log("[FC RoleRouter] No org → /onboarding (visit #", routerVisits, ")");
   return <Navigate to="/onboarding" replace />;
-}
-
-// ─── Preserve query params on legacy redirects (critical for __clerk_ticket) ──
-function QueryPreservingRedirect({ to }: { to: string }) {
-  const { search } = useLocation();
-  console.log(`[FC Redirect] ${window.location.pathname}${search} → ${to}${search}`);
-  return <Navigate to={`${to}${search}`} replace />;
 }
 
 // ─── App ───────────────────────────────────────────────────────────────────
@@ -510,43 +426,37 @@ export default function App() {
               <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
               <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-              {/* Invitation acceptance — must be public; __clerk_ticket is in the query string */}
-              <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
-
-              {/* Legacy sign-in redirects — QueryPreservingRedirect keeps __clerk_ticket intact */}
-              <Route path="/sign-in/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
-              <Route path="/sign-up/*" element={<QueryPreservingRedirect to="/auth/sign-up" />} />
-              <Route path="/organization/signin/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
-              <Route path="/organization/signup/*" element={<QueryPreservingRedirect to="/auth/sign-up" />} />
-              <Route path="/agent/login/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
-              <Route path="/customer/signin/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />
+              {/* Legacy sign-in redirects */}
+              <Route path="/sign-in/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/sign-up/*" element={<Navigate to="/auth/sign-up" replace />} />
+              <Route path="/organization/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/organization/signup/*" element={<Navigate to="/auth/sign-up" replace />} />
+              <Route path="/agent/login/*" element={<Navigate to="/auth/sign-in" replace />} />
+              <Route path="/customer/signin/*" element={<Navigate to="/auth/sign-in" replace />} />
 
               <Route path="/workspace-selection" element={<WorkspaceSelectionPage />} />
 
-              {/* Protected pages — use ProtectedRoute (shows shimmer, not blank) */}
+              {/* Protected pages */}
               <Route path="/onboarding" element={<ProtectedRoute><OwnerOnboarding /></ProtectedRoute>} />
               <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
               <Route path="/auth/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
 
               <Route path="/organization/create" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgCreate /></RoleProtectedRoute></ProtectedRoute>} />
-              <Route path="/organization/invitation" element={<ProtectedRoute><OrgInvitation /></ProtectedRoute>} />
               <Route path="/org-select" element={<ProtectedRoute><OrgSelectorPage /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><UserProfilePage /></ProtectedRoute>} />
 
-              {/* Role router — ProtectedRoute prevents blank-page flash during session propagation */}
               <Route path="/router" element={<ProtectedRoute><RoleRouter /></ProtectedRoute>} />
 
               {/* Dashboards */}
-              <Route path="/dashboard/owner/*"     element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgDashboard /></RoleProtectedRoute></ProtectedRoute>} />
-              <Route path="/dashboard/agent/*"     element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></ProtectedRoute>} />
-              <Route path="/dashboard/customer/*"  element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["customer"]}><CustomerDashboard /></RoleProtectedRoute></ProtectedRoute>} />
-              {/* Aliases → canonical paths */}
-              <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent"  replace />} />
-              <Route path="/dashboard/operator/*"  element={<Navigate to="/dashboard/owner"  replace />} />
-              {/* Fallback: unknown /dashboard/* → router to re-detect role */}
-              <Route path="/dashboard/*"           element={<Navigate to="/router"           replace />} />
+              <Route path="/dashboard/owner/*"    element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["organization_owner"]}><OrgDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/agent/*"    element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["pigmy_collector"]}><AgentDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/customer/*" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={["customer"]}><CustomerDashboard /></RoleProtectedRoute></ProtectedRoute>} />
+              <Route path="/dashboard/collector/*" element={<Navigate to="/dashboard/agent" replace />} />
+              <Route path="/dashboard/operator/*"  element={<Navigate to="/dashboard/owner" replace />} />
+              <Route path="/dashboard/*"           element={<Navigate to="/router" replace />} />
 
               <Route path="/debug-user" element={<ProtectedRoute><DebugUserDoc /></ProtectedRoute>} />
 

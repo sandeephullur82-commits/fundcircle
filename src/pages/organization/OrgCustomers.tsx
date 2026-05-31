@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { sendOrganizationInvitation, validateCustomerInvite, reassignCustomer } from "@/lib/services";
+import { provisionUser, validateCustomerEmail, reassignCustomer } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
 import {
-  Search, Plus, AlertTriangle, Crown, Users, ChevronDown, RefreshCw, Loader2,
+  Search, Plus, AlertTriangle, Crown, Users, ChevronDown, RefreshCw, Loader2, Copy, CheckCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,7 +25,6 @@ export default function OrgCustomers() {
   const { data: agents, loading: agentsLoading } = useCollectionRealtime<Membership>("organizationMembers", [
     where("role", "==", "AGENT"),
   ]);
-  // Owner members — owner can also collect payments directly
   const { data: owners, loading: ownersLoading } = useCollectionRealtime<Membership>("organizationMembers", [
     where("role", "==", "OWNER"),
   ]);
@@ -36,16 +35,17 @@ export default function OrgCustomers() {
   const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Invite form
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [selectedCollectorId, setSelectedCollectorId] = useState("");
+  const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Reassign modal
   const [reassigningCustomer, setReassigningCustomer] = useState<any>(null);
   const [newCollectorId, setNewCollectorId] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
 
-  // Unified collector list: owner first, then active agents
   const activeOwners = owners.filter((o: any) => o.status === "ACTIVE" || o.status === "active");
   const activeAgents = agents.filter((a: any) => a.status === "ACTIVE" || a.status === "active");
   const collectorsForAssignment = [...activeOwners, ...activeAgents];
@@ -53,14 +53,12 @@ export default function OrgCustomers() {
 
   const isOwnerMember = (m: any) => (m?.role || "").toUpperCase() === "OWNER";
 
-  // Customer count per collector
   const customerCountByCollector: Record<string, number> = {};
   customers.forEach((c: any) => {
     const aid = (c as any).assignedAgentId || c.agentId || "";
     if (aid) customerCountByCollector[aid] = (customerCountByCollector[aid] || 0) + 1;
   });
 
-  // All members for display lookups (owner + agent)
   const allCollectors = [...owners, ...agents];
 
   const collectorLabel = (c: any) => {
@@ -70,7 +68,6 @@ export default function OrgCustomers() {
     return `${name} (${count})${ownerTag}`;
   };
 
-  // Auto-select if only one active collector
   useEffect(() => {
     if (isInviteOpen && collectorsForAssignment.length === 1) {
       setSelectedCollectorId(collectorsForAssignment[0].id);
@@ -89,21 +86,40 @@ export default function OrgCustomers() {
 
   const statusClass = (status?: string) => {
     if (status === "ACTIVE") return "bg-emerald-50 text-emerald-700 border-emerald-100";
-    if (status === "INVITED") return "bg-amber-50 text-amber-700 border-amber-100";
+    if (status === "PENDING_SETUP") return "bg-amber-50 text-amber-700 border-amber-100";
     return "bg-slate-50 text-slate-600 border-slate-100";
   };
 
-  const resetInviteForm = () => {
-    setEmail("");
-    setSelectedCollectorId("");
+  const statusLabel = (status?: string) => {
+    if (status === "ACTIVE") return "Active";
+    if (status === "PENDING_SETUP") return "Setup Pending";
+    return status || "Pending";
   };
 
-  const handleInviteCustomer = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setSelectedCollectorId("");
+    setSetupLink(null);
+    setCopied(false);
+  };
+
+  const handleCopy = () => {
+    if (!setupLink) return;
+    navigator.clipboard.writeText(setupLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!organization?.id) { toast.error("No active organization selected."); return; }
     if (!user?.id) { toast.error("Missing authenticated owner identity."); return; }
+    if (!firstName.trim()) { toast.error("First name is required."); return; }
     if (!email.trim()) { toast.error("Email address is required."); return; }
-    if (atLimit) { toast.error(`Customer limit of ${maxCustomers} reached. Please upgrade your plan.`); return; }
+    if (atLimit) { toast.error(`Customer limit of ${maxCustomers} reached.`); return; }
 
     const collectorToAssign =
       collectorsForAssignment.length === 1
@@ -117,24 +133,10 @@ export default function OrgCustomers() {
 
     const emailKey = email.trim().toLowerCase();
 
-    console.log("════════════════════════════════════════════════");
-    console.log("[FC STEP 1] ▶ Customer invitation creation");
-    console.log("[FC STEP 1]   organizationId    :", organization.id);
-    console.log("[FC STEP 1]   organizationName  :", organization.name ?? "—");
-    console.log("[FC STEP 1]   invitedBy (userId):", user.id);
-    console.log("[FC STEP 1]   email             :", emailKey);
-    console.log("[FC STEP 1]   assignedCollector :", collectorToAssign.id, "|", collectorToAssign.fullName ?? (collectorToAssign as any).name ?? "—");
-    console.log("[FC STEP 1]   clerkRole         : org:customer");
-    console.log("════════════════════════════════════════════════");
-
-    // ── Validate ────────────────────────────────────────────────────────────
-    console.log("[FC STEP 1] Validating customer invite…");
     setIsValidating(true);
     try {
-      await validateCustomerInvite(organization.id, emailKey, "");
-      console.log("[FC STEP 1] ✓ Validation passed");
+      await validateCustomerEmail(organization.id, emailKey, "");
     } catch (err) {
-      console.error("[FC STEP 1] ✗ Validation failed:", err instanceof Error ? err.message : err);
       toast.error(err instanceof Error ? err.message : "Validation failed");
       setIsValidating(false);
       return;
@@ -142,37 +144,23 @@ export default function OrgCustomers() {
       setIsValidating(false);
     }
 
-    // ── Send invitation ─────────────────────────────────────────────────────
-    console.log("[FC STEP 1] Sending invitation via sendOrganizationInvitation()…");
     setIsSubmitting(true);
     try {
-      const invitedByEmail =
-        user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || "";
-      const result = await sendOrganizationInvitation({
-        organization,
-        organizationId: organization.id,
+      const { setupUrl } = await provisionUser({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: emailKey,
-        role: "customer",
-        clerkRole: "org:customer",
-        invitedBy: user.id,
-        invitedByEmail,
-        fullName: "",
-        phone: "",
+        role: "CUSTOMER",
+        organizationId: organization.id,
+        organizationName: organization.name || "",
         assignedAgentId: collectorToAssign.id,
-        assignedAgentName:
-          collectorToAssign.fullName || (collectorToAssign as any).name || "",
+        assignedAgentName: collectorToAssign.fullName || (collectorToAssign as any).name || "",
+        createdBy: user.id,
       });
-      console.log("[FC STEP 1] ✓ Invitation sent successfully:", result.message);
-      console.log("[FC STEP 1]   invitationId:", result.invitationId ?? "—");
-      console.log("[FC STEP 1]   Flow: customer will receive email → click link → STEP 2 (Clerk sign-up) → STEP 3 (password) → STEP 4 (verify) → STEP 5 (org accept) → STEP 6 (Firestore record)");
-      toast.success(result.message);
-      setIsInviteOpen(false);
-      resetInviteForm();
+      setSetupLink(setupUrl);
+      toast.success("Customer account created. Share the setup link.");
     } catch (error) {
-      console.error("[FC STEP 1] ✗ sendOrganizationInvitation() failed:", error instanceof Error ? error.message : error);
-      toast.error(
-        error instanceof Error ? error.message : "Failed to send customer invitation"
-      );
+      toast.error(error instanceof Error ? error.message : "Failed to create customer account");
     } finally {
       setIsSubmitting(false);
     }
@@ -205,12 +193,11 @@ export default function OrgCustomers() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Manage Customers</h2>
           <p className="text-slate-500 text-sm">
-            View and invite pigmy savings customers.{" "}
+            Create and manage pigmy savings customers.{" "}
             <span className={`font-semibold ${atLimit ? "text-red-500" : "text-slate-600"}`}>
               {activeCustomers}/{maxCustomers} active
             </span>
@@ -225,97 +212,160 @@ export default function OrgCustomers() {
         ) : (
           <Dialog
             open={isInviteOpen}
-            onOpenChange={(open) => { setIsInviteOpen(open); if (!open) resetInviteForm(); }}
+            onOpenChange={(open) => { setIsInviteOpen(open); if (!open) resetForm(); }}
           >
             <DialogTrigger render={
               <Button className="shrink-0">
-                <Plus className="w-4 h-4 mr-2" /> Invite Customer
+                <Plus className="w-4 h-4 mr-2" /> Add Customer
               </Button>
             } />
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle className="text-lg font-bold">Invite Customer</DialogTitle>
-                <p className="text-sm text-slate-500 mt-1">
-                  Send an invitation email. The customer will set up their name, phone, and password when they join.
-                </p>
+                <DialogTitle className="text-lg font-bold">
+                  {setupLink ? "Share Setup Link" : "Add Customer"}
+                </DialogTitle>
+                {!setupLink && (
+                  <p className="text-sm text-slate-500 mt-1">
+                    Create the customer's account directly. They'll use a link to set their password.
+                  </p>
+                )}
               </DialogHeader>
 
-              <form onSubmit={handleInviteCustomer} className="space-y-5 mt-2">
-                {/* Email */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="cust-email" className="text-sm font-semibold text-slate-700">
-                    Email Address <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="cust-email"
-                    type="email"
-                    placeholder="customer@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="off"
-                    className="h-11"
-                  />
-                </div>
-
-                {/* Assigned Collector */}
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-semibold text-slate-700">
-                    Assigned Collector <span className="text-red-500">*</span>
-                  </Label>
-                  {collectorsLoading ? (
-                    <div className="h-11 rounded-md bg-slate-100 animate-pulse" />
-                  ) : collectorsForAssignment.length === 0 ? (
-                    <div className="h-11 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm text-slate-400">
-                      No active collectors available
-                    </div>
-                  ) : collectorsForAssignment.length === 1 ? (
-                    <div className="h-11 rounded-md border border-emerald-200 bg-emerald-50 px-3 flex items-center gap-2 text-sm text-emerald-800 font-medium">
-                      {isOwnerMember(collectorsForAssignment[0]) && (
-                        <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      )}
-                      <span className="flex-1">
-                        {collectorsForAssignment[0].fullName || (collectorsForAssignment[0] as any).name || "Owner"}
-                        {isOwnerMember(collectorsForAssignment[0]) && " (Owner)"}
-                      </span>
-                      <span className="text-xs text-emerald-600 font-normal shrink-0">
-                        {customerCountByCollector[collectorsForAssignment[0].id] || 0} customers · Auto-assigned
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <select
-                        value={selectedCollectorId}
-                        onChange={(e) => setSelectedCollectorId(e.target.value)}
-                        className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-900 h-11 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
-                        required
+              {setupLink ? (
+                <div className="space-y-4 mt-2">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center space-y-1">
+                    <Users className="w-6 h-6 text-emerald-600 mx-auto" />
+                    <p className="text-sm font-semibold text-emerald-800">Customer account created!</p>
+                    <p className="text-xs text-emerald-600">Share this link so they can set their password and sign in.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Setup Link</Label>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={setupLink}
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 font-mono overflow-hidden text-ellipsis"
+                      />
+                      <button
+                        onClick={handleCopy}
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors"
                       >
-                        <option value="">Select a collector…</option>
-                        {collectorsForAssignment.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {collectorLabel(c)}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        {copied ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copied ? "Copied!" : "Copy"}
+                      </button>
                     </div>
-                  )}
+                    <p className="text-xs text-slate-400">This link expires in 7 days.</p>
+                  </div>
+                  <Button className="w-full" onClick={() => { setIsInviteOpen(false); resetForm(); }}>
+                    Done
+                  </Button>
                 </div>
+              ) : (
+                <form onSubmit={handleAddCustomer} className="space-y-4 mt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cust-fname" className="text-sm font-semibold text-slate-700">
+                        First Name <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="cust-fname"
+                        type="text"
+                        placeholder="Jane"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        required
+                        autoComplete="off"
+                        className="h-11"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cust-lname" className="text-sm font-semibold text-slate-700">
+                        Last Name
+                      </Label>
+                      <Input
+                        id="cust-lname"
+                        type="text"
+                        placeholder="Doe"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        autoComplete="off"
+                        className="h-11"
+                      />
+                    </div>
+                  </div>
 
-                <Button
-                  type="submit"
-                  className="w-full h-11 font-semibold"
-                  disabled={isValidating || isSubmitting || collectorsLoading || collectorsForAssignment.length === 0}
-                >
-                  {isValidating ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Validating…</>
-                  ) : isSubmitting ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending Invitation…</>
-                  ) : (
-                    "Send Invitation"
-                  )}
-                </Button>
-              </form>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cust-email" className="text-sm font-semibold text-slate-700">
+                      Email Address <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="cust-email"
+                      type="email"
+                      placeholder="customer@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="off"
+                      className="h-11"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-semibold text-slate-700">
+                      Assigned Collector <span className="text-red-500">*</span>
+                    </Label>
+                    {collectorsLoading ? (
+                      <div className="h-11 rounded-md bg-slate-100 animate-pulse" />
+                    ) : collectorsForAssignment.length === 0 ? (
+                      <div className="h-11 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm text-slate-400">
+                        No active collectors available
+                      </div>
+                    ) : collectorsForAssignment.length === 1 ? (
+                      <div className="h-11 rounded-md border border-emerald-200 bg-emerald-50 px-3 flex items-center gap-2 text-sm text-emerald-800 font-medium">
+                        {isOwnerMember(collectorsForAssignment[0]) && (
+                          <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        )}
+                        <span className="flex-1">
+                          {collectorsForAssignment[0].fullName || (collectorsForAssignment[0] as any).name || "Owner"}
+                          {isOwnerMember(collectorsForAssignment[0]) && " (Owner)"}
+                        </span>
+                        <span className="text-xs text-emerald-600 font-normal shrink-0">Auto-assigned</span>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <select
+                          value={selectedCollectorId}
+                          onChange={(e) => setSelectedCollectorId(e.target.value)}
+                          className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-900 h-11 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                          required
+                        >
+                          <option value="">Select a collector…</option>
+                          {collectorsForAssignment.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {collectorLabel(c)}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      </div>
+                    )}
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full h-11 font-semibold"
+                    disabled={isValidating || isSubmitting || collectorsLoading || collectorsForAssignment.length === 0 || !firstName.trim()}
+                  >
+                    {isValidating ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Validating…</>
+                    ) : isSubmitting ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating account…</>
+                    ) : (
+                      "Create Customer Account"
+                    )}
+                  </Button>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         )}
@@ -336,7 +386,6 @@ export default function OrgCustomers() {
         </div>
       )}
 
-      {/* Customer Table */}
       <Card>
         <CardHeader className="pb-4 border-b border-slate-100">
           <div className="relative">
@@ -350,7 +399,6 @@ export default function OrgCustomers() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
@@ -380,9 +428,7 @@ export default function OrgCustomers() {
                       <div className="flex flex-col items-center gap-2">
                         <Users className="w-8 h-8 text-slate-300" />
                         <p className="text-slate-500 text-sm font-medium">No customers yet.</p>
-                        <p className="text-slate-400 text-xs">
-                          Click "Invite Customer" to add your first savings member.
-                        </p>
+                        <p className="text-slate-400 text-xs">Click "Add Customer" to add your first savings member.</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -415,10 +461,8 @@ export default function OrgCustomers() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span
-                            className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status as string)}`}
-                          >
-                            {(customer as any).status || "INVITED"}
+                          <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status as string)}`}>
+                            {statusLabel(customer.status as string)}
                           </span>
                         </TableCell>
                         <TableCell>
@@ -443,7 +487,6 @@ export default function OrgCustomers() {
             </Table>
           </div>
 
-          {/* Mobile Cards */}
           <div className="md:hidden">
             {loading ? (
               <div className="p-4 space-y-3">
@@ -455,9 +498,7 @@ export default function OrgCustomers() {
               <div className="py-12 text-center">
                 <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                 <p className="text-slate-500 text-sm font-medium">No customers yet.</p>
-                <p className="text-slate-400 text-xs mt-1">
-                  Click "Invite Customer" to add your first savings member.
-                </p>
+                <p className="text-slate-400 text-xs mt-1">Click "Add Customer" to add your first savings member.</p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
@@ -497,10 +538,8 @@ export default function OrgCustomers() {
                             )}
                           </div>
                         </div>
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border shrink-0 ${statusClass(customer.status as string)}`}
-                        >
-                          {(customer as any).status || "INVITED"}
+                        <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border shrink-0 ${statusClass(customer.status as string)}`}>
+                          {statusLabel(customer.status as string)}
                         </span>
                       </div>
                     </div>
@@ -512,7 +551,6 @@ export default function OrgCustomers() {
         </CardContent>
       </Card>
 
-      {/* Reassign Customer Modal */}
       <Dialog
         open={!!reassigningCustomer}
         onOpenChange={(open) => { if (!open) { setReassigningCustomer(null); setNewCollectorId(""); } }}
@@ -527,7 +565,6 @@ export default function OrgCustomers() {
               </span>
             </p>
           </DialogHeader>
-
           <div className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold text-slate-700">Select New Collector</Label>
@@ -539,22 +576,14 @@ export default function OrgCustomers() {
                 >
                   <option value="">Select a collector…</option>
                   {collectorsForAssignment.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {collectorLabel(c)}
-                    </option>
+                    <option key={c.id} value={c.id}>{collectorLabel(c)}</option>
                   ))}
                 </select>
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               </div>
             </div>
-
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => { setReassigningCustomer(null); setNewCollectorId(""); }}
-                disabled={isReassigning}
-              >
+              <Button variant="outline" className="flex-1" onClick={() => { setReassigningCustomer(null); setNewCollectorId(""); }} disabled={isReassigning}>
                 Cancel
               </Button>
               <Button
@@ -562,9 +591,7 @@ export default function OrgCustomers() {
                 onClick={handleReassign}
                 disabled={isReassigning || !newCollectorId || newCollectorId === (reassigningCustomer as any)?.assignedAgentId}
               >
-                {isReassigning ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</>
-                ) : "Save"}
+                {isReassigning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save"}
               </Button>
             </div>
           </div>

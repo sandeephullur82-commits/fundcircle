@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { collection, doc, getDoc, getDocs, query, setDoc, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { reconcilePendingInviteMembership } from "@/lib/services";
 
 export default function AuthSyncService() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -68,18 +67,6 @@ export default function AuthSyncService() {
               return Promise.resolve();
             })
           );
-        }
-
-        if (email) {
-          const synced = await reconcilePendingInviteMembership(
-            email,
-            organization?.id,
-            user.id,
-            user.fullName || `${user.firstName || ""} ${user.lastName || ""}`.trim()
-          );
-          if (synced.length) {
-            console.log("AuthSyncService: pending invite reconciled", synced.length, "member(s) created");
-          }
         }
 
         retryRef.current = 0;

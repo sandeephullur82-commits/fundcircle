@@ -3,7 +3,7 @@ import { Collection, Loan, Membership } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users, Wallet, CreditCard, TrendingUp, IndianRupee,
-  UserCheck, SendHorizonal, CalendarDays,
+  UserCheck, CalendarDays,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -11,9 +11,9 @@ export default function OrgOverview() {
   const { data: collections, loading: collLoading } = useCollectionRealtime<Collection>("collections");
   const { data: members, loading: membersLoading } = useCollectionRealtime<Membership>("organizationMembers");
   const { data: loans, loading: loansLoading } = useCollectionRealtime<Loan>("loans");
-  const { data: invitations, loading: invLoading } = useCollectionRealtime<any>("pendingInvites");
+  const { data: pendingSetup, loading: pendingLoading } = useCollectionRealtime<any>("organizationMembers", []);
 
-  const isLoading = collLoading || membersLoading || loansLoading || invLoading;
+  const isLoading = collLoading || membersLoading || loansLoading || pendingLoading;
 
   if (isLoading) {
     return (
@@ -32,16 +32,9 @@ export default function OrgOverview() {
   const allCollectors = members.filter((u) => u.role === "AGENT" || u.role === "agent");
   const activeCollectorCount = allCollectors.filter((a: any) => a.status === "ACTIVE").length;
 
-  // Pending invitations (PENDING status, not revoked/accepted)
-  const pendingInvitations = invitations.filter(
-    (i: any) =>
-      (i.status || "").toUpperCase() !== "REVOKED" &&
-      !i.profileCompleted &&
-      (i.status || "").toUpperCase() !== "ACCEPTED" &&
-      (i.status || "").toUpperCase() !== "ACTIVE"
-  );
-  const pendingAgents    = pendingInvitations.filter((i: any) => i.role === "pigmy_collector").length;
-  const pendingCustomers = pendingInvitations.filter((i: any) => i.role === "customer").length;
+  const pendingSetupMembers = pendingSetup.filter((m: any) => (m.status || "").toUpperCase() === "PENDING_SETUP");
+  const pendingAgents    = pendingSetupMembers.filter((m: any) => (m.role || "").toUpperCase() === "AGENT").length;
+  const pendingCustomers = pendingSetupMembers.filter((m: any) => (m.role || "").toUpperCase() === "CUSTOMER").length;
 
   // Today & monthly collections
   const today = new Date();
@@ -91,9 +84,9 @@ export default function OrgOverview() {
           bg="bg-sky-50"
         />
         <MetricCard
-          title="Pending Invitations"
+          title="Pending Setup"
           value={(pendingAgents + pendingCustomers).toString()}
-          icon={<SendHorizonal className="w-5 h-5 text-violet-600" />}
+          icon={<UserCheck className="w-5 h-5 text-violet-600" />}
           trend={`${pendingAgents} agents · ${pendingCustomers} customers`}
           bg="bg-violet-50"
         />
@@ -181,12 +174,12 @@ export default function OrgOverview() {
           </CardHeader>
           <CardContent className="space-y-2">
             <QuickAction
-              label="Invite Customer"
+              label="Add Customer"
               color="bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100"
               onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "customers" }))}
             />
             <QuickAction
-              label="Invite Agent"
+              label="Add Agent"
               color="bg-sky-50 text-sky-700 border-sky-100 hover:bg-sky-100"
               onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "agents" }))}
             />
@@ -194,11 +187,6 @@ export default function OrgOverview() {
               label="Record Collection"
               color="bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100"
               onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "collections" }))}
-            />
-            <QuickAction
-              label="Manage Invitations"
-              color="bg-violet-50 text-violet-700 border-violet-100 hover:bg-violet-100"
-              onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "invitations" }))}
             />
             <QuickAction
               label="View Reports"

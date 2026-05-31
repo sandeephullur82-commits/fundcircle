@@ -9,141 +9,179 @@ export function membershipIdFor(organizationId: string, clerkUserId: string) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Single source-of-truth for all Clerk org invitations.
-// Every path that sends an invitation email MUST go through here.
+// Admin provisioning — create a Clerk user and Firestore records
+// directly. No invitation tickets involved.
 // ─────────────────────────────────────────────────────────────
-export async function clerkInviteMember(params: {
-  organization: any;
-  emailAddress: string;
-  role: string;
-}): Promise<any> {
-  if (!params.organization?.inviteMember || typeof params.organization.inviteMember !== "function") {
-    throw new Error("Organization invitation not supported. Check Clerk configuration.");
-  }
 
-  const acceptUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/accept-invitation`
-      : "/accept-invitation";
+export async function provisionUser(params: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: "AGENT" | "CUSTOMER";
+  organizationId: string;
+  organizationName: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  createdBy: string;
+}): Promise<{ clerkUserId: string; setupUrl: string }> {
+  const emailKey = params.email.trim().toLowerCase();
 
-  const email = params.emailAddress.trim().toLowerCase();
-
-  console.log("══════════════════════════════════════════════════════");
-  console.log("[FC INVITATION CREATED]");
-  console.log("  organizationId :", params.organization?.id ?? "UNKNOWN");
-  console.log("  email          :", email);
-  console.log("  role           :", params.role);
-  console.log("  redirectUrl    :", acceptUrl);
-  console.log("══════════════════════════════════════════════════════");
-
-  const invitation = await params.organization.inviteMember({
-    emailAddress: email,
-    role: params.role,
-    redirectUrl: acceptUrl,
+  const res = await fetch("/api/provision-user", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      firstName: params.firstName.trim(),
+      lastName: params.lastName.trim(),
+      email: emailKey,
+      organizationId: params.organizationId,
+      role: params.role,
+    }),
   });
 
-  if (!invitation?.id) {
-    throw new Error("Clerk invitation created but no ID returned.");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Provisioning failed (HTTP ${res.status})`);
   }
 
-  console.log("[FC INVITATION CREATED] ✓ Clerk invitationId:", invitation.id);
-  return invitation;
-}
+  const { userId: clerkUserId, setupUrl } = await res.json();
 
-export async function linkOrganizationMembershipByEmail(
-  email: string,
-  organizationId: string | null | undefined,
-  clerkUserId: string,
-  fullName?: string
-) {
-  const emailKey = email.trim().toLowerCase();
-  const constraints: any[] = [where("email", "==", emailKey)];
-  if (organizationId) {
-    constraints.push(where("organizationId", "==", organizationId));
-  }
+  const membershipDocId = membershipIdFor(params.organizationId, clerkUserId);
+  const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim();
 
-  const q = query(collection(db, "organizationMembers"), ...constraints);
-  const snapshot = await getDocs(q);
-
-  if (snapshot.empty) {
-    return [];
-  }
-
-  const linked = await Promise.all(snapshot.docs.map(async (docSnap) => {
-    const existing = docSnap.data() as any;
-    const invitationOrgId = existing.organizationId || organizationId;
-    if (!invitationOrgId) {
-      return null;
-    }
-
-    const membershipDocId = membershipIdFor(invitationOrgId, clerkUserId);
-    const targetRef = doc(db, "organizationMembers", membershipDocId);
-    const finalStatus = existing.profileCompleted ? "ACTIVE" : "INVITED";
-    const joinedAt = existing.joinedAt || serverTimestamp();
-
-    const finalData = {
-      ...existing,
-      id: membershipDocId,
-      organizationId: invitationOrgId,
-      clerkUserId,
-      fullName: fullName || existing.fullName || "",
-      joinedAt,
-      status: finalStatus,
-      updatedAt: serverTimestamp(),
-    } as any;
-
-    await setDoc(targetRef, finalData, { merge: true });
-
-    if (docSnap.id !== membershipDocId) {
-      await deleteDoc(docSnap.ref);
-    }
-
-    const membershipRef = doc(db, "memberships", membershipDocId);
-    await setDoc(membershipRef, finalData, { merge: true });
-
-    if (existing.role?.toString().toUpperCase() === "CUSTOMER") {
-      const customerRef = doc(db, "customers", membershipDocId);
-      await setDoc(customerRef, finalData, { merge: true });
-    }
-
-    return finalData;
-  }));
-
-  return linked.filter(Boolean) as any[];
-}
-
-export async function createPendingInvite(
-  organizationId: string,
-  inviteData: {
-    email: string;
-    role: "owner" | "pigmy_collector" | "customer";
-    clerkRole: "org:owner" | "org:pigmy_collector" | "org:customer";
-    invitedBy: string;
-    assignedArea?: string;
-    agentId?: string;
-    clerkOrganizationId?: string;
-    organizationName?: string;
-    profileCompleted?: boolean;
-  }
-) {
-  const emailKey = inviteData.email.trim().toLowerCase();
-  const docRef = await addDoc(collection(db, "pendingInvites"), {
+  const membershipData: any = {
+    id: membershipDocId,
+    clerkUserId,
     email: emailKey,
-    role: inviteData.role,
-    clerkRole: inviteData.clerkRole,
-    invitedBy: inviteData.invitedBy,
-    assignedArea: inviteData.assignedArea || "",
-    agentId: inviteData.agentId || "",
-    organizationId,
-    clerkOrganizationId: inviteData.clerkOrganizationId || organizationId,
-    organizationName: inviteData.organizationName || "",
-    profileCompleted: inviteData.profileCompleted || false,
-    status: "PENDING",
+    fullName,
+    name: fullName,
+    role: params.role,
+    clerkRole: params.role === "AGENT" ? "org:pigmy_collector" : "org:customer",
+    organizationId: params.organizationId,
+    organizationName: params.organizationName,
+    phone: "",
+    address: "",
+    assignedArea: "",
+    assignedAgentId: params.assignedAgentId || "",
+    assignedAgentName: params.assignedAgentName || "",
+    profileCompleted: false,
+    status: "PENDING_SETUP",
+    createdBy: params.createdBy,
     createdAt: serverTimestamp(),
-  });
-  await setDoc(docRef, { id: docRef.id }, { merge: true });
-  return docRef;
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(doc(db, "organizationMembers", membershipDocId), membershipData);
+  await setDoc(doc(db, "memberships", membershipDocId), membershipData);
+
+  if (params.role === "CUSTOMER") {
+    await setDoc(doc(db, "customers", membershipDocId), {
+      ...membershipData,
+      assigned_to_user_id: params.assignedAgentId || params.createdBy || "",
+    });
+    try {
+      await setDoc(doc(db, "organizations", params.organizationId), {
+        "usage.activeCustomers": increment(1),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (_) {}
+  }
+
+  await setDoc(doc(db, "users", clerkUserId), {
+    clerkUserId,
+    id: clerkUserId,
+    email: emailKey,
+    name: fullName,
+    status: "PENDING_SETUP",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+  console.log("[FC provisionUser] ✓ User provisioned:", { clerkUserId, membershipDocId, role: params.role });
+  return { clerkUserId, setupUrl };
 }
+
+// ─────────────────────────────────────────────────────────────
+// Pre-validation helpers (email collision checks)
+// ─────────────────────────────────────────────────────────────
+
+export async function validateAgentEmail(organizationId: string, email: string): Promise<void> {
+  const emailKey = email.trim().toLowerCase();
+
+  const membersSnap = await getDocs(query(
+    collection(db, "organizationMembers"),
+    where("email", "==", emailKey),
+    where("organizationId", "==", organizationId)
+  ));
+
+  for (const d of membersSnap.docs) {
+    const data = d.data();
+    const role = (data.role || "").toUpperCase();
+    if (role === "AGENT" || role === "PIGMY_COLLECTOR") throw new Error("This email already belongs to an agent.");
+    if (role === "OWNER" || role === "ADMIN") throw new Error("This email belongs to an administrator account.");
+    if (role === "CUSTOMER") throw new Error("A customer with this email already exists.");
+  }
+}
+
+export async function validateCustomerEmail(organizationId: string, email: string, phone: string): Promise<void> {
+  const emailKey = email.trim().toLowerCase();
+
+  const membersSnap = await getDocs(query(
+    collection(db, "organizationMembers"),
+    where("email", "==", emailKey),
+    where("organizationId", "==", organizationId)
+  ));
+
+  for (const d of membersSnap.docs) {
+    const data = d.data();
+    const role = (data.role || "").toUpperCase();
+    if (role === "AGENT" || role === "PIGMY_COLLECTOR") throw new Error("This email already belongs to an agent.");
+    if (role === "OWNER" || role === "ADMIN") throw new Error("This email belongs to an administrator account.");
+    if (role === "CUSTOMER") throw new Error("A customer with this email already exists.");
+  }
+
+  if (phone) {
+    const phoneSnap = await getDocs(query(
+      collection(db, "organizationMembers"),
+      where("phone", "==", phone.trim()),
+      where("organizationId", "==", organizationId)
+    ));
+    if (!phoneSnap.empty) throw new Error("This phone number is already registered.");
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mark a provisioned user as active after they set their password
+// Called from AuthCallback after sign-in with a setup token
+// ─────────────────────────────────────────────────────────────
+
+export async function activateProvisionedUser(
+  clerkUserId: string,
+  organizationId: string | null | undefined
+): Promise<void> {
+  const constraints: any[] = [
+    where("clerkUserId", "==", clerkUserId),
+    where("status", "==", "PENDING_SETUP"),
+  ];
+  if (organizationId) constraints.push(where("organizationId", "==", organizationId));
+
+  const snap = await getDocs(query(collection(db, "organizationMembers"), ...constraints));
+  await Promise.all(snap.docs.map((d) =>
+    updateDoc(d.ref, { status: "ACTIVE", activatedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+  ));
+
+  const userSnap = await getDoc(doc(db, "users", clerkUserId));
+  if (userSnap.exists() && userSnap.data()?.status === "PENDING_SETUP") {
+    await updateDoc(doc(db, "users", clerkUserId), {
+      status: "ACTIVE",
+      activatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Membership helpers used by redirect logic
+// ─────────────────────────────────────────────────────────────
 
 export async function upsertAcceptedMembership(
   organizationId: string,
@@ -163,7 +201,6 @@ export async function upsertAcceptedMembership(
   return ref;
 }
 
-
 export async function attachClerkIdToPendingUsers(email: string, clerkUserId: string) {
   const emailKey = email.trim().toLowerCase();
   const q = query(collection(db, "users"), where("email", "==", emailKey));
@@ -172,184 +209,12 @@ export async function attachClerkIdToPendingUsers(email: string, clerkUserId: st
   const updatePromises = snapshot.docs.map((docSnap) => {
     const existing = docSnap.data() as any;
     if (!existing.clerkUserId) {
-      return updateDoc(docSnap.ref, {
-        clerkUserId,
-        updatedAt: serverTimestamp(),
-      });
+      return updateDoc(docSnap.ref, { clerkUserId, updatedAt: serverTimestamp() });
     }
     return Promise.resolve();
   });
 
   await Promise.all(updatePromises);
-}
-
-export async function reconcilePendingInviteMembership(
-  email: string,
-  organizationId: string | null | undefined,
-  clerkUserId: string,
-  fullName?: string
-) {
-  const emailKey = email.trim().toLowerCase();
-  console.log("reconcilePendingInviteMembership: checking pending invite", {
-    email: emailKey,
-    organizationId,
-    clerkUserId,
-  });
-
-  const linkedMembers = await linkOrganizationMembershipByEmail(
-    emailKey,
-    organizationId,
-    clerkUserId,
-    fullName
-  );
-
-  if (linkedMembers.length) {
-    console.log("reconcilePendingInviteMembership: linked existing organization member", linkedMembers.length);
-
-    const pendingConstraints: any[] = [
-      where("email", "==", emailKey),
-      where("status", "==", "PENDING"),
-    ];
-    if (organizationId) {
-      pendingConstraints.push(where("organizationId", "==", organizationId));
-    }
-    const pendingQuery = query(collection(db, "pendingInvites"), ...pendingConstraints);
-    const pendingSnapshot = await getDocs(pendingQuery);
-    await Promise.all(pendingSnapshot.docs.map((docSnap) => updateDoc(docSnap.ref, {
-      status: "ACTIVE",
-      clerkUserId,
-      updatedAt: serverTimestamp(),
-      joinedAt: serverTimestamp(),
-      acceptedAt: serverTimestamp(),
-    })));
-
-    return linkedMembers;
-  }
-
-  const constraints: any[] = [
-    where("email", "==", emailKey),
-    where("status", "==", "PENDING"),
-  ];
-  if (organizationId) {
-    constraints.push(where("organizationId", "==", organizationId));
-  }
-
-  const q = query(
-    collection(db, "pendingInvites"),
-    ...constraints
-  );
-  const snapshot = await getDocs(q);
-
-  if (snapshot.empty) {
-    console.log("reconcilePendingInviteMembership: no pending invite found");
-    return [];
-  }
-
-  const accepted = await Promise.all(snapshot.docs.map(async (docSnap) => {
-    const pending = docSnap.data() as any;
-    const joinedAt = serverTimestamp();
-    const role = (pending.role || "customer").toString().toLowerCase();
-    const resolvedName = fullName || pending.fullName || "";
-    const clerkRole = pending.clerkRole || {
-      owner: "org:owner",
-      pigmy_collector: "org:pigmy_collector",
-      customer: "org:customer",
-    }[role];
-    const invitationOrgId = pending.organizationId || organizationId;
-    const membershipDocId = membershipIdFor(invitationOrgId, clerkUserId);
-
-    console.log("reconcilePendingInviteMembership: pending invite found", {
-      pendingId: docSnap.id,
-      role,
-      clerkRole,
-      resolvedName,
-      agentId: pending.agentId || null,
-      assignedArea: pending.assignedArea || pending.area || null,
-    });
-
-    const membershipData = {
-      id: membershipDocId,
-      organizationId: invitationOrgId,
-      clerkUserId,
-      clerkOrganizationId: pending.clerkOrganizationId || invitationOrgId,
-      clerkRole,
-      role,
-      organizationName: pending.organizationName || "",
-      fullName: resolvedName,
-      email: emailKey,
-      phone: pending.phone || "",
-      assignedArea: pending.assignedArea || pending.area || "",
-      agentId: pending.agentId || "",
-      invitedBy: pending.invitedBy || "",
-      profileCompleted: pending.profileCompleted || false,
-      joinedAt,
-      status: "active",
-      createdAt: pending.createdAt || joinedAt,
-      updatedAt: serverTimestamp(),
-    } as any;
-
-    const membershipRef = doc(db, "memberships", membershipDocId);
-    await setDoc(membershipRef, membershipData, { merge: true });
-    console.log("reconcilePendingInviteMembership: membership created", membershipDocId);
-
-    const orgMemberRef = doc(db, "organizationMembers", membershipDocId);
-    await setDoc(orgMemberRef, membershipData, { merge: true });
-
-    if (role === "customer") {
-      const customerRef = doc(db, "customers", membershipDocId);
-      await setDoc(customerRef, membershipData, { merge: true });
-    }
-
-    await updateDoc(doc(db, "pendingInvites", docSnap.id), {
-      status: "ACTIVE",
-      clerkUserId,
-      updatedAt: serverTimestamp(),
-      joinedAt,
-      acceptedAt: serverTimestamp(),
-    });
-
-    return membershipData;
-  }));
-
-  console.log("reconcilePendingInviteMembership: completed", accepted.length, "invite(s)");
-  return accepted;
-}
-
-export async function activatePendingInvite(email: string, organizationId: string, clerkUserId: string, fullName?: string) {
-  console.log("════════════════════════════════════════════════");
-  console.log("[FC STEP 6] ▶ activatePendingInvite — linking Clerk user to Firestore records");
-  console.log("[FC STEP 6]   email        :", email.trim().toLowerCase());
-  console.log("[FC STEP 6]   organizationId:", organizationId);
-  console.log("[FC STEP 6]   clerkUserId  :", clerkUserId);
-  console.log("[FC STEP 6]   fullName     :", fullName ?? "(not provided)");
-  console.log("════════════════════════════════════════════════");
-
-  const memberships = await reconcilePendingInviteMembership(email, organizationId, clerkUserId, fullName);
-  if (!memberships.length) {
-    console.warn("[FC STEP 6] ✗ No pending invite found to reconcile");
-    console.warn("[FC STEP 6]   This means the customer's pendingInvite doc either:");
-    console.warn("[FC STEP 6]   • Was not created (STEP 1 failed)");
-    console.warn("[FC STEP 6]   • Email mismatch — check Clerk email vs pendingInvites.email");
-    console.warn("[FC STEP 6]   • Already reconciled in a previous session");
-    console.log("activatePendingInvite: no active pending invite to reconcile");
-    return memberships;
-  }
-
-  const emailKey = email.trim().toLowerCase();
-  const activeMembership = memberships[0];
-  const userRef = doc(db, "users", clerkUserId);
-  // Store only identity/profile data — roles are stored per-organization in organizationMembers
-  await setDoc(userRef, {
-    clerkUserId,
-    id: clerkUserId,
-    email: emailKey,
-    name: fullName || activeMembership.fullName || "",
-    status: "active",
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp(),
-  }, { merge: true });
-
-  return memberships;
 }
 
 export async function addCustomer(organizationId: string, customerData: Partial<Membership>) {
@@ -373,8 +238,34 @@ export async function addAgent(organizationId: string, agentData: Partial<Member
   });
 }
 
+export async function reassignCustomer(params: {
+  customerId: string;
+  newCollectorId: string;
+  newCollectorName: string;
+  oldCollectorId: string;
+  oldCollectorName: string;
+  changedBy: string;
+  organizationId: string;
+}) {
+  const memberRef = doc(db, "organizationMembers", params.customerId);
+  await updateDoc(memberRef, {
+    assignedAgentId: params.newCollectorId,
+    assignedAgentName: params.newCollectorName,
+    updatedAt: serverTimestamp(),
+  });
+  const customerRef = doc(db, "customers", params.customerId);
+  const custSnap = await getDoc(customerRef);
+  if (custSnap.exists()) {
+    await updateDoc(customerRef, {
+      assignedAgentId: params.newCollectorId,
+      assignedAgentName: params.newCollectorName,
+      assigned_to_user_id: params.newCollectorId,
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
 export async function recordCollection(organizationId: string, collectionData: Pick<Collection, "customerId" | "agentId" | "amount" | "status" | "collectedByRole" | "collectedByUserId" | "collectedByName"> & { assigned_to_user_id?: string }) {
-  // Service-layer guard: only ACTIVE customers may have collections recorded
   const membershipId = `${organizationId}_${collectionData.customerId}`;
   const memberSnap = await getDoc(doc(db, "organizationMembers", membershipId));
   if (!memberSnap.exists()) {
@@ -385,15 +276,11 @@ export async function recordCollection(organizationId: string, collectionData: P
     throw new Error("This customer has not activated their account yet.");
   }
 
-  // Determine the collector identity — OWNER or AGENT both use same engine.
-  // Callers should pass collectedByRole explicitly; no assumption is made here.
   const collectedByRole = collectionData.collectedByRole || "OWNER";
   const collectedByUserId = collectionData.collectedByUserId || collectionData.agentId;
   const collectedByName = collectionData.collectedByName || "Collector";
-  // assigned_to_user_id: the user (OWNER or AGENT) responsible for this customer
   const assignedToUserId = collectionData.assigned_to_user_id || collectionData.agentId;
 
-  // First, add the collection record
   const collRef = await addDoc(collection(db, "collections"), {
     ...collectionData,
     organizationId,
@@ -404,7 +291,6 @@ export async function recordCollection(organizationId: string, collectionData: P
     timestamp: serverTimestamp(),
   });
 
-  // Then add to transactions log
   await addDoc(collection(db, "transactions"), {
     organizationId,
     customerId: collectionData.customerId,
@@ -419,16 +305,13 @@ export async function recordCollection(organizationId: string, collectionData: P
     assigned_to_user_id: assignedToUserId,
   });
 
-  // If collection is completed, increment customer balance
   if (collectionData.status === "completed") {
     const userRef = doc(db, "users", collectionData.customerId);
     const userSnap = await getDoc(userRef);
     const currentBalance = userSnap.data()?.balance || 0;
-    await updateDoc(userRef, {
-      balance: currentBalance + collectionData.amount,
-    });
+    await updateDoc(userRef, { balance: currentBalance + collectionData.amount });
   }
-  
+
   return collRef;
 }
 
@@ -438,8 +321,7 @@ export async function updateCustomerBalance(customerId: string, newBalance: numb
 }
 
 export async function applyForLoan(organizationId: string, loanData: Pick<Loan, "customerId" | "principal" | "durationMonths">) {
-  // Hardcode interest calculation logic. Say 2% monthly.
-  const interestRate = 2; 
+  const interestRate = 2;
   const totalInterest = loanData.principal * (interestRate / 100) * loanData.durationMonths;
   const totalComputed = loanData.principal + totalInterest;
   const emiAmount = totalComputed / loanData.durationMonths;
@@ -459,47 +341,34 @@ export async function applyForLoan(organizationId: string, loanData: Pick<Loan, 
 export async function approveLoan(loanId: string) {
   const loanRef = doc(db, "loans", loanId);
   const loanSnap = await getDoc(loanRef);
-  
-  if (!loanSnap.exists()) {
-    throw new Error("Loan not found");
-  }
-
+  if (!loanSnap.exists()) throw new Error("Loan not found");
   const loanData = loanSnap.data() as Loan;
 
-  // Update loan status to active
-  await updateDoc(loanRef, {
-    status: "active",
-    approvedAt: serverTimestamp(),
-  });
+  await updateDoc(loanRef, { status: "active", approvedAt: serverTimestamp() });
 
-  // Generate EMI payment schedule
   for (let month = 1; month <= loanData.durationMonths; month++) {
     await addDoc(collection(db, "emi_payments"), {
       organizationId: loanData.organizationId,
-      loanId: loanId,
+      loanId,
       customerId: loanData.customerId,
-      agentId: "", // Will be assigned when payment is recorded
+      agentId: "",
       amount: loanData.emiAmount,
       monthNumber: month,
-      dueDate: new Date(Date.now() + month * 30 * 24 * 60 * 60 * 1000), // Approximately one month from now per month
+      dueDate: new Date(Date.now() + month * 30 * 24 * 60 * 60 * 1000),
       paid: false,
       timestamp: serverTimestamp(),
     });
   }
 
-  // Add loan principal disbursement to customer balance
   const userRef = doc(db, "users", loanData.customerId);
   const userSnap = await getDoc(userRef);
   const currentBalance = userSnap.data()?.balance || 0;
-  await updateDoc(userRef, {
-    balance: currentBalance + loanData.principal,
-  });
+  await updateDoc(userRef, { balance: currentBalance + loanData.principal });
 
-  // Record disbursement transaction
   await addDoc(collection(db, "transactions"), {
     organizationId: loanData.organizationId,
     customerId: loanData.customerId,
-    agentId: "", // System transaction
+    agentId: "",
     amount: loanData.principal,
     type: "loan_disbursement",
     timestamp: serverTimestamp(),
@@ -525,25 +394,19 @@ export async function recordEMIPayment(organizationId: string, emiData: Pick<EMI
     referenceId: emiRef.id,
   });
 
-  // Decrement customer balance by EMI amount
   const userRef = doc(db, "users", emiData.customerId);
   const userSnap = await getDoc(userRef);
   const currentBalance = userSnap.data()?.balance || 0;
-  await updateDoc(userRef, {
-    balance: Math.max(0, currentBalance - emiData.amount),
-  });
+  await updateDoc(userRef, { balance: Math.max(0, currentBalance - emiData.amount) });
 
-  // Decrement loan balance remaining
   const loanRef = doc(db, "loans", emiData.loanId);
   const loanSnap = await getDoc(loanRef);
   if (loanSnap.exists()) {
     const currentRemaining = loanSnap.data().balanceRemaining || 0;
     const newRemaining = Math.max(0, currentRemaining - emiData.amount);
-    
     await updateDoc(loanRef, {
       balanceRemaining: newRemaining,
-      // If balance reaches 0, mark loan as completed
-      ...(newRemaining === 0 && { status: "completed" })
+      ...(newRemaining === 0 && { status: "completed" }),
     });
   }
 
@@ -566,248 +429,6 @@ export async function markNotificationRead(notificationId: string) {
   await updateDoc(nRef, { read: true });
 }
 
-/**
- * Comprehensive invitation workflow for agents and customers
- * Handles both Firestore and Clerk synchronization with detailed error handling
- */
-export async function sendOrganizationInvitation(options: {
-  organization: any;
-  organizationId: string;
-  email: string;
-  role: "pigmy_collector" | "customer" | "owner";
-  clerkRole: "org:pigmy_collector" | "org:customer" | "org:owner";
-  invitedBy: string;
-  invitedByEmail: string;
-  fullName?: string;
-  phone?: string;
-  notes?: string;
-  assignedArea?: string;
-  agentId?: string;
-  assignedAgentId?: string;
-  assignedAgentName?: string;
-}): Promise<{ success: boolean; message: string; invitationId?: string }> {
-  const {
-    organization,
-    organizationId,
-    email,
-    role,
-    clerkRole,
-    invitedBy,
-    invitedByEmail,
-    fullName,
-    phone,
-    notes,
-    assignedArea,
-    agentId,
-    assignedAgentId,
-    assignedAgentName,
-  } = options;
-
-  const emailKey = email.trim().toLowerCase();
-
-  // Step 1: Validate inputs
-  console.log("sendOrganizationInvitation: validating inputs", {
-    organizationId,
-    email: emailKey,
-    role,
-    clerkRole,
-  });
-
-  if (!organizationId || organizationId.trim() === "") {
-    const err = "Organization ID is missing or invalid";
-    console.error("AGENT_INVITE_ERROR: MISSING_ORG_ID", err);
-    throw new Error(err);
-  }
-
-  if (!email || emailKey.length === 0) {
-    const err = "Email address is required";
-    console.error("AGENT_INVITE_ERROR: MISSING_EMAIL", err);
-    throw new Error(err);
-  }
-
-  if (!organization || !organization.id) {
-    const err = "Active organization not found in Clerk. Please refresh and try again.";
-    console.error("AGENT_INVITE_ERROR: MISSING_CLERK_ORG", err);
-    throw new Error(err);
-  }
-
-  if (organization.id !== organizationId) {
-    const err = `Organization mismatch: Clerk org ${organization.id} does not match Firestore org ${organizationId}`;
-    console.error("AGENT_INVITE_ERROR: ORG_MISMATCH", err);
-    throw new Error(err);
-  }
-
-  // Step 2 / [FC STEP 6]: Save to Firestore FIRST (creates invited org member and pending invite)
-  console.log("[FC STEP 6] ▶ Database customer record creation — writing pendingInvite + organizationMember + customer docs");
-  console.log("sendOrganizationInvitation: saving to Firestore");
-
-  let pendingInviteId: string;
-  let organizationMemberId: string;
-  try {
-    const pendingRef = await addDoc(collection(db, "pendingInvites"), {
-      email: emailKey,
-      role,
-      clerkRole,
-      organizationId,
-      clerkOrganizationId: organization.id,
-      organizationName: organization.name || "",
-      fullName: fullName?.trim() || "",
-      phone: phone?.trim() || "",
-      notes: notes?.trim() || "",
-      assignedArea: assignedArea || "",
-      agentId: agentId || assignedAgentId || "",
-      assignedAgentId: assignedAgentId || "",
-      assignedAgentName: assignedAgentName || "",
-      invitedBy,
-      invitedByEmail,
-      profileCompleted: false,
-      status: "PENDING",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    pendingInviteId = pendingRef.id;
-    await setDoc(pendingRef, { id: pendingRef.id }, { merge: true });
-    console.log("sendOrganizationInvitation: pending invite created", pendingInviteId);
-
-    const membershipRole = role === "pigmy_collector" ? "AGENT" : role === "customer" ? "CUSTOMER" : "OWNER";
-    const orgMemberRef = await addDoc(collection(db, "organizationMembers"), {
-      email: emailKey,
-      organizationId,
-      clerkOrganizationId: organization.id,
-      organizationName: organization.name || "",
-      role: membershipRole,
-      clerkUserId: "",
-      fullName: fullName?.trim() || "",
-      name: fullName?.trim() || "",
-      phone: phone?.trim() || "",
-      notes: notes?.trim() || "",
-      address: "",
-      assignedArea: assignedArea || "",
-      assignedAgentId: assignedAgentId || "",
-      assignedAgentName: assignedAgentName || "",
-      profileCompleted: false,
-      status: "INVITED",
-      invitedAt: serverTimestamp(),
-      joinedAt: null,
-      createdBy: invitedBy,
-      invitedByEmail,
-      pendingInviteId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    organizationMemberId = orgMemberRef.id;
-    await setDoc(orgMemberRef, { id: orgMemberRef.id }, { merge: true });
-    console.log("sendOrganizationInvitation: organization member invite created", organizationMemberId);
-
-    // For customer invitations, also write to the dedicated customers collection
-    if (role === "customer") {
-      await setDoc(doc(db, "customers", organizationMemberId), {
-        id: organizationMemberId,
-        organizationId,
-        assignedAgentId: assignedAgentId || "",
-        assignedAgentName: assignedAgentName || "",
-        assigned_to_user_id: assignedAgentId || agentId || invitedBy || "",
-        fullName: "",
-        phone: "",
-        address: "",
-        email: emailKey,
-        status: "INVITED",
-        profileCompleted: false,
-        invitedBy,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      console.log("sendOrganizationInvitation: customer doc created", organizationMemberId);
-    }
-
-    await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
-      organizationMemberId,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (firestoreError) {
-    console.error("AGENT_INVITE_ERROR: FIRESTORE_WRITE_FAILED", firestoreError);
-    throw new Error(`Failed to save invitation to database: ${(firestoreError as any).message}`);
-  }
-
-  // Step 3 / [FC STEP 1 continued]: Send Clerk organization invitation email
-  console.log("[FC STEP 1] Sending Clerk org invitation email — role:", clerkRole, "| email:", emailKey);
-
-  let clerkInvitationId: string;
-  try {
-    const invitation = await clerkInviteMember({
-      organization,
-      emailAddress: emailKey,
-      role: clerkRole,
-    });
-
-    clerkInvitationId = invitation.id;
-    console.log("sendOrganizationInvitation: Clerk invitation sent successfully", {
-      clerkInvitationId,
-      email: emailKey,
-    });
-
-    // Step 4: Update Firestore with Clerk invitation ID
-    try {
-      await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
-        clerkInvitationId,
-        clerkSentAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      console.log("sendOrganizationInvitation: Firestore updated with Clerk invitation ID");
-    } catch (updateError) {
-      console.warn("sendOrganizationInvitation: failed to update Firestore with Clerk ID", updateError);
-      // Non-fatal error - invitation still succeeded
-    }
-  } catch (clerkError: any) {
-    console.error("AGENT_INVITE_ERROR: CLERK_INVITATION_FAILED", clerkError);
-
-    // Extract meaningful error message from Clerk error
-    let errorMessage = "Failed to send invitation via Clerk";
-
-    if (clerkError?.message) {
-      errorMessage = clerkError.message;
-    } else if (clerkError?.errors?.[0]?.message) {
-      errorMessage = clerkError.errors[0].message;
-    }
-
-    // Check for specific Clerk errors
-    if (errorMessage.includes("role")) {
-      errorMessage = `Invalid role "${clerkRole}". Ensure custom roles are configured in Clerk dashboard.`;
-    } else if (errorMessage.includes("permission")) {
-      errorMessage = "You don't have permission to invite members to this organization.";
-    } else if (errorMessage.includes("organization")) {
-      errorMessage = "The organization is invalid or has been deleted.";
-    }
-
-    // Mark invitation as failed in Firestore
-    try {
-      await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
-        status: "FAILED",
-        clerkError: errorMessage,
-        failedAt: serverTimestamp(),
-      });
-    } catch (markFailError) {
-      console.warn("Failed to mark invitation as failed in Firestore", markFailError);
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  // Increment org usage counter
-  try {
-    await setDoc(doc(db, "organizations", options.organizationId), {
-      "usage.activeCustomers": increment(1),
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-  } catch (_) {}
-
-  return {
-    success: true,
-    message: `Invitation sent to ${emailKey}. They will receive an email to join the organization.`,
-    invitationId: pendingInviteId,
-  };
-}
-
 // ─────────────────────────────────────────────────────────────
 // Subscription upgrade request from agent
 // ─────────────────────────────────────────────────────────────
@@ -818,7 +439,6 @@ export async function requestPlanUpgrade(options: {
   agentName: string;
   currentPlan: string;
 }): Promise<string> {
-  // Check for existing PENDING request from this agent to avoid duplicates
   const existingQ = query(
     collection(db, "upgradeRequests"),
     where("organizationId", "==", options.organizationId),
@@ -861,203 +481,3 @@ export async function ignoreUpgradeRequest(requestId: string): Promise<void> {
     ignoredAt: serverTimestamp(),
   });
 }
-
-// ─────────────────────────────────────────────────────────────
-// Invitation pre-validation — cross-role email & phone checks
-// ─────────────────────────────────────────────────────────────
-
-export async function validateAgentInviteEmail(
-  organizationId: string,
-  email: string
-): Promise<void> {
-  const emailKey = email.trim().toLowerCase();
-
-  // Check existing org members for this email
-  const membersSnap = await getDocs(
-    query(collection(db, "organizationMembers"), where("email", "==", emailKey))
-  );
-
-  for (const d of membersSnap.docs) {
-    const data = d.data();
-    const role = (data.role || "").toUpperCase();
-    const status = (data.status || "").toUpperCase();
-
-    if (role === "AGENT" || role === "PIGMY_COLLECTOR") {
-      throw new Error("This email is already registered as an agent.");
-    }
-    if (role === "CUSTOMER") {
-      throw new Error("This email is already used by a customer account.");
-    }
-    if (role === "OWNER" || role === "ADMIN" || role === "ORGANIZATION_OWNER") {
-      throw new Error("This email belongs to an organization administrator.");
-    }
-    if (status === "INVITED" || status === "PENDING") {
-      throw new Error("An invitation is already pending for this email.");
-    }
-  }
-
-  // Check pending invites for this org
-  const pendingSnap = await getDocs(
-    query(
-      collection(db, "pendingInvites"),
-      where("email", "==", emailKey),
-      where("organizationId", "==", organizationId),
-      where("status", "==", "PENDING")
-    )
-  );
-  if (!pendingSnap.empty) {
-    throw new Error("An invitation is already pending for this email.");
-  }
-}
-
-export async function validateCustomerInvite(
-  organizationId: string,
-  email: string,
-  phone: string
-): Promise<void> {
-  const emailKey = email.trim().toLowerCase();
-  const phoneKey = phone.trim();
-
-  // Parallel: email collision check + phone uniqueness check
-  const [membersSnap, phoneSnap] = await Promise.all([
-    getDocs(query(collection(db, "organizationMembers"), where("email", "==", emailKey))),
-    phoneKey
-      ? getDocs(
-          query(
-            collection(db, "organizationMembers"),
-            where("phone", "==", phoneKey),
-            where("organizationId", "==", organizationId)
-          )
-        )
-      : Promise.resolve(null),
-  ]);
-
-  for (const d of membersSnap.docs) {
-    const data = d.data();
-    const role = (data.role || "").toUpperCase();
-    const status = (data.status || "").toUpperCase();
-
-    if (role === "AGENT" || role === "PIGMY_COLLECTOR") {
-      throw new Error("This email already belongs to an agent.");
-    }
-    if (role === "OWNER" || role === "ADMIN" || role === "ORGANIZATION_OWNER") {
-      throw new Error("This email belongs to an administrator account.");
-    }
-    if (role === "CUSTOMER") {
-      throw new Error("A customer with this email already exists.");
-    }
-    if (status === "INVITED" || status === "PENDING") {
-      throw new Error("An invitation is already pending for this email.");
-    }
-  }
-
-  if (phoneSnap && !phoneSnap.empty) {
-    throw new Error("This phone number is already registered to another customer.");
-  }
-
-  // Check pending invites
-  const pendingSnap = await getDocs(
-    query(
-      collection(db, "pendingInvites"),
-      where("email", "==", emailKey),
-      where("organizationId", "==", organizationId),
-      where("status", "==", "PENDING")
-    )
-  );
-  if (!pendingSnap.empty) {
-    throw new Error("An invitation is already pending for this email.");
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Invitation lifecycle — resend / revoke
-// ─────────────────────────────────────────────────────────────
-
-export async function resendInvitation(params: {
-  pendingInviteId: string;
-  organization: any;
-  email: string;
-  clerkRole: string;
-}): Promise<void> {
-  const { pendingInviteId, organization, email, clerkRole } = params;
-  await clerkInviteMember({ organization, emailAddress: email, role: clerkRole });
-  await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
-    status: "PENDING",
-    resentAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-export async function revokeInvitation(params: {
-  pendingInviteId: string;
-  organizationMemberId?: string;
-}): Promise<void> {
-  const { pendingInviteId, organizationMemberId } = params;
-  await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
-    status: "REVOKED",
-    revokedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  if (organizationMemberId) {
-    try {
-      await updateDoc(doc(db, "organizationMembers", organizationMemberId), {
-        status: "REVOKED",
-        updatedAt: serverTimestamp(),
-      });
-    } catch (_) {}
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Customer reassignment
-// ─────────────────────────────────────────────────────────────
-
-export async function reassignCustomer(params: {
-  customerId: string;
-  newCollectorId: string;
-  newCollectorName: string;
-  oldCollectorId: string;
-  oldCollectorName: string;
-  changedBy: string;
-  organizationId: string;
-}): Promise<void> {
-  const { customerId, newCollectorId, newCollectorName, oldCollectorId, oldCollectorName, changedBy, organizationId } = params;
-
-  await updateDoc(doc(db, "organizationMembers", customerId), {
-    assignedAgentId: newCollectorId,
-    assignedAgentName: newCollectorName,
-    assigned_to_user_id: newCollectorId,
-    updatedAt: serverTimestamp(),
-  });
-
-  try {
-    await updateDoc(doc(db, "customers", customerId), {
-      assignedAgentId: newCollectorId,
-      assignedAgentName: newCollectorName,
-      assigned_to_user_id: newCollectorId,
-      updatedAt: serverTimestamp(),
-    });
-  } catch (_) {}
-
-  const histRef = doc(collection(db, "assignmentHistory"));
-  await setDoc(histRef, {
-    id: histRef.id,
-    organizationId,
-    customerId,
-    oldCollectorId,
-    oldCollectorName,
-    newCollectorId,
-    newCollectorName,
-    changedBy,
-    changedAt: serverTimestamp(),
-  });
-}
-
-/**
- * REMOVED: createDefaultOwnerCollector
- * The owner is now OWNER role only and can collect payments directly.
- * No secondary AGENT/collector profile is created for the owner.
- * collection records use created_by_user_id / collectedByUserId to track
- * who recorded the payment — this can be an OWNER or an AGENT user ID.
- */
-

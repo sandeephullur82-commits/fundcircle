@@ -7,9 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Search, IndianRupee, UserPlus } from "lucide-react";
+import { Search, IndianRupee, UserPlus, Copy, CheckCheck, Loader2 } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
-import { recordCollection, sendOrganizationInvitation, requestPlanUpgrade } from "@/lib/services";
+import { recordCollection, provisionUser, validateCustomerEmail, requestPlanUpgrade } from "@/lib/services";
 import { where } from "firebase/firestore";
 import PlanLimitModal from "@/components/PlanLimitModal";
 
@@ -32,14 +32,15 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Invite state
-  const [showInvite, setShowInvite] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [invitePhone, setInvitePhone] = useState("");
-  const [isInviting, setIsInviting] = useState(false);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Limit modal state
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [isRequestingUpgrade, setIsRequestingUpgrade] = useState(false);
   const [upgradeRequestSent, setUpgradeRequestSent] = useState(false);
@@ -49,12 +50,11 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const activeCollectorName = collectorName || user?.fullName || "Collector";
   const activeCollectorId = collectorId || user?.id || "";
 
-  // Plan limits — finite numbers only, count ONLY ACTIVE customers toward the limit
   const currentPlan = orgDoc?.plan ?? "free";
   const PLAN_CUSTOMER_DEFAULTS: Record<string, number> = { free: 10, starter: 100, growth: 500, enterprise: 5000 };
   const maxCustomers: number = Math.max(orgDoc?.limits?.maxCustomers || PLAN_CUSTOMER_DEFAULTS[currentPlan] || 10, 1);
-  const activeCustomerCount  = Math.max(allCustomers.filter((c: any) => c.status === "ACTIVE").length, 0);
-  const invitedCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "INVITED").length, 0);
+  const activeCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "ACTIVE").length, 0);
+  const pendingCustomerCount = Math.max(allCustomers.filter((c: any) => c.status === "PENDING_SETUP").length, 0);
   const atLimit = activeCustomerCount >= maxCustomers;
 
   const myCustomers = users.filter(u => u.role === "customer" && u.agentId === agentId &&
@@ -66,7 +66,7 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
     if (atLimit) {
       setShowLimitModal(true);
     } else {
-      setShowInvite(true);
+      setShowAddCustomer(true);
     }
   };
 
@@ -89,43 +89,65 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
     }
   };
 
-  const handleInviteSubmit = async (e: React.FormEvent) => {
+  const resetAddForm = () => {
+    setFirstName("");
+    setLastName("");
+    setAddEmail("");
+    setSetupLink(null);
+    setCopied(false);
+  };
+
+  const handleCopy = () => {
+    if (!setupLink) return;
+    navigator.clipboard.writeText(setupLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleAddCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!organization?.id || !user?.id) return;
     if (atLimit) {
-      setShowInvite(false);
+      setShowAddCustomer(false);
       setShowLimitModal(true);
       return;
     }
-    if (invitePhone) {
-      const cleanedPhone = invitePhone.replace(/\D/g, "");
-      if (cleanedPhone.length !== 10) {
-        toast.error("Enter a valid 10-digit mobile number.");
-        return;
-      }
-    }
-    setIsInviting(true);
+    if (!firstName.trim()) { toast.error("First name is required."); return; }
+    if (!addEmail.trim()) { toast.error("Email address is required."); return; }
+
+    const emailKey = addEmail.trim().toLowerCase();
+
+    setIsValidating(true);
     try {
-      await sendOrganizationInvitation({
-        organization: organization as any,
-        organizationId: organization.id,
-        email: inviteEmail.trim(),
-        role: "customer",
-        clerkRole: "org:customer",
-        invitedBy: user.id,
-        invitedByEmail: user.primaryEmailAddress?.emailAddress || "",
-        assignedAgentId: agentId,
-        assignedAgentName: user.fullName || "Collector",
-      });
-      toast.success(`Invitation sent to ${inviteEmail.trim()}`);
-      setShowInvite(false);
-      setInviteEmail("");
-      setInviteName("");
-      setInvitePhone("");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to send invitation.");
+      await validateCustomerEmail(organization.id, emailKey, "");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Validation failed");
+      setIsValidating(false);
+      return;
     } finally {
-      setIsInviting(false);
+      setIsValidating(false);
+    }
+
+    setIsAdding(true);
+    try {
+      const { setupUrl } = await provisionUser({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: emailKey,
+        role: "CUSTOMER",
+        organizationId: organization.id,
+        organizationName: organization.name || "",
+        assignedAgentId: agentId,
+        assignedAgentName: activeCollectorName,
+        createdBy: user.id,
+      });
+      setSetupLink(setupUrl);
+      toast.success("Customer account created! Share the setup link.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to create customer account.");
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -134,7 +156,6 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
     if (!organization?.id || !selectedCustomer) return;
     if (Number(amount) <= 0) return toast.error("Enter a valid amount");
 
-    // Block collection if customer has not activated their account yet
     const memberRecord = allCustomers.find((c: any) =>
       c.clerkUserId === selectedCustomer.id ||
       c.userId === selectedCustomer.id ||
@@ -167,7 +188,6 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
 
   return (
     <div className="space-y-6">
-      {/* Header row */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -187,7 +207,6 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
         </Button>
       </div>
 
-      {/* Limit / pending indicators */}
       {atLimit && (
         <div className="flex items-center gap-3 rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm">
           <span className="text-amber-600 font-bold">⚠</span>
@@ -202,13 +221,12 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
           </button>
         </div>
       )}
-      {invitedCustomerCount > 0 && !atLimit && (
+      {pendingCustomerCount > 0 && !atLimit && (
         <div className="flex items-center gap-2 rounded-2xl bg-sky-50 border border-sky-100 px-4 py-2.5 text-xs text-sky-700">
-          <span className="font-semibold">{invitedCustomerCount}</span> customer{invitedCustomerCount > 1 ? "s" : ""} invited — waiting for account activation
+          <span className="font-semibold">{pendingCustomerCount}</span> customer{pendingCustomerCount > 1 ? "s" : ""} pending account setup
         </div>
       )}
 
-      {/* Customer cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loading ? (
           <div className="col-span-full text-center py-8">Loading...</div>
@@ -218,7 +236,7 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
               <Search className="w-8 h-8 text-slate-300" />
             </div>
             <p className="font-medium text-slate-500">No customers found</p>
-            <p className="text-xs mt-1">Use the "Add Customer" button to invite someone</p>
+            <p className="text-xs mt-1">Use the "Add Customer" button to create a new account</p>
           </div>
         ) : (
           myCustomers.map(customer => {
@@ -299,59 +317,94 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
         </DialogContent>
       </Dialog>
 
-      {/* Invite customer dialog */}
-      <Dialog open={showInvite} onOpenChange={(open) => { if (!open) { setShowInvite(false); } }}>
-        <DialogContent>
+      {/* Add customer dialog */}
+      <Dialog open={showAddCustomer} onOpenChange={(open) => { if (!open) { setShowAddCustomer(false); resetAddForm(); } }}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Invite New Customer</DialogTitle>
+            <DialogTitle>{setupLink ? "Share Setup Link" : "Add New Customer"}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleInviteSubmit} className="space-y-4 pt-2">
-            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-xs text-emerald-800">
-              Customer will be automatically assigned to you.
+
+          {setupLink ? (
+            <div className="space-y-4 mt-2">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center space-y-1">
+                <p className="text-sm font-semibold text-emerald-800">Customer account created!</p>
+                <p className="text-xs text-emerald-600">Share this link so they can set their password and sign in.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Setup Link</Label>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={setupLink}
+                    className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 font-mono overflow-hidden text-ellipsis"
+                  />
+                  <button
+                    onClick={handleCopy}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors"
+                  >
+                    {copied ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400">This link expires in 7 days.</p>
+              </div>
+              <Button className="w-full" onClick={() => { setShowAddCustomer(false); resetAddForm(); }}>Done</Button>
             </div>
-            <div className="space-y-2">
-              <Label>Full Name</Label>
-              <Input
-                placeholder="Customer's full name"
-                value={inviteName}
-                onChange={e => setInviteName(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Email Address</Label>
-              <Input
-                type="email"
-                placeholder="customer@email.com"
-                value={inviteEmail}
-                onChange={e => setInviteEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Phone Number</Label>
-              <Input
-                type="tel"
-                inputMode="numeric"
-                maxLength={10}
-                placeholder="9876543210"
-                value={invitePhone}
-                onChange={e => setInvitePhone(e.target.value.replace(/\D/g, "").substring(0, 10))}
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setShowInvite(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={isInviting}>
-                {isInviting ? "Sending..." : "Send Invitation"}
-              </Button>
-            </div>
-          </form>
+          ) : (
+            <form onSubmit={handleAddCustomerSubmit} className="space-y-4 mt-2 pt-2">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-xs text-emerald-800">
+                Customer will be automatically assigned to you.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-fname">First Name <span className="text-red-500">*</span></Label>
+                  <Input
+                    id="add-fname"
+                    placeholder="Jane"
+                    value={firstName}
+                    onChange={e => setFirstName(e.target.value)}
+                    required
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-lname">Last Name</Label>
+                  <Input
+                    id="add-lname"
+                    placeholder="Doe"
+                    value={lastName}
+                    onChange={e => setLastName(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="add-email">Email <span className="text-red-500">*</span></Label>
+                <Input
+                  id="add-email"
+                  type="email"
+                  placeholder="customer@email.com"
+                  value={addEmail}
+                  onChange={e => setAddEmail(e.target.value)}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => { setShowAddCustomer(false); resetAddForm(); }}>
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700" disabled={isValidating || isAdding || !firstName.trim() || !addEmail.trim()}>
+                  {isValidating || isAdding ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{isValidating ? "Validating…" : "Creating…"}</>
+                  ) : "Create Account"}
+                </Button>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
-      {/* Plan limit modal */}
       <PlanLimitModal
         isOpen={showLimitModal}
         onClose={() => { setShowLimitModal(false); setUpgradeRequestSent(false); }}

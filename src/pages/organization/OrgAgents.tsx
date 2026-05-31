@@ -7,27 +7,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { sendOrganizationInvitation, validateAgentInviteEmail } from "@/lib/services";
+import { provisionUser, validateAgentEmail } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
-import { Search, Plus, AlertTriangle, UserCheck, Clock, Mail, Info } from "lucide-react";
+import { Search, Plus, AlertTriangle, UserCheck, Copy, CheckCheck, Info, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 export default function OrgAgents() {
   const { user } = useUser();
   const { organization } = useOrganization();
 
-  // Only real agents (role AGENT) — owner is a separate OWNER role
   const { data: members, loading } = useCollectionRealtime<Membership>("organizationMembers", [
     where("role", "==", "AGENT")
   ]);
   const { data: orgDoc } = useDocumentRealtime<any>("organizations", organization?.id);
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const filteredCollectors = members.filter((u) =>
     ((u?.fullName || (u as any)?.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -37,35 +40,49 @@ export default function OrgAgents() {
 
   const maxCollectors = orgDoc?.limits?.maxAgents || 1;
   const activeCollectors = members.filter((a: any) => a.status === "ACTIVE").length;
-  const invitedCollectors = members.filter((a: any) => a.status === "INVITED" || a.status === "PENDING").length;
+  const pendingCollectors = members.filter((a: any) => a.status === "PENDING_SETUP").length;
   const atLimit = activeCollectors >= maxCollectors;
 
   const statusConfig: Record<string, { label: string; className: string }> = {
-    ACTIVE:    { label: "Active",    className: "bg-emerald-50 text-emerald-700 border-emerald-100" },
-    INVITED:   { label: "Invited",   className: "bg-amber-50 text-amber-700 border-amber-100" },
-    PENDING:   { label: "Pending",   className: "bg-sky-50 text-sky-700 border-sky-100" },
-    SUSPENDED: { label: "Suspended", className: "bg-red-50 text-red-700 border-red-100" },
+    ACTIVE:        { label: "Active",       className: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+    PENDING_SETUP: { label: "Setup Pending", className: "bg-amber-50 text-amber-700 border-amber-100" },
+    SUSPENDED:     { label: "Suspended",    className: "bg-red-50 text-red-700 border-red-100" },
   };
 
   const getStatus = (m: any) => {
-    const key = ((m.status as string) || "INVITED").toUpperCase();
+    const key = ((m.status as string) || "PENDING_SETUP").toUpperCase();
     return statusConfig[key] || { label: key, className: "bg-slate-50 text-slate-600 border-slate-100" };
   };
 
-  const resetForm = () => setEmail("");
+  const resetForm = () => {
+    setFirstName("");
+    setLastName("");
+    setEmail("");
+    setSetupLink(null);
+    setCopied(false);
+  };
 
-  const handleInviteCollector = async (e: React.FormEvent) => {
+  const handleCopy = () => {
+    if (!setupLink) return;
+    navigator.clipboard.writeText(setupLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleAddAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!organization?.id) { toast.error("No active organization selected."); return; }
-    if (!user?.id) { toast.error("Unable to send invitation without a signed-in owner."); return; }
+    if (!user?.id) { toast.error("No authenticated owner."); return; }
+    if (!firstName.trim()) { toast.error("First name is required."); return; }
     if (!email.trim()) { toast.error("Email address is required."); return; }
-    if (atLimit) { toast.error(`Collector limit of ${maxCollectors} reached. Please upgrade your plan.`); return; }
+    if (atLimit) { toast.error(`Collector limit of ${maxCollectors} reached.`); return; }
 
     const emailKey = email.trim().toLowerCase();
 
     setIsValidating(true);
     try {
-      await validateAgentInviteEmail(organization.id, emailKey);
+      await validateAgentEmail(organization.id, emailKey);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Validation failed");
       setIsValidating(false);
@@ -76,25 +93,19 @@ export default function OrgAgents() {
 
     setIsSubmitting(true);
     try {
-      const invitedByEmail = user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || "";
-      const result = await sendOrganizationInvitation({
-        organization,
-        organizationId: organization.id,
+      const { setupUrl } = await provisionUser({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: emailKey,
-        role: "pigmy_collector",
-        clerkRole: "org:pigmy_collector",
-        invitedBy: user.id,
-        invitedByEmail,
-        fullName: "",
-        phone: "",
-        notes: "",
-        assignedArea: "",
+        role: "AGENT",
+        organizationId: organization.id,
+        organizationName: organization.name || "",
+        createdBy: user.id,
       });
-      toast.success(result.message);
-      setIsInviteOpen(false);
-      resetForm();
+      setSetupLink(setupUrl);
+      toast.success("Agent account created. Share the setup link.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send collector invitation");
+      toast.error(error instanceof Error ? error.message : "Failed to create agent account");
     } finally {
       setIsSubmitting(false);
     }
@@ -105,16 +116,15 @@ export default function OrgAgents() {
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Manage Agents</h2>
-          <p className="text-slate-500">Invite and manage pigmy collectors for your organization.</p>
+          <p className="text-slate-500">Create and manage pigmy collectors for your organization.</p>
           <div className="flex items-center gap-3 mt-1.5">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
               <UserCheck className="w-3 h-3" />
               Active: {activeCollectors}/{maxCollectors}
             </span>
-            {invitedCollectors > 0 && (
+            {pendingCollectors > 0 && (
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-1">
-                <Clock className="w-3 h-3" />
-                Invited: {invitedCollectors}
+                Pending setup: {pendingCollectors}
               </span>
             )}
           </div>
@@ -126,60 +136,121 @@ export default function OrgAgents() {
             <span>Agent limit reached</span>
           </div>
         ) : (
-          <Dialog open={isInviteOpen} onOpenChange={(open) => { setIsInviteOpen(open); if (!open) resetForm(); }}>
+          <Dialog open={isOpen} onOpenChange={(open) => { setIsOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger render={
               <Button className="shrink-0"><Plus className="w-4 h-4 mr-2" /> Add Agent</Button>
             } />
             <DialogContent className="max-w-sm">
               <DialogHeader>
-                <DialogTitle className="text-lg font-bold">Invite Pigmy Collector</DialogTitle>
-                <p className="text-sm text-slate-500 mt-1">
-                  Enter the agent's email address. They'll receive a secure invitation to join your organization.
-                </p>
+                <DialogTitle className="text-lg font-bold">
+                  {setupLink ? "Share Setup Link" : "Add Pigmy Collector"}
+                </DialogTitle>
+                {!setupLink && (
+                  <p className="text-sm text-slate-500 mt-1">
+                    Create the agent's account. They'll receive a link to set their password.
+                  </p>
+                )}
               </DialogHeader>
 
-              <form onSubmit={handleInviteCollector} className="space-y-5 mt-2">
-                <div className="space-y-2">
-                  <Label htmlFor="col-email" className="text-sm font-semibold text-slate-700">
-                    Agent Email Address <span className="text-red-500">*</span>
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              {setupLink ? (
+                <div className="space-y-4 mt-2">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-center space-y-1">
+                    <UserCheck className="w-6 h-6 text-emerald-600 mx-auto" />
+                    <p className="text-sm font-semibold text-emerald-800">Agent account created!</p>
+                    <p className="text-xs text-emerald-600">Share this link so they can set their password and sign in.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Setup Link</Label>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={setupLink}
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 font-mono overflow-hidden text-ellipsis"
+                      />
+                      <button
+                        onClick={handleCopy}
+                        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors"
+                      >
+                        {copied ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400">This link expires in 7 days.</p>
+                  </div>
+                  <Button className="w-full" onClick={() => { setIsOpen(false); resetForm(); }}>
+                    Done
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleAddAgent} className="space-y-4 mt-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="agent-fname" className="text-sm font-semibold text-slate-700">
+                        First Name <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="agent-fname"
+                        type="text"
+                        placeholder="John"
+                        value={firstName}
+                        onChange={e => setFirstName(e.target.value)}
+                        className="h-11"
+                        required
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="agent-lname" className="text-sm font-semibold text-slate-700">
+                        Last Name
+                      </Label>
+                      <Input
+                        id="agent-lname"
+                        type="text"
+                        placeholder="Doe"
+                        value={lastName}
+                        onChange={e => setLastName(e.target.value)}
+                        className="h-11"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="agent-email" className="text-sm font-semibold text-slate-700">
+                      Email Address <span className="text-red-500">*</span>
+                    </Label>
                     <Input
-                      id="col-email"
+                      id="agent-email"
                       type="email"
                       placeholder="agent@example.com"
                       value={email}
                       onChange={e => setEmail(e.target.value)}
-                      className="pl-10 h-11"
+                      className="h-11"
                       required
                       autoComplete="off"
                     />
+                    <p className="text-xs text-slate-400">Role assigned automatically as Pigmy Collector.</p>
                   </div>
-                  <p className="text-xs text-slate-400">Role is automatically assigned as Pigmy Collector.</p>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full h-11 font-semibold"
-                  disabled={isValidating || isSubmitting || !email.trim()}
-                >
-                  {isValidating ? "Validating…" : isSubmitting ? "Sending Invitation…" : "Send Invitation"}
-                </Button>
-              </form>
+                  <Button
+                    type="submit"
+                    className="w-full h-11 font-semibold"
+                    disabled={isValidating || isSubmitting || !firstName.trim() || !email.trim()}
+                  >
+                    {isValidating ? "Validating…" : isSubmitting ? "Creating account…" : "Create Agent Account"}
+                  </Button>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         )}
       </div>
 
-      {/* Info banner */}
       <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
         <div className="min-w-0">
           <p className="text-sm font-semibold text-sky-800">You can collect payments directly</p>
           <p className="text-xs text-sky-600 mt-0.5">
             As the organization owner, you can record customer collections without needing an agent account.
-            Invite agents below to expand your team and delegate collection routes.
+            Add agents below to expand your team and delegate collection routes.
           </p>
         </div>
       </div>
@@ -210,7 +281,6 @@ export default function OrgAgents() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
@@ -239,7 +309,7 @@ export default function OrgAgents() {
                       <div className="flex flex-col items-center gap-2">
                         <UserCheck className="w-8 h-8 text-slate-300" />
                         <p className="text-slate-500 text-sm font-medium">No agents yet.</p>
-                        <p className="text-slate-400 text-xs">Invite your first pigmy collector to get started.</p>
+                        <p className="text-slate-400 text-xs">Add your first pigmy collector to get started.</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -271,7 +341,6 @@ export default function OrgAgents() {
             </Table>
           </div>
 
-          {/* Mobile Card List */}
           <div className="md:hidden">
             {loading ? (
               <div className="p-4 space-y-3">
@@ -283,7 +352,7 @@ export default function OrgAgents() {
               <div className="py-12 text-center">
                 <UserCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                 <p className="text-slate-500 text-sm font-medium">No agents yet.</p>
-                <p className="text-slate-400 text-xs mt-1">Click "Add Agent" to invite your first collector.</p>
+                <p className="text-slate-400 text-xs mt-1">Click "Add Agent" to add your first collector.</p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
