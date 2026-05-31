@@ -21,6 +21,7 @@ import CustomSignUpPage from "./pages/auth/SignUpPage";
 import VerifyEmailPage from "./pages/auth/VerifyEmailPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
+import AcceptInvitationPage from "./pages/auth/AcceptInvitationPage";
 
 import OrgDashboard from "./pages/organization/OrgDashboard";
 import OwnerOnboarding from "./pages/organization/OwnerOnboarding";
@@ -510,6 +511,9 @@ export default function App() {
               <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
+
+              {/* Invitation acceptance — must be public; __clerk_ticket is in the query string */}
+              <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
 
               {/* Legacy sign-in redirects — QueryPreservingRedirect keeps __clerk_ticket intact */}
               <Route path="/sign-in/*" element={<QueryPreservingRedirect to="/auth/sign-in" />} />

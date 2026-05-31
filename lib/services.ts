@@ -772,9 +772,16 @@ export async function sendOrganizationInvitation(options: {
 
   let clerkInvitationId: string;
   try {
+    const acceptUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/accept-invitation`
+        : "/accept-invitation";
+    console.log("[FC STEP 1] inviteMember redirectUrl →", acceptUrl);
+
     const invitation = await organization.inviteMember({
       emailAddress: emailKey,
       role: clerkRole,
+      redirectUrl: acceptUrl,
     });
 
     if (!invitation || !invitation.id) {
