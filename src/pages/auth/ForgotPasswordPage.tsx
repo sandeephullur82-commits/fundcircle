@@ -26,11 +26,10 @@ export default function ForgotPasswordPage() {
       setSent(true);
       navigate("/auth/reset-password", { replace: true });
     } catch (err: any) {
-      const msg =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        "No account found with that email address.";
-      setError(msg);
+      const code = err?.errors?.[0]?.code ?? "";
+      console.error("[FC ForgotPassword] Error:", code, err?.errors?.[0]?.longMessage ?? err?.message, err);
+      if (code === "too_many_requests") setError("Too many attempts. Please wait a moment and try again.");
+      else setError("Account not found.");
     } finally {
       setLoading(false);
     }

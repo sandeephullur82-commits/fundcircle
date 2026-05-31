@@ -61,13 +61,11 @@ export default function SetupPasswordPage() {
 
       toast.error("Unable to verify your setup link. It may have expired.");
     } catch (err: any) {
-      const msg =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        err?.message ||
-        "Failed to set password";
-      console.error("[FC SetupPassword] Error:", msg, err);
-      toast.error(msg);
+      const code = err?.errors?.[0]?.code ?? "";
+      console.error("[FC SetupPassword] Error:", code, err?.errors?.[0]?.longMessage ?? err?.message, err);
+      if (code === "too_many_requests") toast.error("Too many attempts. Please wait a moment and try again.");
+      else if (code === "form_password_pwned" || code === "form_password_size_check_failed") toast.error("Please choose a stronger password (min. 8 characters).");
+      else toast.error("Unable to set password. Your setup link may have expired.");
     } finally {
       setIsSubmitting(false);
     }

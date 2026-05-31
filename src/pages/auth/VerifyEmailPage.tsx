@@ -113,7 +113,7 @@ export default function VerifyEmailPage() {
       }
     } catch (err: any) {
       const code = err?.errors?.[0]?.code ?? "unknown";
-      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? "Invalid or expired code.";
+      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? "unknown";
       console.error("════════════════════════════════════════════════");
       console.error("[FC STEP 4] ✗ Verification threw an exception");
       console.error("[FC STEP 4]   error.code    :", code);
@@ -121,7 +121,9 @@ export default function VerifyEmailPage() {
       console.error("[FC STEP 4]   error.errors  :", err?.errors ?? "none");
       console.error("[FC STEP 4]   full error    :", err);
       console.error("════════════════════════════════════════════════");
-      setError(msg);
+      if (code === "too_many_requests") setError("Too many attempts. Please wait a moment and try again.");
+      else if (code === "verification_expired") setError("Code expired. Please request a new one.");
+      else setError("Invalid or expired code. Please try again.");
       setOtp(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
     } finally {

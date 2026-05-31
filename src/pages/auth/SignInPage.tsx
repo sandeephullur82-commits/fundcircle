@@ -1,64 +1,24 @@
 import React, { useState, useEffect } from "react";
 import { useSignIn, useUser, useClerk } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, Loader2, AlertCircle, Bug } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
-const DEV = import.meta.env.DEV;
-
-// ─── Clerk error → human-readable message ────────────────────────────────────
 function clerkErrorMessage(err: any): string {
-  const code  = err?.errors?.[0]?.code        ?? "";
-  const long  = err?.errors?.[0]?.longMessage  ?? "";
-  const short = err?.errors?.[0]?.message      ?? "";
-  const raw   = long || short || code || "Unknown error";
-
-  if (code === "form_password_incorrect")      return "Incorrect password. Please try again.";
-  if (code === "form_identifier_not_found")    return "No account found with that email address.";
+  const code = err?.errors?.[0]?.code ?? "";
+  if (code === "form_password_incorrect")      return "Invalid email or password.";
+  if (code === "form_identifier_not_found")    return "Account not found.";
   if (code === "form_param_format_invalid")    return "Please enter a valid email address.";
   if (code === "too_many_requests")            return "Too many attempts. Please wait a moment and try again.";
   if (code === "session_exists")               return "You are already signed in.";
   if (code === "user_locked")                  return "This account has been locked. Please contact support.";
-  if (code === "strategy_for_user_invalid")    return "Password is not set up for this account. Use 'Forgot password' to create one.";
+  if (code === "strategy_for_user_invalid")    return "Password reset required. Use 'Forgot password' to set one.";
   if (code === "form_identifier_exists")       return "An account with this email already exists.";
   if (code === "verification_expired")         return "Verification code expired. Please request a new one.";
   if (code === "not_allowed_access")           return "Access denied. Your account may be suspended.";
   if (code === "organization_not_found")       return "Your organization could not be found. Contact your administrator.";
   if (code === "form_param_nil")               return "Email and password are required.";
-  return `Sign-in failed: ${raw}`;
-}
-
-// ─── Dev error panel ──────────────────────────────────────────────────────────
-function DevErrorPanel({ err }: { err: any }) {
-  if (!err) return null;
-  const firstError = err?.errors?.[0] ?? {};
-  return (
-    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs font-mono space-y-1.5">
-      <p className="font-bold text-amber-200 flex items-center gap-1.5">
-        <Bug className="h-3.5 w-3.5" /> DEV — Raw Clerk Error
-      </p>
-      <div className="text-amber-300/90">
-        <span className="text-amber-500/70">code: </span>
-        {firstError.code ?? "—"}
-      </div>
-      <div className="text-amber-300/90">
-        <span className="text-amber-500/70">message: </span>
-        {firstError.longMessage ?? firstError.message ?? err?.message ?? "—"}
-      </div>
-      <div className="text-amber-300/90">
-        <span className="text-amber-500/70">meta: </span>
-        {firstError.meta ? JSON.stringify(firstError.meta) : "—"}
-      </div>
-      <details className="mt-1">
-        <summary className="cursor-pointer text-amber-400/60 hover:text-amber-300 transition-colors">
-          Full errors array ▸
-        </summary>
-        <pre className="mt-2 overflow-auto max-h-44 text-[10px] text-amber-300/70 whitespace-pre-wrap break-all">
-          {JSON.stringify(err?.errors ?? err, null, 2)}
-        </pre>
-      </details>
-    </div>
-  );
+  return "Invalid email or password.";
 }
 
 export default function SignInPage() {
@@ -67,12 +27,11 @@ export default function SignInPage() {
   const clerk                                  = useClerk();
   const navigate                               = useNavigate();
 
-  const [email, setEmail]             = useState("");
-  const [password, setPassword]       = useState("");
-  const [showPw, setShowPw]           = useState(false);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState("");
-  const [rawClerkError, setRawClerkError] = useState<any>(null);
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
 
   useEffect(() => {
     if (userLoaded && isSignedIn) {
@@ -85,12 +44,10 @@ export default function SignInPage() {
     e.preventDefault();
     if (!isLoaded || !signIn || !setActive || loading) return;
     setError("");
-    setRawClerkError(null);
     setLoading(true);
 
     const identifier = email.trim().toLowerCase();
 
-    // ════════════════════════════════════════════════
     console.log("════════════════════════════════════════════════");
     console.log("[FC STEP 7] ▶ Sign-in attempt");
     console.log("[FC STEP 7]   identifier :", identifier);
@@ -113,7 +70,6 @@ export default function SignInPage() {
       console.log("[FC STEP 7]   firstFactorVerification:", (result as any).firstFactorVerification?.status ?? "—");
 
       if (status === "complete") {
-        // ── STEP 8: Session creation ────────────────────────────────────────
         console.log("────────────────────────────────────────────");
         console.log("[FC STEP 8] ▶ Session creation — calling setActive()");
         console.log("[FC STEP 8]   sessionId :", result.createdSessionId ?? "null (already active)");
@@ -131,7 +87,6 @@ export default function SignInPage() {
         return;
       }
 
-      // ── Unexpected status — attempt recovery with available session ──────
       console.warn("[FC STEP 7] Unexpected status:", status);
       if (result.createdSessionId) {
         console.log("[FC STEP 8] Recovery: activating available session despite status:", status);
@@ -141,7 +96,7 @@ export default function SignInPage() {
       }
 
       try { await clerk.signOut(); } catch { /* ignore */ }
-      setError("Sign-in failed. Please check your credentials and try again.");
+      setError("Invalid email or password.");
 
     } catch (err: any) {
       const code = err?.errors?.[0]?.code ?? "unknown";
@@ -154,8 +109,6 @@ export default function SignInPage() {
       console.error("[FC STEP 7]   error.errors  :", err?.errors ?? "none");
       console.error("[FC STEP 7]   full error    :", err);
       console.error("════════════════════════════════════════════════");
-
-      setRawClerkError(err);
 
       if (code === "session_exists") {
         navigate("/router", { replace: true });
@@ -184,8 +137,6 @@ export default function SignInPage() {
             </div>
           )}
 
-          {DEV && rawClerkError && <DevErrorPanel err={rawClerkError} />}
-
           <div className="space-y-1.5">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/95">
               Email address
@@ -193,7 +144,7 @@ export default function SignInPage() {
             <input
               type="email"
               value={email}
-              onChange={e => { setEmail(e.target.value); setRawClerkError(null); }}
+              onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
               autoFocus
@@ -215,7 +166,7 @@ export default function SignInPage() {
               <input
                 type={showPw ? "text" : "password"}
                 value={password}
-                onChange={e => { setPassword(e.target.value); setRawClerkError(null); }}
+                onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
                 autoComplete="current-password"

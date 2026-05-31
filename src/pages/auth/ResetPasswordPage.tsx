@@ -112,11 +112,11 @@ export default function ResetPasswordPage() {
         setError("Could not complete password reset. Please try again.");
       }
     } catch (err: any) {
-      const msg =
-        err?.errors?.[0]?.longMessage ||
-        err?.errors?.[0]?.message ||
-        "Invalid or expired code. Please request a new one.";
-      setError(msg);
+      const code = err?.errors?.[0]?.code ?? "";
+      console.error("[FC ResetPassword] Error:", code, err?.errors?.[0]?.longMessage ?? err?.message, err);
+      if (code === "too_many_requests") setError("Too many attempts. Please wait a moment and try again.");
+      else if (code === "form_password_pwned" || code === "form_password_size_check_failed") setError("Please choose a stronger password (min. 8 characters).");
+      else setError("Invalid or expired code. Please request a new one.");
     } finally {
       setLoading(false);
     }

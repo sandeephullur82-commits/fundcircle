@@ -163,7 +163,11 @@ export default function SignUpPage() {
       console.error("[FC STEP 2/3]   error.errors  :", err?.errors ?? "none");
       console.error("[FC STEP 2/3]   full error    :", err);
       console.error("════════════════════════════════════════════════");
-      setError(msg || "Could not create account. Please try again.");
+      if (code === "form_identifier_exists")  setError("An account with this email already exists.");
+      else if (code === "form_param_format_invalid") setError("Please enter a valid email address.");
+      else if (code === "too_many_requests")  setError("Too many attempts. Please wait a moment and try again.");
+      else if (code === "form_password_pwned" || code === "form_password_size_check_failed") setError("Please choose a stronger password (min. 8 characters).");
+      else setError("Could not create account. Please try again.");
     } finally {
       setLoading(false);
     }
