@@ -8,6 +8,48 @@ export function membershipIdFor(organizationId: string, clerkUserId: string) {
   return `${organizationId}_${clerkUserId}`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Single source-of-truth for all Clerk org invitations.
+// Every path that sends an invitation email MUST go through here.
+// ─────────────────────────────────────────────────────────────
+export async function clerkInviteMember(params: {
+  organization: any;
+  emailAddress: string;
+  role: string;
+}): Promise<any> {
+  if (!params.organization?.inviteMember || typeof params.organization.inviteMember !== "function") {
+    throw new Error("Organization invitation not supported. Check Clerk configuration.");
+  }
+
+  const acceptUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/accept-invitation`
+      : "/accept-invitation";
+
+  const email = params.emailAddress.trim().toLowerCase();
+
+  console.log("══════════════════════════════════════════════════════");
+  console.log("[FC INVITATION CREATED]");
+  console.log("  organizationId :", params.organization?.id ?? "UNKNOWN");
+  console.log("  email          :", email);
+  console.log("  role           :", params.role);
+  console.log("  redirectUrl    :", acceptUrl);
+  console.log("══════════════════════════════════════════════════════");
+
+  const invitation = await params.organization.inviteMember({
+    emailAddress: email,
+    role: params.role,
+    redirectUrl: acceptUrl,
+  });
+
+  if (!invitation?.id) {
+    throw new Error("Clerk invitation created but no ID returned.");
+  }
+
+  console.log("[FC INVITATION CREATED] ✓ Clerk invitationId:", invitation.id);
+  return invitation;
+}
+
 export async function linkOrganizationMembershipByEmail(
   email: string,
   organizationId: string | null | undefined,
@@ -121,75 +163,6 @@ export async function upsertAcceptedMembership(
   return ref;
 }
 
-export async function inviteOrganizationMember(
-  organization: any,
-  organizationId: string,
-  memberData: {
-    name: string;
-    email: string;
-    role: "agent" | "customer";
-    phone?: string;
-    assignedArea?: string;
-    agentId?: string;
-  }
-) {
-  if (!organization?.id) {
-    throw new Error("No active organization selected for invitation.");
-  }
-
-  const emailKey = memberData.email.trim().toLowerCase();
-
-  if (!organization?.inviteMember) {
-    throw new Error("This organization cannot create invitations at the moment.");
-  }
-
-  const invitation = await organization.inviteMember({
-    emailAddress: emailKey,
-    role: "org:member",
-  });
-
-  const docRef = await addDoc(collection(db, "users"), {
-    clerkUserId: "",
-    id: "",
-    name: memberData.name,
-    email: emailKey,
-    role: memberData.role,
-    phone: memberData.phone || "",
-    assignedArea: memberData.assignedArea || "",
-    agentId: memberData.agentId || "",
-    organizationId,
-    status: "pending",
-    invitationId: invitation.id,
-    createdAt: serverTimestamp(),
-  });
-
-  await setDoc(docRef, { id: docRef.id }, { merge: true });
-  return invitation;
-}
-
-export async function inviteCustomer(organization: any, organizationId: string, customerData: {
-  name: string;
-  email: string;
-  phone?: string;
-  agentId: string;
-}) {
-  return inviteOrganizationMember(organization, organizationId, {
-    ...customerData,
-    role: "customer",
-  });
-}
-
-export async function inviteAgent(organization: any, organizationId: string, agentData: {
-  name: string;
-  email: string;
-  phone?: string;
-  assignedArea?: string;
-}) {
-  return inviteOrganizationMember(organization, organizationId, {
-    ...agentData,
-    role: "agent",
-  });
-}
 
 export async function attachClerkIdToPendingUsers(email: string, clerkUserId: string) {
   const emailKey = email.trim().toLowerCase();
@@ -664,12 +637,6 @@ export async function sendOrganizationInvitation(options: {
     throw new Error(err);
   }
 
-  if (!organization.inviteMember || typeof organization.inviteMember !== "function") {
-    const err = "This organization does not support member invitations. Check Clerk configuration.";
-    console.error("AGENT_INVITE_ERROR: NO_INVITE_METHOD", err);
-    throw new Error(err);
-  }
-
   // Step 2 / [FC STEP 6]: Save to Firestore FIRST (creates invited org member and pending invite)
   console.log("[FC STEP 6] ▶ Database customer record creation — writing pendingInvite + organizationMember + customer docs");
   console.log("sendOrganizationInvitation: saving to Firestore");
@@ -764,29 +731,14 @@ export async function sendOrganizationInvitation(options: {
 
   // Step 3 / [FC STEP 1 continued]: Send Clerk organization invitation email
   console.log("[FC STEP 1] Sending Clerk org invitation email — role:", clerkRole, "| email:", emailKey);
-  console.log("sendOrganizationInvitation: sending Clerk invitation", {
-    organizationId: organization.id,
-    emailAddress: emailKey,
-    role: clerkRole,
-  });
 
   let clerkInvitationId: string;
   try {
-    const acceptUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/accept-invitation`
-        : "/accept-invitation";
-    console.log("[FC STEP 1] inviteMember redirectUrl →", acceptUrl);
-
-    const invitation = await organization.inviteMember({
+    const invitation = await clerkInviteMember({
+      organization,
       emailAddress: emailKey,
       role: clerkRole,
-      redirectUrl: acceptUrl,
     });
-
-    if (!invitation || !invitation.id) {
-      throw new Error("Clerk invitation created but no ID returned");
-    }
 
     clerkInvitationId = invitation.id;
     console.log("sendOrganizationInvitation: Clerk invitation sent successfully", {
@@ -1028,10 +980,7 @@ export async function resendInvitation(params: {
   clerkRole: string;
 }): Promise<void> {
   const { pendingInviteId, organization, email, clerkRole } = params;
-  if (!organization?.inviteMember) {
-    throw new Error("Organization invitation not supported.");
-  }
-  await organization.inviteMember({ emailAddress: email.trim().toLowerCase(), role: clerkRole });
+  await clerkInviteMember({ organization, emailAddress: email, role: clerkRole });
   await updateDoc(doc(db, "pendingInvites", pendingInviteId), {
     status: "PENDING",
     resentAt: serverTimestamp(),
