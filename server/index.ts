@@ -4,8 +4,13 @@ import path from "path";
 import { createClerkClient } from "@clerk/backend";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: process.env.NODE_ENV === "production"
+    ? process.env.VITE_APP_ORIGIN
+    : true,
+  credentials: true,
+}));
+app.use(express.json({ limit: "50kb" }));
 
 const clerkClient = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
@@ -58,7 +63,7 @@ app.post("/api/provision-user", async (req, res) => {
     const origin =
       process.env.VITE_APP_ORIGIN ||
       (process.env.NODE_ENV === "production"
-        ? `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`
+        ? ""
         : "http://localhost:5000");
     setupUrl = `${origin}/auth/setup-password?token=${token.token}`;
     console.log("[FC Provision] Sign-in token created for userId:", userId);
