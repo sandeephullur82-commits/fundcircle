@@ -1,0 +1,339 @@
+import { useState } from "react";
+import { useCollectionRealtime } from "@/lib/firestore-hooks";
+import { Loan, LoanInstallment, Membership } from "@/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { format, isBefore, startOfDay } from "date-fns";
+import { Search, CreditCard, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
+import { useUser, useOrganization } from "@clerk/clerk-react";
+import { recordEMICollection } from "@/lib/services";
+import { getDocs, query, collection, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import ReceiptModal, { ReceiptData } from "@/components/ReceiptModal";
+
+function toDate(ts: any): Date {
+  if (!ts) return new Date(0);
+  if (ts?.toDate) return ts.toDate();
+  if (ts instanceof Date) return ts;
+  return new Date(ts);
+}
+
+interface CustomerLoan {
+  loan: Loan;
+  nextInstallment: LoanInstallment | null;
+  overdueCount: number;
+}
+
+export default function AgentEMICollection() {
+  const { user } = useUser();
+  const { organization } = useOrganization();
+  const agentId = user?.id || "";
+  const agentName = user?.fullName || user?.primaryEmailAddress?.emailAddress || "Agent";
+  const orgId = organization?.id || "";
+
+  const { data: allMembers } = useCollectionRealtime<Membership>("organizationMembers");
+  const { data: loans } = useCollectionRealtime<Loan>("loans");
+
+  const [search, setSearch] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
+  const [customerLoan, setCustomerLoan] = useState<CustomerLoan | null>(null);
+  const [loadingLoan, setLoadingLoan] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+
+  // Customers assigned to this agent with active loans
+  const myCustomers = allMembers.filter((m) => {
+    const isCustomer = ["CUSTOMER", "customer"].includes(m.role as string);
+    const isAssigned = m.assignedAgentId === agentId || m.assigned_to_user_id === agentId;
+    const isActive = (m as any).status === "ACTIVE";
+    return isCustomer && isAssigned && isActive;
+  });
+
+  // Customers with active loans
+  const customersWithLoans = myCustomers.filter((c) => {
+    return loans.some((l) =>
+      (l.customerId === c.id || l.customerId === c.clerkUserId) &&
+      (l.status === "ACTIVE" || (l.status as string) === "active")
+    );
+  });
+
+  const filtered = customersWithLoans.filter((c) => {
+    const name = (c as any).fullName || (c as any).name || c.email || "";
+    return !search || name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search);
+  });
+
+  const handleSelectCustomer = async (customer: Membership) => {
+    setSelectedCustomer(customer);
+    setCustomerLoan(null);
+    setLoadingLoan(true);
+    try {
+      // Get the customer's active loan
+      const activeLoan = loans.find((l) =>
+        (l.customerId === customer.id || l.customerId === customer.clerkUserId) &&
+        (l.status === "ACTIVE" || (l.status as string) === "active")
+      );
+      if (!activeLoan) {
+        setCustomerLoan(null);
+        setLoadingLoan(false);
+        return;
+      }
+
+      // Get installments
+      const today = startOfDay(new Date());
+      const snap = await getDocs(
+        query(
+          collection(db, "loan_installments"),
+          where("loanId", "==", activeLoan.id),
+          where("status", "!=", "PAID")
+        )
+      );
+      const installments = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as LoanInstallment))
+        .sort((a, b) => a.installmentNo - b.installmentNo);
+
+      const nextInst = installments[0] || null;
+      const overdueCount = installments.filter((i) => isBefore(toDate(i.dueDate), today)).length;
+
+      setCustomerLoan({ loan: activeLoan, nextInstallment: nextInst, overdueCount });
+    } catch (e) {
+      toast.error("Failed to load loan details");
+    } finally {
+      setLoadingLoan(false);
+    }
+  };
+
+  const handleCollectEMI = async () => {
+    if (!selectedCustomer || !customerLoan?.nextInstallment || !orgId || !user?.id) return;
+    const loan = customerLoan.loan;
+    const inst = customerLoan.nextInstallment;
+    setSubmitting(true);
+    try {
+      const result = await recordEMICollection({
+        organizationId: orgId,
+        organizationName: organization?.name || "FundCircle",
+        loanId: loan.id,
+        installmentId: inst.id,
+        customerId: selectedCustomer.id,
+        agentId: user.id,
+        agentName,
+        amount: inst.emiAmount,
+      });
+
+      const custName = (selectedCustomer as any).fullName || (selectedCustomer as any).name || selectedCustomer.email || "";
+      setReceipt({
+        receiptNo: result.receiptNo,
+        organizationName: organization?.name || "FundCircle",
+        customerName: custName,
+        amount: inst.emiAmount,
+        collectionType: "LOAN_EMI",
+        agentName,
+        collectedAt: new Date(),
+        loanId: loan.id,
+        installmentNo: inst.installmentNo,
+        loanOutstanding: result.loanClosed ? 0 : (loan.outstandingBalance ?? 0) - inst.emiAmount,
+      });
+
+      if (result.loanClosed) {
+        toast.success("🎉 EMI collected! Loan fully repaid and closed.");
+      } else {
+        toast.success(`EMI collected · Receipt: ${result.receiptNo}`);
+      }
+
+      setSelectedCustomer(null);
+      setCustomerLoan(null);
+    } catch (err: any) {
+      toast.error(err?.message || "EMI collection failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const today = startOfDay(new Date());
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-bold text-slate-900">EMI Collection</h2>
+        <p className="text-slate-500 text-sm">Select a customer to collect their loan installment.</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-3">
+        <Card className="bg-indigo-50 border-indigo-100">
+          <CardContent className="p-4">
+            <p className="text-2xl font-black text-indigo-900">{customersWithLoans.length}</p>
+            <p className="text-xs text-indigo-600">Customers with active loans</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-red-50 border-red-100">
+          <CardContent className="p-4">
+            <p className="text-2xl font-black text-red-900">
+              {loans.filter((l) => {
+                const isMyCustomer = myCustomers.some((c) => c.id === l.customerId || c.clerkUserId === l.customerId);
+                return isMyCustomer && (l.status === "ACTIVE");
+              }).reduce((s, l) => {
+                const outstanding = l.outstandingBalance ?? (l as any).balanceRemaining ?? 0;
+                return outstanding > 0 ? s + 1 : s;
+              }, 0)}
+            </p>
+            <p className="text-xs text-red-600">Loans with outstanding balance</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Customer search */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-indigo-600" />
+            Select Customer for EMI Collection
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search customer by name or phone…"
+              className="pl-9 h-11"
+            />
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">
+              <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No customers with active loans found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((customer) => {
+                const loan = loans.find((l) =>
+                  (l.customerId === customer.id || l.customerId === customer.clerkUserId) &&
+                  (l.status === "ACTIVE" || (l.status as string) === "active")
+                );
+                const outstanding = loan ? (loan.outstandingBalance ?? (loan as any).balanceRemaining ?? 0) : 0;
+                const name = (customer as any).fullName || (customer as any).name || customer.email || "";
+                return (
+                  <button
+                    key={customer.id}
+                    onClick={() => handleSelectCustomer(customer)}
+                    className="w-full p-4 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-sm text-left transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900 text-sm">{name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{customer.phone || customer.email}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500">Outstanding</p>
+                        <p className="font-bold text-orange-600 text-sm">₹{Number(outstanding).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* EMI Collection Dialog */}
+      <Dialog open={!!selectedCustomer} onOpenChange={(o) => !o && setSelectedCustomer(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-indigo-600" /> EMI Collection
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedCustomer && (
+            <div className="space-y-4 mt-1">
+              {/* Customer */}
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="font-bold text-slate-900">
+                  {(selectedCustomer as any).fullName || (selectedCustomer as any).name || selectedCustomer.email}
+                </p>
+                <p className="text-xs text-slate-500">{selectedCustomer.phone || selectedCustomer.email}</p>
+              </div>
+
+              {loadingLoan ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : !customerLoan ? (
+                <div className="text-center py-6 text-slate-400 text-sm">No active loan found.</div>
+              ) : !customerLoan.nextInstallment ? (
+                <div className="text-center py-6">
+                  <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-900">All installments paid!</p>
+                  <p className="text-xs text-slate-500 mt-0.5">This loan has no pending installments.</p>
+                </div>
+              ) : (
+                <>
+                  {customerLoan.overdueCount > 0 && (
+                    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
+                      <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                      <p className="text-xs text-red-700 font-medium">
+                        {customerLoan.overdueCount} overdue installment{customerLoan.overdueCount !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Loan details */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-indigo-50 rounded-xl p-3">
+                      <p className="text-xs text-indigo-600">Outstanding Balance</p>
+                      <p className="font-bold text-indigo-900">₹{Number(customerLoan.loan.outstandingBalance ?? (customerLoan.loan as any).balanceRemaining ?? 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-xs text-slate-500">Installment #</p>
+                      <p className="font-bold text-slate-900">{customerLoan.nextInstallment.installmentNo} of {customerLoan.loan.tenureMonths ?? (customerLoan.loan as any).durationMonths}</p>
+                    </div>
+                  </div>
+
+                  {/* Next installment */}
+                  <div className="bg-white border-2 border-indigo-200 rounded-xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-700">Next Installment Due</p>
+                      {isBefore(toDate(customerLoan.nextInstallment.dueDate), today) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">OVERDUE</span>
+                      )}
+                    </div>
+                    <p className="text-3xl font-black text-indigo-700">
+                      ₹{Number(customerLoan.nextInstallment.emiAmount).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Due: {toDate(customerLoan.nextInstallment.dueDate).getTime() > 0
+                        ? format(toDate(customerLoan.nextInstallment.dueDate), "MMM d, yyyy")
+                        : "—"}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button variant="outline" className="flex-1" onClick={() => setSelectedCustomer(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 h-11"
+                      onClick={handleCollectEMI}
+                      disabled={submitting}
+                    >
+                      {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</> : "Collect EMI"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Modal */}
+      <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
+    </div>
+  );
+}

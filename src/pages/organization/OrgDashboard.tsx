@@ -27,6 +27,7 @@ import OrgReports from "./OrgReports";
 import OrgNotifications from "./OrgNotifications";
 import OrgSettings from "./OrgSettings";
 import OrgBilling from "./OrgBilling";
+import OrgAuditLogs from "./OrgAuditLogs";
 import AgentOverview from "../agent/AgentOverview";
 import AgentCustomers from "../agent/AgentCustomers";
 
@@ -91,6 +92,7 @@ export default function OrgDashboard() {
     { id: "collections", label: "Collections", icon: Wallet },
     { id: "loans", label: "Loans & EMI", icon: CreditCard },
     { id: "reports", label: "Reports", icon: FileText },
+    { id: "auditLogs", label: "Audit Logs", icon: ClipboardList },
     { id: "notifications", label: "Notifications", icon: Bell, badge: unreadCount },
     { id: "billing", label: "Billing", icon: CreditCard },
     { id: "settings", label: "Settings", icon: Settings },
@@ -280,6 +282,7 @@ export default function OrgDashboard() {
           <TabsContent value="notifications" className="mt-0"><OrgNotifications /></TabsContent>
           <TabsContent value="billing" className="mt-0"><OrgBilling /></TabsContent>
           <TabsContent value="settings" className="mt-0"><OrgSettings /></TabsContent>
+          <TabsContent value="auditLogs" className="mt-0"><OrgAuditLogs /></TabsContent>
           <TabsContent value="daily" className="mt-0"><AgentOverview /></TabsContent>
           <TabsContent value="customerLedger" className="mt-0">
             <AgentCustomers collectorRole={isOwner ? "OWNER" : "AGENT"} collectorName={user?.fullName || ""} collectorId={user?.id || ""} />

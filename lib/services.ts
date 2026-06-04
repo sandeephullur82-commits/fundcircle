@@ -1,17 +1,489 @@
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDoc, setDoc, query, where, getDocs, increment } from "firebase/firestore";
+import {
+  collection, addDoc, updateDoc, deleteDoc, doc,
+  serverTimestamp, getDoc, setDoc, query, where,
+  getDocs, increment, Timestamp, orderBy, limit, runTransaction
+} from "firebase/firestore";
 import { db } from "./firebase";
-import { Collection, Loan, EMIPayment, Membership } from "../types";
+import {
+  Collection, Loan, LoanInstallment, SavingsAccount, SavingsTransaction,
+  Membership, AuditLog, AuditAction, EMIPayment, Customer
+} from "../types";
 
-// The organizationId must ALWAYS be provided to these services
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function membershipIdFor(organizationId: string, clerkUserId: string) {
   return `${organizationId}_${clerkUserId}`;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Admin provisioning — create a Clerk user and Firestore records
-// directly. No invitation tickets involved.
-// ─────────────────────────────────────────────────────────────
+function toDate(ts: any): Date {
+  if (!ts) return new Date(0);
+  if (ts?.toDate) return ts.toDate();
+  if (ts instanceof Date) return ts;
+  return new Date(ts);
+}
+
+/** Generate account number: FC-{6-digit random} */
+export function generateAccountNumber(): string {
+  return "FC-" + Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/** Receipt number: FC-{ORGSLUG}-{YYYYMMDD}-{SEQ} */
+async function generateReceiptNo(organizationId: string): Promise<string> {
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const slug = organizationId.slice(-6).toUpperCase();
+  // Use a daily counter stored in Firestore
+  const counterRef = doc(db, "receiptCounters", `${organizationId}_${datePart}`);
+  let seq = 1;
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    if (snap.exists()) {
+      seq = (snap.data().seq || 0) + 1;
+    }
+    tx.set(counterRef, { seq, organizationId, date: datePart }, { merge: true });
+  });
+  return `FC-${slug}-${datePart}-${seq.toString().padStart(4, "0")}`;
+}
+
+/** EMI formula: P × r × (1+r)^n / ((1+r)^n - 1) */
+export function calculateEMI(principal: number, annualRatePercent: number, tenureMonths: number): number {
+  const r = annualRatePercent / 100 / 12;
+  if (r === 0) return principal / tenureMonths;
+  const factor = Math.pow(1 + r, tenureMonths);
+  return (principal * r * factor) / (factor - 1);
+}
+
+// ── Audit Logging ─────────────────────────────────────────────────────────────
+
+export async function createAuditLog(params: {
+  organizationId: string;
+  actorId: string;
+  actorRole: string;
+  actorName?: string;
+  action: AuditAction | string;
+  entityType: string;
+  entityId: string;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  try {
+    await addDoc(collection(db, "audit_logs"), {
+      organizationId: params.organizationId,
+      actorId: params.actorId,
+      actorRole: params.actorRole,
+      actorName: params.actorName || "",
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      metadata: params.metadata || {},
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error("[AuditLog] Failed to write:", e);
+  }
+}
+
+// ── Savings Accounts ──────────────────────────────────────────────────────────
+
+export async function createSavingsAccountForCustomer(params: {
+  customerId: string;
+  organizationId: string;
+  planType?: "DAILY" | "WEEKLY" | "MONTHLY";
+  scheduledAmount?: number;
+}): Promise<string> {
+  const ref = doc(collection(db, "savings_accounts"));
+  await setDoc(ref, {
+    id: ref.id,
+    customerId: params.customerId,
+    organizationId: params.organizationId,
+    planType: params.planType || "DAILY",
+    scheduledAmount: params.scheduledAmount || 0,
+    totalBalance: 0,
+    startDate: serverTimestamp(),
+    status: "ACTIVE",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function getSavingsAccountByCustomer(customerId: string, organizationId: string): Promise<SavingsAccount | null> {
+  const q = query(
+    collection(db, "savings_accounts"),
+    where("customerId", "==", customerId),
+    where("organizationId", "==", organizationId),
+    limit(1)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  return { id: snap.docs[0].id, ...snap.docs[0].data() } as SavingsAccount;
+}
+
+export async function updateSavingsAccountPlan(savingsAccountId: string, params: {
+  planType: "DAILY" | "WEEKLY" | "MONTHLY";
+  scheduledAmount: number;
+}): Promise<void> {
+  await updateDoc(doc(db, "savings_accounts", savingsAccountId), {
+    planType: params.planType,
+    scheduledAmount: params.scheduledAmount,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// ── Savings Collection ────────────────────────────────────────────────────────
+
+export interface SavingsCollectionResult {
+  receiptNo: string;
+  newBalance: number;
+  transactionId: string;
+  collectionId: string;
+  organizationName: string;
+}
+
+export async function recordSavingsCollection(params: {
+  organizationId: string;
+  organizationName: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  amount: number;
+}): Promise<SavingsCollectionResult> {
+  if (!params.amount || params.amount <= 0) {
+    throw new Error("Collection amount must be greater than zero.");
+  }
+
+  // Get savings account
+  const savingsAccount = await getSavingsAccountByCustomer(params.customerId, params.organizationId);
+  if (!savingsAccount) throw new Error("Savings account not found for this customer.");
+  if (savingsAccount.status !== "ACTIVE") throw new Error("Savings account is not active.");
+
+  const newBalance = savingsAccount.totalBalance + params.amount;
+  const receiptNo = await generateReceiptNo(params.organizationId);
+
+  // Create savings_transaction
+  const txRef = doc(collection(db, "savings_transactions"));
+  await setDoc(txRef, {
+    id: txRef.id,
+    savingsAccountId: savingsAccount.id,
+    organizationId: params.organizationId,
+    customerId: params.customerId,
+    agentId: params.agentId,
+    amount: params.amount,
+    balanceAfter: newBalance,
+    receiptNo,
+    collectedByName: params.agentName,
+    collectedAt: serverTimestamp(),
+  });
+
+  // Update savings account balance
+  await updateDoc(doc(db, "savings_accounts", savingsAccount.id), {
+    totalBalance: newBalance,
+    updatedAt: serverTimestamp(),
+  });
+
+  // Create master collections entry
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    customerId: params.customerId,
+    collectionType: "SAVINGS",
+    referenceId: txRef.id,
+    amount: params.amount,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: "AGENT",
+    // Legacy compat
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+  });
+
+  // Audit log
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.agentId,
+    actorRole: "AGENT",
+    actorName: params.agentName,
+    action: "SAVINGS_COLLECTION_RECORDED",
+    entityType: "SavingsTransaction",
+    entityId: txRef.id,
+    metadata: { amount: params.amount, receiptNo, newBalance, customerId: params.customerId },
+  });
+
+  return {
+    receiptNo,
+    newBalance,
+    transactionId: txRef.id,
+    collectionId: collRef.id,
+    organizationName: params.organizationName,
+  };
+}
+
+// ── Loan Management ───────────────────────────────────────────────────────────
+
+export async function createLoan(params: {
+  organizationId: string;
+  customerId: string;
+  principalAmount: number;
+  interestRate: number;
+  tenureMonths: number;
+  createdByActorId: string;
+  createdByActorRole: string;
+  createdByActorName: string;
+}): Promise<string> {
+  if (params.principalAmount <= 0) throw new Error("Principal must be greater than zero.");
+  if (params.interestRate < 0) throw new Error("Interest rate cannot be negative.");
+  if (params.tenureMonths <= 0) throw new Error("Tenure must be at least 1 month.");
+
+  const emiAmount = calculateEMI(params.principalAmount, params.interestRate, params.tenureMonths);
+
+  const loanRef = doc(collection(db, "loans"));
+  await setDoc(loanRef, {
+    id: loanRef.id,
+    organizationId: params.organizationId,
+    customerId: params.customerId,
+    principalAmount: params.principalAmount,
+    interestRate: params.interestRate,
+    tenureMonths: params.tenureMonths,
+    emiAmount: Math.round(emiAmount * 100) / 100,
+    outstandingBalance: 0,
+    disbursedAt: null,
+    status: "PENDING",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    // Legacy compat
+    principal: params.principalAmount,
+    durationMonths: params.tenureMonths,
+    balanceRemaining: 0,
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.createdByActorId,
+    actorRole: params.createdByActorRole,
+    actorName: params.createdByActorName,
+    action: "LOAN_CREATED",
+    entityType: "Loan",
+    entityId: loanRef.id,
+    metadata: {
+      principalAmount: params.principalAmount,
+      interestRate: params.interestRate,
+      tenureMonths: params.tenureMonths,
+      emiAmount: Math.round(emiAmount * 100) / 100,
+      customerId: params.customerId,
+    },
+  });
+
+  return loanRef.id;
+}
+
+export async function approveLoan(params: {
+  loanId: string;
+  actorId: string;
+  actorRole: string;
+  actorName: string;
+}): Promise<void> {
+  const loanRef = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+  if (loan.status !== "PENDING") throw new Error("Only pending loans can be approved.");
+
+  const principal = loan.principalAmount ?? loan.principal ?? 0;
+  const rate = loan.interestRate ?? 2;
+  const tenure = loan.tenureMonths ?? loan.durationMonths ?? 12;
+  const emiAmount = calculateEMI(principal, rate, tenure);
+  const totalInterest = emiAmount * tenure - principal;
+  const outstandingBalance = Math.round((principal + totalInterest) * 100) / 100;
+  const disbursedAt = Timestamp.now();
+
+  // Update loan document
+  await updateDoc(loanRef, {
+    status: "ACTIVE",
+    emiAmount: Math.round(emiAmount * 100) / 100,
+    outstandingBalance,
+    disbursedAt,
+    updatedAt: serverTimestamp(),
+    // Legacy compat
+    balanceRemaining: outstandingBalance,
+    approvedAt: serverTimestamp(),
+  });
+
+  // Generate loan_installments
+  const installmentPromises: Promise<any>[] = [];
+  for (let i = 1; i <= tenure; i++) {
+    const dueDate = new Date(disbursedAt.toDate());
+    dueDate.setMonth(dueDate.getMonth() + i);
+    const instRef = doc(collection(db, "loan_installments"));
+    installmentPromises.push(
+      setDoc(instRef, {
+        id: instRef.id,
+        loanId: params.loanId,
+        organizationId: loan.organizationId,
+        customerId: loan.customerId,
+        installmentNo: i,
+        dueDate: Timestamp.fromDate(dueDate),
+        emiAmount: Math.round(emiAmount * 100) / 100,
+        paidAmount: 0,
+        paidAt: null,
+        status: "PENDING",
+        receiptNo: null,
+        collectedByAgentId: null,
+        collectedByAgentName: null,
+      })
+    );
+  }
+  await Promise.all(installmentPromises);
+
+  await createAuditLog({
+    organizationId: loan.organizationId,
+    actorId: params.actorId,
+    actorRole: params.actorRole,
+    actorName: params.actorName,
+    action: "LOAN_APPROVED",
+    entityType: "Loan",
+    entityId: params.loanId,
+    metadata: { principal, emiAmount: Math.round(emiAmount * 100) / 100, tenure, outstandingBalance },
+  });
+}
+
+export async function rejectLoan(params: {
+  loanId: string;
+  reason: string;
+  actorId: string;
+  actorRole: string;
+  actorName: string;
+}): Promise<void> {
+  const loanRef = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+  if (loan.status !== "PENDING") throw new Error("Only pending loans can be rejected.");
+
+  await updateDoc(loanRef, {
+    status: "REJECTED",
+    rejectionReason: params.reason || "Rejected by owner",
+    updatedAt: serverTimestamp(),
+  });
+
+  await createAuditLog({
+    organizationId: loan.organizationId,
+    actorId: params.actorId,
+    actorRole: params.actorRole,
+    actorName: params.actorName,
+    action: "LOAN_REJECTED",
+    entityType: "Loan",
+    entityId: params.loanId,
+    metadata: { reason: params.reason, customerId: loan.customerId },
+  });
+}
+
+// ── EMI Collection ────────────────────────────────────────────────────────────
+
+export interface EMICollectionResult {
+  receiptNo: string;
+  loanClosed: boolean;
+  installmentId: string;
+  collectionId: string;
+}
+
+export async function recordEMICollection(params: {
+  organizationId: string;
+  organizationName: string;
+  loanId: string;
+  installmentId: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  amount: number;
+}): Promise<EMICollectionResult> {
+  if (!params.amount || params.amount <= 0) throw new Error("EMI amount must be greater than zero.");
+
+  const installmentRef = doc(db, "loan_installments", params.installmentId);
+  const installmentSnap = await getDoc(installmentRef);
+  if (!installmentSnap.exists()) throw new Error("Installment not found.");
+  const installment = installmentSnap.data() as LoanInstallment;
+  if (installment.status === "PAID") throw new Error("This installment has already been paid.");
+
+  const receiptNo = await generateReceiptNo(params.organizationId);
+
+  // Mark installment as paid
+  await updateDoc(installmentRef, {
+    status: "PAID",
+    paidAmount: params.amount,
+    paidAt: serverTimestamp(),
+    receiptNo,
+    collectedByAgentId: params.agentId,
+    collectedByAgentName: params.agentName,
+  });
+
+  // Decrement outstanding balance on the loan
+  const loanRef = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+  const newOutstanding = Math.max(0, (loan.outstandingBalance ?? loan.balanceRemaining ?? 0) - params.amount);
+  const loanClosed = newOutstanding === 0;
+
+  await updateDoc(loanRef, {
+    outstandingBalance: newOutstanding,
+    balanceRemaining: newOutstanding,
+    ...(loanClosed ? { status: "CLOSED" } : {}),
+    updatedAt: serverTimestamp(),
+  });
+
+  // Create master collections entry
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    customerId: params.customerId,
+    collectionType: "LOAN_EMI",
+    referenceId: params.installmentId,
+    amount: params.amount,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: "AGENT",
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.agentId,
+    actorRole: "AGENT",
+    actorName: params.agentName,
+    action: "EMI_COLLECTION_RECORDED",
+    entityType: "LoanInstallment",
+    entityId: params.installmentId,
+    metadata: {
+      amount: params.amount, receiptNo, loanId: params.loanId,
+      newOutstanding, loanClosed, customerId: params.customerId,
+    },
+  });
+
+  if (loanClosed) {
+    await createAuditLog({
+      organizationId: params.organizationId,
+      actorId: params.agentId,
+      actorRole: "AGENT",
+      actorName: params.agentName,
+      action: "LOAN_CLOSED",
+      entityType: "Loan",
+      entityId: params.loanId,
+      metadata: { customerId: params.customerId },
+    });
+  }
+
+  return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id };
+}
+
+// ── Provisioning (existing, kept) ─────────────────────────────────────────────
 
 export async function provisionUser(params: {
   firstName: string;
@@ -23,6 +495,8 @@ export async function provisionUser(params: {
   assignedAgentId?: string;
   assignedAgentName?: string;
   createdBy: string;
+  actorName?: string;
+  phone?: string;
 }): Promise<{ clerkUserId: string; setupUrl: string }> {
   const emailKey = params.email.trim().toLowerCase();
 
@@ -44,7 +518,6 @@ export async function provisionUser(params: {
   }
 
   const { userId: clerkUserId, setupUrl } = await res.json();
-
   const membershipDocId = membershipIdFor(params.organizationId, clerkUserId);
   const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim();
 
@@ -54,11 +527,13 @@ export async function provisionUser(params: {
     email: emailKey,
     fullName,
     name: fullName,
+    firstName: params.firstName.trim(),
+    lastName: params.lastName.trim(),
     role: params.role,
     clerkRole: params.role === "AGENT" ? "org:pigmy_collector" : "org:customer",
     organizationId: params.organizationId,
     organizationName: params.organizationName,
-    phone: "",
+    phone: params.phone?.trim() || "",
     address: "",
     assignedArea: "",
     assignedAgentId: params.assignedAgentId || "",
@@ -74,9 +549,18 @@ export async function provisionUser(params: {
   await setDoc(doc(db, "memberships", membershipDocId), membershipData);
 
   if (params.role === "CUSTOMER") {
+    // Create customer doc
+    const accountNumber = generateAccountNumber();
     await setDoc(doc(db, "customers", membershipDocId), {
       ...membershipData,
+      accountNumber,
+      agentId: params.assignedAgentId || params.createdBy || "",
       assigned_to_user_id: params.assignedAgentId || params.createdBy || "",
+    });
+    // Create savings account
+    await createSavingsAccountForCustomer({
+      customerId: membershipDocId,
+      organizationId: params.organizationId,
     });
     try {
       await setDoc(doc(db, "organizations", params.organizationId), {
@@ -87,23 +571,26 @@ export async function provisionUser(params: {
   }
 
   await setDoc(doc(db, "users", clerkUserId), {
-    clerkUserId,
-    id: clerkUserId,
-    email: emailKey,
-    name: fullName,
+    clerkUserId, id: clerkUserId,
+    email: emailKey, name: fullName,
     status: "PENDING_SETUP",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 
-  console.log("[FC provisionUser] ✓ User provisioned:", { clerkUserId, membershipDocId, role: params.role });
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.createdBy,
+    actorRole: "OWNER",
+    actorName: params.actorName || "",
+    action: params.role === "AGENT" ? "AGENT_CREATED" : "CUSTOMER_CREATED",
+    entityType: params.role === "AGENT" ? "Agent" : "Customer",
+    entityId: membershipDocId,
+    metadata: { email: emailKey, fullName, role: params.role },
+  });
+
   return { clerkUserId, setupUrl };
 }
-
-// ─────────────────────────────────────────────────────────────
-// Add member: existing Clerk user → direct org membership,
-// new user → Clerk organisation invitation email.
-// ─────────────────────────────────────────────────────────────
 
 export async function addMember(params: {
   fullName: string;
@@ -116,6 +603,7 @@ export async function addMember(params: {
   assignedAgentName?: string;
   inviterUserId?: string;
   createdBy: string;
+  actorName?: string;
 }): Promise<{ isExistingUser: boolean; userId?: string }> {
   const emailKey = params.email.trim().toLowerCase();
   const fullName = params.fullName.trim();
@@ -140,12 +628,15 @@ export async function addMember(params: {
 
   if (isExistingUser && userId) {
     const membershipDocId = membershipIdFor(params.organizationId, userId);
+    const nameParts = fullName.split(" ");
     const membershipData: any = {
       id: membershipDocId,
       clerkUserId: userId,
       email: emailKey,
       fullName,
       name: fullName,
+      firstName: nameParts[0] || fullName,
+      lastName: nameParts.slice(1).join(" ") || "",
       phone: params.phone?.trim() || "",
       role: params.role,
       clerkRole: params.role === "AGENT" ? "org:pigmy_collector" : "org:customer",
@@ -166,10 +657,18 @@ export async function addMember(params: {
     await setDoc(doc(db, "memberships", membershipDocId), membershipData, { merge: true });
 
     if (params.role === "CUSTOMER") {
+      const accountNumber = generateAccountNumber();
       await setDoc(doc(db, "customers", membershipDocId), {
         ...membershipData,
+        accountNumber,
+        agentId: params.assignedAgentId || params.createdBy || "",
         assigned_to_user_id: params.assignedAgentId || params.createdBy || "",
       }, { merge: true });
+      // Create savings account if none exists
+      const existing = await getSavingsAccountByCustomer(membershipDocId, params.organizationId);
+      if (!existing) {
+        await createSavingsAccountForCustomer({ customerId: membershipDocId, organizationId: params.organizationId });
+      }
       try {
         await setDoc(doc(db, "organizations", params.organizationId), {
           "usage.activeCustomers": increment(1),
@@ -179,28 +678,36 @@ export async function addMember(params: {
     }
 
     await setDoc(doc(db, "users", userId), {
-      clerkUserId: userId,
-      id: userId,
-      email: emailKey,
-      name: fullName,
+      clerkUserId: userId, id: userId,
+      email: emailKey, name: fullName,
       status: "ACTIVE",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
 
-    console.log("[FC addMember] ✓ Existing user added:", { userId, membershipDocId, role: params.role });
+    await createAuditLog({
+      organizationId: params.organizationId,
+      actorId: params.createdBy,
+      actorRole: "OWNER",
+      actorName: params.actorName || "",
+      action: params.role === "AGENT" ? "AGENT_CREATED" : "CUSTOMER_CREATED",
+      entityType: params.role === "AGENT" ? "Agent" : "Customer",
+      entityId: membershipDocId,
+      metadata: { email: emailKey, fullName, isExistingUser: true },
+    });
   } else {
-    // New user (invited) — pending doc; clerkUserId is not yet known.
-    // Use a deterministic email-based doc ID so re-inviting the same email is idempotent.
+    // Invited new user
     const safeEmail = emailKey.replace(/[^a-z0-9]/g, "_");
     const membershipDocId = `${params.organizationId}_pending_${safeEmail}`;
-
+    const nameParts = fullName.split(" ");
     const membershipData: any = {
       id: membershipDocId,
       clerkUserId: null,
       email: emailKey,
       fullName,
       name: fullName,
+      firstName: nameParts[0] || fullName,
+      lastName: nameParts.slice(1).join(" ") || "",
       phone: params.phone?.trim() || "",
       role: params.role,
       clerkRole: params.role === "AGENT" ? "org:pigmy_collector" : "org:customer",
@@ -221,32 +728,30 @@ export async function addMember(params: {
     await setDoc(doc(db, "memberships", membershipDocId), membershipData);
 
     if (params.role === "CUSTOMER") {
+      const accountNumber = generateAccountNumber();
       await setDoc(doc(db, "customers", membershipDocId), {
         ...membershipData,
+        accountNumber,
+        agentId: params.assignedAgentId || params.createdBy || "",
         assigned_to_user_id: params.assignedAgentId || params.createdBy || "",
       });
+      await createSavingsAccountForCustomer({ customerId: membershipDocId, organizationId: params.organizationId });
     }
-
-    console.log("[FC addMember] ✓ Invitation sent to new user:", { email: emailKey, membershipDocId, role: params.role });
   }
 
   return { isExistingUser, userId };
 }
 
-// ─────────────────────────────────────────────────────────────
-// Pre-validation helpers (email collision checks)
-// ─────────────────────────────────────────────────────────────
+// ── Validation helpers ────────────────────────────────────────────────────────
 
 export async function validateAgentEmail(organizationId: string, email: string): Promise<void> {
   const emailKey = email.trim().toLowerCase();
-
-  const membersSnap = await getDocs(query(
+  const snap = await getDocs(query(
     collection(db, "organizationMembers"),
     where("email", "==", emailKey),
     where("organizationId", "==", organizationId)
   ));
-
-  for (const d of membersSnap.docs) {
+  for (const d of snap.docs) {
     const data = d.data();
     const role = (data.role || "").toUpperCase();
     if (role === "AGENT" || role === "PIGMY_COLLECTOR") throw new Error("This email already belongs to an agent.");
@@ -257,21 +762,18 @@ export async function validateAgentEmail(organizationId: string, email: string):
 
 export async function validateCustomerEmail(organizationId: string, email: string, phone: string): Promise<void> {
   const emailKey = email.trim().toLowerCase();
-
-  const membersSnap = await getDocs(query(
+  const snap = await getDocs(query(
     collection(db, "organizationMembers"),
     where("email", "==", emailKey),
     where("organizationId", "==", organizationId)
   ));
-
-  for (const d of membersSnap.docs) {
+  for (const d of snap.docs) {
     const data = d.data();
     const role = (data.role || "").toUpperCase();
     if (role === "AGENT" || role === "PIGMY_COLLECTOR") throw new Error("This email already belongs to an agent.");
     if (role === "OWNER" || role === "ADMIN") throw new Error("This email belongs to an administrator account.");
     if (role === "CUSTOMER") throw new Error("A customer with this email already exists.");
   }
-
   if (phone) {
     const phoneSnap = await getDocs(query(
       collection(db, "organizationMembers"),
@@ -282,26 +784,59 @@ export async function validateCustomerEmail(organizationId: string, email: strin
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Mark a provisioned user as active after they set their password
-// Called from AuthCallback after sign-in with a setup token
-// ─────────────────────────────────────────────────────────────
+// ── Customer management ───────────────────────────────────────────────────────
 
-export async function activateProvisionedUser(
-  clerkUserId: string,
-  organizationId: string | null | undefined
-): Promise<void> {
+export async function reassignCustomer(params: {
+  customerId: string;
+  newCollectorId: string;
+  newCollectorName: string;
+  oldCollectorId: string;
+  oldCollectorName: string;
+  changedBy: string;
+  organizationId: string;
+}) {
+  await updateDoc(doc(db, "organizationMembers", params.customerId), {
+    assignedAgentId: params.newCollectorId,
+    assignedAgentName: params.newCollectorName,
+    assigned_to_user_id: params.newCollectorId,
+    updatedAt: serverTimestamp(),
+  });
+  const custSnap = await getDoc(doc(db, "customers", params.customerId));
+  if (custSnap.exists()) {
+    await updateDoc(doc(db, "customers", params.customerId), {
+      agentId: params.newCollectorId,
+      assignedAgentId: params.newCollectorId,
+      assignedAgentName: params.newCollectorName,
+      assigned_to_user_id: params.newCollectorId,
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.changedBy,
+    actorRole: "OWNER",
+    action: "CUSTOMER_REASSIGNED",
+    entityType: "Customer",
+    entityId: params.customerId,
+    metadata: {
+      oldCollectorId: params.oldCollectorId,
+      oldCollectorName: params.oldCollectorName,
+      newCollectorId: params.newCollectorId,
+      newCollectorName: params.newCollectorName,
+    },
+  });
+}
+
+export async function activateProvisionedUser(clerkUserId: string, organizationId: string | null | undefined): Promise<void> {
   const constraints: any[] = [
     where("clerkUserId", "==", clerkUserId),
     where("status", "==", "PENDING_SETUP"),
   ];
   if (organizationId) constraints.push(where("organizationId", "==", organizationId));
-
   const snap = await getDocs(query(collection(db, "organizationMembers"), ...constraints));
   await Promise.all(snap.docs.map((d) =>
     updateDoc(d.ref, { status: "ACTIVE", activatedAt: serverTimestamp(), updatedAt: serverTimestamp() })
   ));
-
   const userSnap = await getDoc(doc(db, "users", clerkUserId));
   if (userSnap.exists() && userSnap.data()?.status === "PENDING_SETUP") {
     await updateDoc(doc(db, "users", clerkUserId), {
@@ -311,10 +846,6 @@ export async function activateProvisionedUser(
     });
   }
 }
-
-// ─────────────────────────────────────────────────────────────
-// Membership helpers used by redirect logic
-// ─────────────────────────────────────────────────────────────
 
 export async function upsertAcceptedMembership(
   organizationId: string,
@@ -336,241 +867,35 @@ export async function upsertAcceptedMembership(
 
 export async function attachClerkIdToPendingUsers(email: string, clerkUserId: string) {
   const emailKey = email.trim().toLowerCase();
-  const q = query(collection(db, "users"), where("email", "==", emailKey));
-  const snapshot = await getDocs(q);
-
-  const updatePromises = snapshot.docs.map((docSnap) => {
+  const snap = await getDocs(query(collection(db, "users"), where("email", "==", emailKey)));
+  const updates = snap.docs.map((docSnap) => {
     const existing = docSnap.data() as any;
     if (!existing.clerkUserId) {
       return updateDoc(docSnap.ref, { clerkUserId, updatedAt: serverTimestamp() });
     }
     return Promise.resolve();
   });
-
-  await Promise.all(updatePromises);
+  await Promise.all(updates);
 }
 
-export async function addCustomer(organizationId: string, customerData: Partial<Membership>) {
-  return await addDoc(collection(db, "memberships"), {
-    ...customerData,
-    organizationId,
-    role: "customer",
-    balance: 0,
-    status: "active",
-    createdAt: serverTimestamp(),
-  });
-}
-
-export async function addAgent(organizationId: string, agentData: Partial<Membership>) {
-  return await addDoc(collection(db, "memberships"), {
-    ...agentData,
-    organizationId,
-    role: "agent",
-    status: "active",
-    createdAt: serverTimestamp(),
-  });
-}
-
-export async function reassignCustomer(params: {
-  customerId: string;
-  newCollectorId: string;
-  newCollectorName: string;
-  oldCollectorId: string;
-  oldCollectorName: string;
-  changedBy: string;
-  organizationId: string;
-}) {
-  const memberRef = doc(db, "organizationMembers", params.customerId);
-  await updateDoc(memberRef, {
-    assignedAgentId: params.newCollectorId,
-    assignedAgentName: params.newCollectorName,
-    updatedAt: serverTimestamp(),
-  });
-  const customerRef = doc(db, "customers", params.customerId);
-  const custSnap = await getDoc(customerRef);
-  if (custSnap.exists()) {
-    await updateDoc(customerRef, {
-      assignedAgentId: params.newCollectorId,
-      assignedAgentName: params.newCollectorName,
-      assigned_to_user_id: params.newCollectorId,
-      updatedAt: serverTimestamp(),
-    });
-  }
-}
-
-export async function recordCollection(organizationId: string, collectionData: Pick<Collection, "customerId" | "agentId" | "amount" | "status" | "collectedByRole" | "collectedByUserId" | "collectedByName"> & { assigned_to_user_id?: string }) {
-  const membershipId = `${organizationId}_${collectionData.customerId}`;
-  const memberSnap = await getDoc(doc(db, "organizationMembers", membershipId));
-  if (!memberSnap.exists()) {
-    throw new Error("Customer record not found in this organization.");
-  }
-  const memberStatus = (memberSnap.data()?.status || "").toString().toUpperCase();
-  if (memberStatus !== "ACTIVE") {
-    throw new Error("This customer has not activated their account yet.");
-  }
-
-  const collectedByRole = collectionData.collectedByRole || "OWNER";
-  const collectedByUserId = collectionData.collectedByUserId || collectionData.agentId;
-  const collectedByName = collectionData.collectedByName || "Collector";
-  const assignedToUserId = collectionData.assigned_to_user_id || collectionData.agentId;
-
-  const collRef = await addDoc(collection(db, "collections"), {
-    ...collectionData,
-    organizationId,
-    collectedByRole,
-    collectedByUserId,
-    collectedByName,
-    assigned_to_user_id: assignedToUserId,
-    timestamp: serverTimestamp(),
-  });
-
-  await addDoc(collection(db, "transactions"), {
-    organizationId,
-    customerId: collectionData.customerId,
-    agentId: collectionData.agentId,
-    amount: collectionData.amount,
-    type: "deposit",
-    timestamp: serverTimestamp(),
-    referenceId: collRef.id,
-    collectedByRole,
-    collectedByUserId,
-    collectedByName,
-    assigned_to_user_id: assignedToUserId,
-  });
-
-  if (collectionData.status === "completed") {
-    const userRef = doc(db, "users", collectionData.customerId);
-    const userSnap = await getDoc(userRef);
-    const currentBalance = userSnap.data()?.balance || 0;
-    await updateDoc(userRef, { balance: currentBalance + collectionData.amount });
-  }
-
-  return collRef;
-}
-
-export async function updateCustomerBalance(customerId: string, newBalance: number) {
-  const userRef = doc(db, "users", customerId);
-  await updateDoc(userRef, { balance: newBalance });
-}
-
-export async function applyForLoan(organizationId: string, loanData: Pick<Loan, "customerId" | "principal" | "durationMonths">) {
-  const interestRate = 2;
-  const totalInterest = loanData.principal * (interestRate / 100) * loanData.durationMonths;
-  const totalComputed = loanData.principal + totalInterest;
-  const emiAmount = totalComputed / loanData.durationMonths;
-
-  return await addDoc(collection(db, "loans"), {
-    ...loanData,
-    organizationId,
-    interestRate,
-    status: "pending",
-    emiAmount,
-    totalComputed,
-    balanceRemaining: totalComputed,
-    createdAt: serverTimestamp(),
-  });
-}
-
-export async function approveLoan(loanId: string) {
-  const loanRef = doc(db, "loans", loanId);
-  const loanSnap = await getDoc(loanRef);
-  if (!loanSnap.exists()) throw new Error("Loan not found");
-  const loanData = loanSnap.data() as Loan;
-
-  await updateDoc(loanRef, { status: "active", approvedAt: serverTimestamp() });
-
-  for (let month = 1; month <= loanData.durationMonths; month++) {
-    await addDoc(collection(db, "emi_payments"), {
-      organizationId: loanData.organizationId,
-      loanId,
-      customerId: loanData.customerId,
-      agentId: "",
-      amount: loanData.emiAmount,
-      monthNumber: month,
-      dueDate: new Date(Date.now() + month * 30 * 24 * 60 * 60 * 1000),
-      paid: false,
-      timestamp: serverTimestamp(),
-    });
-  }
-
-  const userRef = doc(db, "users", loanData.customerId);
-  const userSnap = await getDoc(userRef);
-  const currentBalance = userSnap.data()?.balance || 0;
-  await updateDoc(userRef, { balance: currentBalance + loanData.principal });
-
-  await addDoc(collection(db, "transactions"), {
-    organizationId: loanData.organizationId,
-    customerId: loanData.customerId,
-    agentId: "",
-    amount: loanData.principal,
-    type: "loan_disbursement",
-    timestamp: serverTimestamp(),
-    referenceId: loanId,
-  });
-}
-
-export async function recordEMIPayment(organizationId: string, emiData: Pick<EMIPayment, "loanId" | "customerId" | "agentId" | "amount">) {
-  const emiRef = await addDoc(collection(db, "emi_payments"), {
-    ...emiData,
-    organizationId,
-    paid: true,
-    timestamp: serverTimestamp(),
-  });
-
-  await addDoc(collection(db, "transactions"), {
-    organizationId,
-    customerId: emiData.customerId,
-    agentId: emiData.agentId,
-    amount: emiData.amount,
-    type: "emi_payment",
-    timestamp: serverTimestamp(),
-    referenceId: emiRef.id,
-  });
-
-  const userRef = doc(db, "users", emiData.customerId);
-  const userSnap = await getDoc(userRef);
-  const currentBalance = userSnap.data()?.balance || 0;
-  await updateDoc(userRef, { balance: Math.max(0, currentBalance - emiData.amount) });
-
-  const loanRef = doc(db, "loans", emiData.loanId);
-  const loanSnap = await getDoc(loanRef);
-  if (loanSnap.exists()) {
-    const currentRemaining = loanSnap.data().balanceRemaining || 0;
-    const newRemaining = Math.max(0, currentRemaining - emiData.amount);
-    await updateDoc(loanRef, {
-      balanceRemaining: newRemaining,
-      ...(newRemaining === 0 && { status: "completed" }),
-    });
-  }
-
-  return emiRef;
-}
+// ── Notifications ─────────────────────────────────────────────────────────────
 
 export async function createNotification(organizationId: string, userId: string, title: string, message: string) {
   return await addDoc(collection(db, "notifications"), {
-    organizationId,
-    userId,
-    title,
-    message,
+    organizationId, userId, title, message,
     read: false,
     timestamp: serverTimestamp(),
   });
 }
 
 export async function markNotificationRead(notificationId: string) {
-  const nRef = doc(db, "notifications", notificationId);
-  await updateDoc(nRef, { read: true });
+  await updateDoc(doc(db, "notifications", notificationId), { read: true });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Subscription upgrade request from agent
-// ─────────────────────────────────────────────────────────────
+// ── Subscription / Upgrade requests ──────────────────────────────────────────
 
 export async function requestPlanUpgrade(options: {
-  organizationId: string;
-  agentId: string;
-  agentName: string;
-  currentPlan: string;
+  organizationId: string; agentId: string; agentName: string; currentPlan: string;
 }): Promise<string> {
   const existingQ = query(
     collection(db, "upgradeRequests"),
@@ -580,7 +905,6 @@ export async function requestPlanUpgrade(options: {
   );
   const existing = await getDocs(existingQ);
   if (!existing.empty) return existing.docs[0].id;
-
   const reqRef = doc(collection(db, "upgradeRequests"));
   await setDoc(reqRef, {
     id: reqRef.id,
@@ -602,10 +926,9 @@ export async function resolveUpgradeRequests(organizationId: string): Promise<vo
     where("status", "==", "PENDING"),
   );
   const snap = await getDocs(q);
-  const updates = snap.docs.map((d) =>
+  await Promise.all(snap.docs.map((d) =>
     updateDoc(doc(db, "upgradeRequests", d.id), { status: "RESOLVED", resolvedAt: serverTimestamp() })
-  );
-  await Promise.all(updates);
+  ));
 }
 
 export async function ignoreUpgradeRequest(requestId: string): Promise<void> {
@@ -613,4 +936,60 @@ export async function ignoreUpgradeRequest(requestId: string): Promise<void> {
     status: "IGNORED",
     ignoredAt: serverTimestamp(),
   });
+}
+
+// ── Legacy stubs for backward compat ─────────────────────────────────────────
+
+export async function addCustomer(organizationId: string, customerData: Partial<Membership>) {
+  return await addDoc(collection(db, "memberships"), {
+    ...customerData, organizationId, role: "customer", balance: 0,
+    status: "active", createdAt: serverTimestamp(),
+  });
+}
+
+export async function addAgent(organizationId: string, agentData: Partial<Membership>) {
+  return await addDoc(collection(db, "memberships"), {
+    ...agentData, organizationId, role: "agent",
+    status: "active", createdAt: serverTimestamp(),
+  });
+}
+
+/** Legacy savings collection (kept for backward compat) */
+export async function recordCollection(
+  organizationId: string,
+  collectionData: { customerId: string; agentId: string; amount: number; status: string; collectedByRole?: string; collectedByUserId?: string; collectedByName?: string; assigned_to_user_id?: string }
+) {
+  return await addDoc(collection(db, "collections"), {
+    ...collectionData, organizationId,
+    collectionType: "SAVINGS",
+    receiptNo: `LEGACY-${Date.now()}`,
+    collectedAt: serverTimestamp(),
+    timestamp: serverTimestamp(),
+  });
+}
+
+/** Legacy loan functions */
+export async function applyForLoan(organizationId: string, loanData: { customerId: string; principal?: number; principalAmount?: number; durationMonths?: number; tenureMonths?: number }) {
+  const principal = loanData.principal ?? loanData.principalAmount ?? 0;
+  const tenure = loanData.durationMonths ?? loanData.tenureMonths ?? 12;
+  return await createLoan({
+    organizationId,
+    customerId: loanData.customerId,
+    principalAmount: principal,
+    interestRate: 12,
+    tenureMonths: tenure,
+    createdByActorId: "system",
+    createdByActorRole: "SYSTEM",
+    createdByActorName: "System",
+  });
+}
+
+export async function recordEMIPayment(organizationId: string, emiData: { loanId: string; customerId: string; agentId: string; amount: number }) {
+  return await addDoc(collection(db, "emi_payments"), {
+    ...emiData, organizationId, paid: true, timestamp: serverTimestamp(),
+  });
+}
+
+export async function updateCustomerBalance(customerId: string, newBalance: number) {
+  await updateDoc(doc(db, "users", customerId), { balance: newBalance });
 }

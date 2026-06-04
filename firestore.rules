@@ -2,87 +2,183 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Global deny catch-all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
+    // ── Helpers ──────────────────────────────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function getUserData(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data;
+    function uid() {
+      return request.auth.uid;
     }
 
-    function isMemberOfOrg(orgId) {
-      return isSignedIn() && getUserData(request.auth.uid).organizationId == orgId;
+    function membershipPath(orgId) {
+      return /databases/$(database)/documents/organizationMembers/$(orgId + "_" + uid());
     }
 
-    function getRole() {
-      return getUserData(request.auth.uid).role;
+    function hasMembership(orgId) {
+      return isSignedIn() && exists(membershipPath(orgId));
     }
 
-    // Users Collection rules (Owners, Agents, Customers)
-    match /users/{userId} {
+    function memberData(orgId) {
+      return get(membershipPath(orgId)).data;
+    }
+
+    function memberRole(orgId) {
+      return memberData(orgId).role;
+    }
+
+    function isOwner(orgId) {
+      return hasMembership(orgId) &&
+        (memberRole(orgId) == "OWNER" || memberRole(orgId) == "organization_owner");
+    }
+
+    function isAgent(orgId) {
+      return hasMembership(orgId) &&
+        (memberRole(orgId) == "AGENT" || memberRole(orgId) == "PIGMY_COLLECTOR" || memberRole(orgId) == "pigmy_collector");
+    }
+
+    function isCustomer(orgId) {
+      return hasMembership(orgId) &&
+        (memberRole(orgId) == "CUSTOMER" || memberRole(orgId) == "customer");
+    }
+
+    function isOrgMember(orgId) {
+      return isOwner(orgId) || isAgent(orgId) || isCustomer(orgId);
+    }
+
+    function incomingOrgId() {
+      return request.resource.data.organizationId;
+    }
+
+    function isOwnerOrAgent(orgId) {
+      return isOwner(orgId) || isAgent(orgId);
+    }
+
+    // ── Organizations ────────────────────────────────────────────────────────
+    match /organizations/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow create: if isSignedIn();
+      allow update: if isOwner(orgId);
+      allow delete: if false;
+    }
+
+    // ── Organization Members ─────────────────────────────────────────────────
+    match /organizationMembers/{docId} {
       allow read: if isSignedIn() && (
-        request.auth.uid == userId || 
-        getUserData(request.auth.uid).organizationId == resource.data.organizationId
+        resource.data.clerkUserId == uid() ||
+        isOrgMember(resource.data.organizationId)
       );
-      
       allow create: if isSignedIn() && (
-        request.resource.data.role == 'customer' ||
-        getRole() == 'organization_owner'
+        request.resource.data.clerkUserId == uid() ||
+        isOwnerOrAgent(request.resource.data.organizationId)
       );
-      
       allow update: if isSignedIn() && (
-        request.auth.uid == userId ||
-        getRole() == 'organization_owner' ||
-        (getRole() == 'agent' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance']))
+        resource.data.clerkUserId == uid() ||
+        isOwner(resource.data.organizationId)
       );
-      
-      allow delete: if isSignedIn() && getRole() == 'organization_owner';
+      allow delete: if isOwner(resource.data.organizationId);
     }
 
-    // Collections
-    match /collections/{collectionId} {
-      allow read: if isSignedIn() && isMemberOfOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && isMemberOfOrg(request.resource.data.organizationId);
-      allow update, delete: if isSignedIn() && getRole() == 'organization_owner';
+    // ── Legacy memberships ───────────────────────────────────────────────────
+    match /memberships/{docId} {
+      allow read, write: if isSignedIn();
     }
 
-    // Transactions
-    match /transactions/{transactionId} {
-      allow read: if isSignedIn() && isMemberOfOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && isMemberOfOrg(request.resource.data.organizationId);
+    // ── Savings Accounts ─────────────────────────────────────────────────────
+    match /savings_accounts/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
+      allow update: if isSignedIn() && isOwnerOrAgent(resource.data.organizationId);
+      allow delete: if false;
+    }
+
+    // ── Savings Transactions (immutable) ─────────────────────────────────────
+    match /savings_transactions/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
       allow update, delete: if false;
     }
 
-    // Loans
-    match /loans/{loanId} {
-      allow read: if isSignedIn() && isMemberOfOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && isMemberOfOrg(request.resource.data.organizationId);
-      allow update: if isSignedIn() && isMemberOfOrg(resource.data.organizationId) && (
-        getRole() == 'organization_owner' || 
-        (getRole() == 'agent' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balanceRemaining']))
+    // ── Collections ledger (immutable) ───────────────────────────────────────
+    match /collections/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
+      allow update, delete: if false;
+    }
+
+    // ── Receipt Counters ─────────────────────────────────────────────────────
+    match /receiptCounters/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ── Loans ────────────────────────────────────────────────────────────────
+    match /loans/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
+      allow update: if isSignedIn() && isOwnerOrAgent(resource.data.organizationId);
+      allow delete: if false;
+    }
+
+    // ── Loan Installments ────────────────────────────────────────────────────
+    match /loan_installments/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
+      allow update: if isSignedIn() && isOwnerOrAgent(resource.data.organizationId);
+      allow delete: if false;
+    }
+
+    // ── Audit Logs (owner-read, immutable) ───────────────────────────────────
+    match /audit_logs/{docId} {
+      allow read: if isSignedIn() && isOwner(resource.data.organizationId);
+      allow create: if isSignedIn() && isOrgMember(incomingOrgId());
+      allow update, delete: if false;
+    }
+
+    // ── Notifications ────────────────────────────────────────────────────────
+    match /notifications/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == uid() ||
+        isOwner(resource.data.organizationId)
       );
-      allow delete: if isSignedIn() && getRole() == 'organization_owner';
+      allow create: if isSignedIn() && isOrgMember(incomingOrgId());
+      allow update: if isSignedIn() && resource.data.userId == uid();
+      allow delete: if false;
     }
 
-    // EMI Payments
-    match /emi_payments/{emiId} {
-      allow read: if isSignedIn() && isMemberOfOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && isMemberOfOrg(request.resource.data.organizationId);
-      allow update, delete: if isSignedIn() && getRole() == 'organization_owner';
+    // ── Upgrade Requests ─────────────────────────────────────────────────────
+    match /upgradeRequests/{docId} {
+      allow read: if isSignedIn() && (
+        resource.data.requestedBy == uid() ||
+        isOwner(resource.data.organizationId)
+      );
+      allow create: if isSignedIn() && isAgent(incomingOrgId());
+      allow update: if isSignedIn() && isOwner(resource.data.organizationId);
+      allow delete: if false;
     }
 
-    // Notifications
-    match /notifications/{notifyId} {
-      allow read: if isSignedIn() && isMemberOfOrg(resource.data.organizationId);
-      allow create: if isSignedIn() && isMemberOfOrg(request.resource.data.organizationId);
-      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow delete: if isSignedIn() && getRole() == 'organization_owner';
+    // ── Users (global) ────────────────────────────────────────────────────────
+    match /users/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && docId == uid();
+      allow delete: if false;
+    }
+
+    // ── Legacy transactions ──────────────────────────────────────────────────
+    match /transactions/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOrgMember(incomingOrgId());
+      allow update, delete: if false;
+    }
+
+    match /emi_payments/{docId} {
+      allow read: if isSignedIn() && isOrgMember(resource.data.organizationId);
+      allow create: if isSignedIn() && isOwnerOrAgent(incomingOrgId());
+      allow update, delete: if false;
+    }
+
+    // ── Default deny ─────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

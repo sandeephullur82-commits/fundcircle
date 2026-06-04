@@ -1,10 +1,18 @@
+import { Timestamp } from "firebase/firestore";
+
+// ── Role types ────────────────────────────────────────────────────────────────
 export type AppRole = "organization_owner" | "pigmy_collector" | "customer";
 export type FirestoreRole = "OWNER" | "AGENT" | "CUSTOMER" | "PIGMY_COLLECTOR";
 export type Role = AppRole | FirestoreRole | string;
 
+// ── Helper type for Firestore timestamps ──────────────────────────────────────
+export type FSTimestamp = Timestamp | number | Date | null | undefined;
+
+// ── Organizations ─────────────────────────────────────────────────────────────
 export interface Organization {
   id: string;
   name: string;
+  clerkOrgId?: string;
   slug?: string;
   phone?: string;
   address?: string;
@@ -13,9 +21,189 @@ export interface Organization {
   ownerClerkUserId?: string;
   ownerEmail?: string;
   subscriptionPlanId?: string;
-  createdAt: number;
+  status: "ACTIVE" | "SUSPENDED";
+  limits?: { maxAgents: number; maxCustomers: number };
+  usage?: { activeCustomers: number };
+  createdAt: FSTimestamp;
+  updatedAt: FSTimestamp;
 }
 
+// ── Organization Members (auth + role mapping) ────────────────────────────────
+export interface Membership {
+  id: string;
+  organizationId: string;
+  clerkUserId: string | null;
+  clerkRole?: string;
+  role: Role;
+  // name fields
+  fullName?: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  // Agent-specific
+  assignedArea?: string;
+  actsAsAgent?: boolean;
+  collectorEnabled?: boolean;
+  // Customer-specific
+  agentId?: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  assigned_to_user_id?: string;
+  // Meta
+  profileCompleted?: boolean;
+  invitationId?: string;
+  status?: string;
+  organizationName?: string;
+  createdBy?: string;
+  createdAt: FSTimestamp;
+  updatedAt?: FSTimestamp;
+  activatedAt?: FSTimestamp;
+}
+
+// ── Agents (separate collection, aligns with report) ─────────────────────────
+export interface Agent {
+  id: string;
+  organizationId: string;
+  clerkUserId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  assignedArea?: string;
+  status: "ACTIVE" | "DEACTIVATED";
+  createdAt: FSTimestamp;
+  updatedAt?: FSTimestamp;
+}
+
+// ── Customers ────────────────────────────────────────────────────────────────
+export interface Customer {
+  id: string;
+  organizationId: string;
+  agentId: string;
+  clerkUserId: string | null;
+  email: string;
+  accountNumber: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  address?: string;
+  status: "ACTIVE" | "DORMANT" | "CLOSED";
+  createdAt: FSTimestamp;
+  updatedAt?: FSTimestamp;
+}
+
+// ── Savings Accounts ─────────────────────────────────────────────────────────
+export interface SavingsAccount {
+  id: string;
+  customerId: string;
+  organizationId: string;
+  planType: "DAILY" | "WEEKLY" | "MONTHLY";
+  scheduledAmount: number;
+  totalBalance: number;
+  startDate: FSTimestamp;
+  status: "ACTIVE" | "SUSPENDED" | "CLOSED";
+  createdAt: FSTimestamp;
+  updatedAt?: FSTimestamp;
+}
+
+// ── Savings Transactions ─────────────────────────────────────────────────────
+export interface SavingsTransaction {
+  id: string;
+  savingsAccountId: string;
+  organizationId: string;
+  customerId: string;
+  agentId: string;
+  amount: number;
+  balanceAfter: number;
+  receiptNo: string;
+  collectedAt: FSTimestamp;
+  collectedByName?: string;
+}
+
+// ── Loans ─────────────────────────────────────────────────────────────────────
+export interface Loan {
+  id: string;
+  organizationId: string;
+  customerId: string;
+  principalAmount: number;
+  interestRate: number;
+  tenureMonths: number;
+  emiAmount: number;
+  disbursedAt: FSTimestamp;
+  status: "PENDING" | "ACTIVE" | "CLOSED" | "REJECTED";
+  outstandingBalance: number;
+  rejectionReason?: string;
+  createdAt: FSTimestamp;
+  updatedAt?: FSTimestamp;
+  // Legacy compat
+  principal?: number;
+  durationMonths?: number;
+  balanceRemaining?: number;
+}
+
+// ── Loan Installments ────────────────────────────────────────────────────────
+export interface LoanInstallment {
+  id: string;
+  loanId: string;
+  organizationId: string;
+  customerId: string;
+  installmentNo: number;
+  dueDate: FSTimestamp;
+  emiAmount: number;
+  paidAmount: number;
+  paidAt: FSTimestamp;
+  status: "PENDING" | "PAID" | "OVERDUE";
+  receiptNo?: string;
+  collectedByAgentId?: string;
+  collectedByAgentName?: string;
+}
+
+// ── Collections (master ledger) ───────────────────────────────────────────────
+export interface Collection {
+  id: string;
+  organizationId: string;
+  agentId: string;
+  customerId: string;
+  collectionType: "SAVINGS" | "LOAN_EMI";
+  referenceId: string; // savingsTransactionId or loanInstallmentId
+  amount: number;
+  receiptNo: string;
+  collectedAt: FSTimestamp;
+  collectedByName?: string;
+  collectedByRole?: string;
+  // Legacy compat
+  timestamp?: FSTimestamp;
+  status?: string;
+  assigned_to_user_id?: string;
+}
+
+// ── Audit Logs ────────────────────────────────────────────────────────────────
+export type AuditAction =
+  | "AGENT_CREATED" | "AGENT_DEACTIVATED" | "AGENT_REACTIVATED"
+  | "CUSTOMER_CREATED" | "CUSTOMER_STATUS_CHANGED"
+  | "SAVINGS_COLLECTION_RECORDED"
+  | "LOAN_CREATED" | "LOAN_APPROVED" | "LOAN_REJECTED" | "LOAN_CLOSED"
+  | "EMI_COLLECTION_RECORDED"
+  | "CUSTOMER_REASSIGNED"
+  | "ORG_SETTINGS_UPDATED";
+
+export interface AuditLog {
+  id: string;
+  organizationId: string;
+  actorId: string;
+  actorRole: string;
+  actorName?: string;
+  action: AuditAction | string;
+  entityType: string;
+  entityId: string;
+  metadata?: Record<string, any>;
+  createdAt: FSTimestamp;
+}
+
+// ── Legacy / Misc ─────────────────────────────────────────────────────────────
 export interface User {
   id: string;
   clerkUserId?: string;
@@ -29,47 +217,8 @@ export interface User {
   assigned_to_user_id?: string;
   balance?: number;
   invitationId?: string;
-  status?: "pending" | "active" | "PENDING" | "ACTIVE" | "INVITED";
-  createdAt: number;
-}
-
-export interface Membership {
-  id: string;
-  organizationId: string;
-  clerkUserId: string;
-  clerkRole?: string;
-  role: Role;
-  name: string;
-  fullName?: string;
-  email: string;
-  phone?: string;
-  createdAt: number;
-  assignedArea?: string;
-  agentId?: string;
-  assignedAgentId?: string;
-  assignedAgentName?: string;
-  assigned_to_user_id?: string;
-  balance?: number;
-  invitationId?: string;
-  profileCompleted?: boolean;
-  actsAsAgent?: boolean;
-  collectorEnabled?: boolean;
-  status?: "pending" | "active" | "PENDING" | "ACTIVE" | "INVITED";
-}
-
-export interface Collection {
-  id: string;
-  organizationId: string;
-  customerId: string;
-  agentId: string;
-  amount: number;
-  timestamp: number;
-  status: "completed" | "pending";
-  collectedByRole?: "OWNER" | "AGENT" | string;
-  collectedByUserId?: string;
-  collectedByName?: string;
-  assigned_to_user_id?: string;
-  receiptUrl?: string;
+  status?: string;
+  createdAt: FSTimestamp;
 }
 
 export interface Transaction {
@@ -79,33 +228,8 @@ export interface Transaction {
   agentId: string;
   amount: number;
   type: "deposit" | "withdrawal" | "emi_payment" | "loan_disbursement";
-  timestamp: number;
+  timestamp: FSTimestamp;
   referenceId?: string;
-}
-
-export interface Loan {
-  id: string;
-  organizationId: string;
-  customerId: string;
-  principal: number;
-  interestRate: number;
-  durationMonths: number;
-  status: "pending" | "approved" | "rejected" | "active" | "closed";
-  emiAmount: number;
-  totalComputed: number;
-  balanceRemaining: number;
-  createdAt: number;
-  approvedAt?: number;
-}
-
-export interface EMIPayment {
-  id: string;
-  organizationId: string;
-  loanId: string;
-  customerId: string;
-  agentId: string;
-  amount: number;
-  timestamp: number;
 }
 
 export interface Notification {
@@ -115,7 +239,7 @@ export interface Notification {
   title: string;
   message: string;
   read: boolean;
-  timestamp: number;
+  timestamp: FSTimestamp;
 }
 
 export type SubscriptionPlanId = "starter" | "professional" | "enterprise";
@@ -134,10 +258,10 @@ export interface Subscription {
   status: SubscriptionStatus;
   maxAgents: number;
   maxCustomers: number;
-  startedAt: any;
-  expiresAt?: number;
-  createdAt: any;
-  updatedAt: any;
+  startedAt: FSTimestamp;
+  expiresAt?: FSTimestamp;
+  createdAt: FSTimestamp;
+  updatedAt: FSTimestamp;
 }
 
 export interface Payment {
@@ -148,10 +272,10 @@ export interface Payment {
   currency: string;
   billingCycle: BillingCycle;
   paymentStatus: PaymentStatus;
-  paidAt: any;
+  paidAt: FSTimestamp;
   invoiceNumber: string;
   cardLast4?: string;
-  createdAt: any;
+  createdAt: FSTimestamp;
 }
 
 export interface Invoice {
@@ -165,7 +289,18 @@ export interface Invoice {
   planName: string;
   billingCycle: BillingCycle;
   status: "paid" | "unpaid" | "cancelled";
-  issuedAt: any;
-  paidAt?: any;
-  createdAt: any;
+  issuedAt: FSTimestamp;
+  paidAt?: FSTimestamp;
+  createdAt: FSTimestamp;
+}
+
+// ── EMIPayment (legacy) ───────────────────────────────────────────────────────
+export interface EMIPayment {
+  id: string;
+  organizationId: string;
+  loanId: string;
+  customerId: string;
+  agentId: string;
+  amount: number;
+  timestamp: FSTimestamp;
 }

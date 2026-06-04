@@ -1,7 +1,7 @@
 import { useUser, useOrganization, useOrganizationList, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, History,
-  AlertCircle, Menu, LayoutDashboard, ChevronDown, Check, Building2,
+  AlertCircle, Menu, LayoutDashboard, ChevronDown, Check, Building2, CreditCard,
 } from "lucide-react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -15,10 +15,12 @@ import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
 import AgentPending from "./AgentPending";
 import AgentHistory from "./AgentHistory";
+import AgentEMICollection from "./AgentEMICollection";
 
 const menuItems = [
   { id: "overview", label: "Today's Summary", icon: LayoutDashboard },
   { id: "pending", label: "Pending Visits", icon: AlertCircle },
+  { id: "emi", label: "EMI Collection", icon: CreditCard },
   { id: "customers", label: "My Customers", icon: Users },
   { id: "history", label: "Collection History", icon: History },
 ];
@@ -103,6 +105,9 @@ export default function AgentDashboard() {
           </TabsContent>
           <TabsContent value="pending" className="mt-0">
             <AgentPending />
+          </TabsContent>
+          <TabsContent value="emi" className="mt-0">
+            <AgentEMICollection />
           </TabsContent>
           <TabsContent value="customers" className="mt-0">
             <AgentCustomers />

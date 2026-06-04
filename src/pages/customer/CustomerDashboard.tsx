@@ -1,333 +1,462 @@
+import { useState, useEffect } from "react";
 import { useUser, useOrganization, useOrganizationList, SignOutButton } from "@clerk/clerk-react";
-import { LogOut, Wallet, CreditCard, History, ChevronDown, Check, Building2 } from "lucide-react";
+import {
+  LogOut, Wallet, CreditCard, History, ChevronDown, Check, Building2,
+  PiggyBank, FileText, CalendarDays, AlertTriangle, CheckCircle, Clock,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useCollectionRealtimeRaw } from "@/lib/firestore-hooks";
-import { Collection, Loan, User } from "@/types";
-import { format } from "date-fns";
-import React, { useState, useRef, useEffect } from "react";
-import { applyForLoan } from "@/lib/services";
-import { toast } from "sonner";
-import { BrandMark } from "@/components/BrandLogo";
+import { useCollectionRealtime, useDocumentRealtime, useCollectionRealtimeRaw } from "@/lib/firestore-hooks";
+import { Collection, Loan, LoanInstallment, SavingsAccount, SavingsTransaction, Membership } from "@/types";
+import { format, isBefore, startOfDay } from "date-fns";
 import { where } from "firebase/firestore";
-import { useLanguage } from "@/lib/languageContext";
-import { Navigate, useNavigate } from "react-router-dom";
+
+function toDate(ts: any): Date {
+  if (!ts) return new Date(0);
+  if (ts?.toDate) return ts.toDate();
+  if (ts instanceof Date) return ts;
+  return new Date(ts);
+}
+
+type Tab = "savings" | "passbook" | "loans" | "emi_schedule" | "receipts";
 
 export default function CustomerDashboard() {
-  const { isLoaded, isSignedIn, user } = useUser();
+  const { user } = useUser();
   const { organization } = useOrganization();
-  const { userMemberships, setActive } = useOrganizationList({ userMemberships: true });
-  const navigate = useNavigate();
-  const { language, setLanguage, t } = useLanguage();
-  const customerEmail = user?.primaryEmailAddress?.emailAddress || "";
+  const { userMemberships, setActive } = useOrganizationList({ userMemberships: { infinite: true } });
+  const [activeTab, setActiveTab] = useState<Tab>("savings");
+  const [showOrgSwitcher, setShowOrgSwitcher] = useState(false);
 
-  const { data: users, loading: usersLoading } = useCollectionRealtimeRaw<User>("users", [where("email", "==", customerEmail)]);
-  const profile = users?.[0] || null;
-  const customerId = profile?.id || "";
+  const orgId = organization?.id || "";
+  const clerkUserId = user?.id || "";
 
-  const { data: collections } = useCollectionRealtimeRaw<Collection>("collections", customerId ? [where("customerId", "==", customerId)] : []);
-  const { data: loans } = useCollectionRealtimeRaw<Loan>("loans", customerId ? [where("customerId", "==", customerId)] : []);
+  // Membership doc ID for customer
+  const membershipId = orgId && clerkUserId ? `${orgId}_${clerkUserId}` : null;
 
-  const [isLoanOpen, setIsLoanOpen] = useState(false);
-  const [loanPrincipal, setLoanPrincipal] = useState("");
-  const [loanDuration, setLoanDuration] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Fetch data
+  const { data: collections } = useCollectionRealtimeRaw<Collection>("collections", [
+    where("customerId", "==", membershipId ?? "__none__"),
+  ]);
 
-  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
-  const [switching, setSwitching] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { data: savingsAccounts } = useCollectionRealtimeRaw<SavingsAccount>("savings_accounts", [
+    where("customerId", "==", membershipId ?? "__none__"),
+  ]);
 
-  const memberships = userMemberships?.data || [];
-  const hasMultipleOrgs = memberships.length > 1;
+  const { data: savingsTxs } = useCollectionRealtimeRaw<SavingsTransaction>("savings_transactions", [
+    where("customerId", "==", membershipId ?? "__none__"),
+  ]);
 
-  useEffect(() => {
-    if (!orgDropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOrgDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [orgDropdownOpen]);
+  const { data: loans } = useCollectionRealtimeRaw<Loan>("loans", [
+    where("customerId", "==", membershipId ?? "__none__"),
+  ]);
 
-  const handleSwitchOrg = async (orgId: string) => {
-    if (orgId === organization?.id || !setActive || switching) return;
-    setSwitching(true);
-    setOrgDropdownOpen(false);
-    try {
-      await setActive({ organization: orgId });
-      navigate("/router", { replace: true });
-    } catch (err) {
-      console.error("[FC CustomerDashboard] Failed to switch org:", err);
-      setSwitching(false);
-    }
-  };
+  const { data: installments } = useCollectionRealtimeRaw<LoanInstallment>("loan_installments", [
+    where("customerId", "==", membershipId ?? "__none__"),
+  ]);
 
-  const activeLoan = loans.find(l => l.status === "active");
-  const pendingLoan = loans.find(l => l.status === "pending");
+  const { data: orgMembers } = useCollectionRealtime<Membership>("organizationMembers");
 
-  const handleApplyLoan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.organizationId || !customerId) return toast.error("Organization or Profile not found");
-    setIsSubmitting(true);
-    try {
-      await applyForLoan(profile.organizationId, {
-        customerId,
-        principal: Number(loanPrincipal),
-        durationMonths: Number(loanDuration)
-      });
-      toast.success(t("loanPending") || "Loan application submitted successfully!");
-      setIsLoanOpen(false);
-    } catch {
-      toast.error("Failed to apply for loan");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  // Derived data
+  const savingsAccount = savingsAccounts[0] || null;
+  const totalSavings = savingsAccount?.totalBalance || 0;
 
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col pb-16">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-          <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            <Skeleton className="h-6 w-32" />
-            <Skeleton className="h-8 w-24" />
-          </div>
-        </header>
-        <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full space-y-6">
-          <Skeleton className="h-44 rounded-3xl" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Skeleton className="h-48 rounded-2xl" />
-            <Skeleton className="h-48 rounded-2xl" />
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const activeLoans = loans.filter((l) => l.status === "ACTIVE" || (l.status as string) === "active");
+  const totalOutstanding = activeLoans.reduce((s, l) => s + (l.outstandingBalance ?? (l as any).balanceRemaining ?? 0), 0);
 
-  if (!isSignedIn || !user) {
-    return <Navigate to="/customer/signin" replace />;
-  }
+  const today = startOfDay(new Date());
+  const allInstallmentsSorted = [...installments].sort((a, b) => a.installmentNo - b.installmentNo);
+  const pendingInstallments = allInstallmentsSorted.filter((i) => i.status !== "PAID");
+  const overdueInstallments = pendingInstallments.filter((i) => isBefore(toDate(i.dueDate), today));
+  const nextDue = pendingInstallments[0] || null;
 
-  if (!profile && !usersLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-slate-200">
-          <div className="flex justify-center gap-2 mb-6 bg-slate-100 p-1 rounded-full w-fit mx-auto">
-            <Button variant={language === "en" ? "default" : "ghost"} size="sm" onClick={() => setLanguage("en")} className="rounded-full text-xs h-8 px-3">English</Button>
-            <Button variant={language === "kn" ? "default" : "ghost"} size="sm" onClick={() => setLanguage("kn")} className="rounded-full text-xs h-8 px-3">ಕನ್ನಡ</Button>
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">{t("profileNotFound")}</h2>
-          <p className="text-slate-500 mb-6 leading-relaxed">{t("profileNotFoundDesc")} ({customerEmail})</p>
-          <SignOutButton>
-            <Button variant="outline" className="w-full h-12 rounded-xl border-slate-200 font-semibold text-slate-700 hover:bg-slate-50">
-              {t("logout")}
-            </Button>
-          </SignOutButton>
-        </div>
-      </div>
-    );
-  }
+  const sortedTxs = [...savingsTxs].sort((a, b) =>
+    toDate(b.collectedAt).valueOf() - toDate(a.collectedAt).valueOf()
+  );
 
-  if (usersLoading) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col pb-16">
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-          <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-            <BrandMark size="sm" />
-            <div className="flex items-center gap-3">
-              <div className="flex gap-1 bg-slate-100 p-1 rounded-full text-xs">
-                <button className={`px-2.5 py-1 rounded-full font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`} onClick={() => setLanguage('en')}>EN</button>
-                <button className={`px-2.5 py-1 rounded-full font-medium transition-colors ${language === 'kn' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`} onClick={() => setLanguage('kn')}>ಕನ್ನಡ</button>
-              </div>
-            </div>
-          </div>
-        </header>
-        <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full space-y-6">
-          <Skeleton className="h-44 rounded-3xl" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Skeleton className="h-48 rounded-2xl" />
-            <Skeleton className="h-48 rounded-2xl" />
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const sortedCollections = [...collections].sort((a, b) =>
+    toDate(b.collectedAt || b.timestamp).valueOf() - toDate(a.collectedAt || a.timestamp).valueOf()
+  );
+
+  const orgName = organization?.name || "My Organization";
+  const orgs = userMemberships?.data || [];
+
+  const TABS: { id: Tab; label: string; icon: any }[] = [
+    { id: "savings", label: "Savings", icon: PiggyBank },
+    { id: "passbook", label: "Passbook", icon: History },
+    { id: "loans", label: "Loans", icon: CreditCard },
+    { id: "emi_schedule", label: "EMI Schedule", icon: CalendarDays },
+    { id: "receipts", label: "Receipts", icon: FileText },
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col pb-4">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <BrandMark className="text-lg font-extrabold" />
-            {hasMultipleOrgs && (
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
-                  disabled={switching}
-                  className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
-                >
-                  <Building2 className="w-3 h-3 shrink-0" />
-                  <span className="max-w-[100px] truncate">{organization?.name || "Organization"}</span>
-                  <ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${orgDropdownOpen ? "rotate-180" : ""}`} />
-                </button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white text-sm font-bold">
+            {user?.firstName?.[0] || "C"}
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900 text-sm leading-tight">{user?.fullName || "Customer"}</p>
+            <p className="text-xs text-slate-500">{user?.primaryEmailAddress?.emailAddress}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Org switcher */}
+          {orgs.length > 1 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowOrgSwitcher(!showOrgSwitcher)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 transition-colors"
+              >
+                <Building2 className="w-3 h-3" />
+                <span className="hidden sm:inline max-w-[120px] truncate">{orgName}</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {showOrgSwitcher && (
+                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 min-w-[200px] py-1">
+                  {orgs.map((mem) => (
+                    <button
+                      key={mem.organization.id}
+                      onClick={async () => {
+                        await setActive?.({ organization: mem.organization.id });
+                        setShowOrgSwitcher(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 text-left"
+                    >
+                      {mem.organization.id === orgId && <Check className="w-4 h-4 text-emerald-500 shrink-0" />}
+                      <span className="truncate">{mem.organization.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <SignOutButton>
+            <button className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors">
+              <LogOut className="w-4 h-4" />
+            </button>
+          </SignOutButton>
+        </div>
+      </header>
 
-                {orgDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg z-50 min-w-[200px] overflow-hidden">
-                    <p className="px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                      Switch Organization
-                    </p>
-                    {memberships.map((m: any) => {
-                      const id = m.organization?.id;
-                      const name = m.organization?.name || id;
-                      const isActive = id === organization?.id;
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 gap-3">
+          <div
+            onClick={() => setActiveTab("savings")}
+            className="bg-emerald-600 rounded-2xl p-5 text-white cursor-pointer hover:bg-emerald-700 transition-colors"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-emerald-100 text-sm font-medium">Total Savings</p>
+              <PiggyBank className="w-5 h-5 text-emerald-200" />
+            </div>
+            <p className="text-3xl font-black">₹{totalSavings.toLocaleString()}</p>
+            <p className="text-emerald-200 text-xs mt-1">{savingsTxs.length} deposits</p>
+          </div>
+          <div
+            onClick={() => setActiveTab("loans")}
+            className="bg-white rounded-2xl p-5 border border-slate-200 cursor-pointer hover:shadow-md transition-all"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-slate-500 text-sm font-medium">Loan Outstanding</p>
+              <CreditCard className="w-5 h-5 text-orange-500" />
+            </div>
+            <p className="text-3xl font-black text-slate-900">₹{totalOutstanding.toLocaleString()}</p>
+            <p className="text-slate-400 text-xs mt-1">{activeLoans.length} active loan{activeLoans.length !== 1 ? "s" : ""}</p>
+          </div>
+        </div>
+
+        {/* Next EMI due alert */}
+        {nextDue && (
+          <div
+            onClick={() => setActiveTab("emi_schedule")}
+            className={`flex items-start gap-3 p-4 rounded-2xl border cursor-pointer ${
+              overdueInstallments.length > 0
+                ? "bg-red-50 border-red-200"
+                : "bg-amber-50 border-amber-200"
+            }`}
+          >
+            {overdueInstallments.length > 0 ? (
+              <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            ) : (
+              <Clock className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className={`font-semibold text-sm ${overdueInstallments.length > 0 ? "text-red-800" : "text-amber-800"}`}>
+                {overdueInstallments.length > 0
+                  ? `${overdueInstallments.length} EMI overdue!`
+                  : "Next EMI due"}
+              </p>
+              <p className={`text-xs mt-0.5 ${overdueInstallments.length > 0 ? "text-red-600" : "text-amber-600"}`}>
+                ₹{Number(nextDue.emiAmount).toLocaleString()} · {toDate(nextDue.dueDate).getTime() > 0 ? format(toDate(nextDue.dueDate), "MMM d, yyyy") : "—"}
+              </p>
+            </div>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${overdueInstallments.length > 0 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+              Installment #{nextDue.installmentNo}
+            </span>
+          </div>
+        )}
+
+        {/* Tab navigation */}
+        <div className="overflow-x-auto -mx-1 px-1">
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit min-w-full">
+            {TABS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap ${
+                  activeTab === id ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Savings Balance Tab ──────────────────────────────────────────── */}
+        {activeTab === "savings" && (
+          <div className="space-y-4">
+            <Card>
+              <CardContent className="p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-500">Savings Account Balance</p>
+                    <p className="text-4xl font-black text-slate-900 mt-1">₹{totalSavings.toLocaleString()}</p>
+                  </div>
+                  <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center">
+                    <PiggyBank className="w-8 h-8 text-emerald-600" />
+                  </div>
+                </div>
+                {savingsAccount && (
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-xs text-slate-500">Plan Type</p>
+                      <p className="font-semibold text-slate-900 text-sm mt-0.5">{savingsAccount.planType || "DAILY"}</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3">
+                      <p className="text-xs text-slate-500">Status</p>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${savingsAccount.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                        {savingsAccount.status || "ACTIVE"}
+                      </span>
+                    </div>
+                    {savingsAccount.scheduledAmount > 0 && (
+                      <div className="bg-slate-50 rounded-xl p-3 col-span-2">
+                        <p className="text-xs text-slate-500">Scheduled Deposit</p>
+                        <p className="font-semibold text-slate-900 text-sm mt-0.5">₹{savingsAccount.scheduledAmount.toLocaleString()} / {(savingsAccount.planType || "DAILY").toLowerCase()}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent savings */}
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Recent Deposits</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                {sortedTxs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-sm">No deposits yet.</div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {sortedTxs.slice(0, 5).map((tx) => {
+                      const d = toDate(tx.collectedAt);
                       return (
-                        <button
-                          key={id}
-                          onClick={() => handleSwitchOrg(id)}
-                          className={`w-full text-left px-3 py-2.5 text-xs font-medium transition-colors flex items-center gap-2.5 ${
-                            isActive
-                              ? "bg-purple-50 text-purple-700"
-                              : "text-slate-700 hover:bg-slate-50"
-                          }`}
-                        >
-                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-purple-500" : "bg-slate-300"}`} />
-                          <span className="truncate flex-1">{name}</span>
-                          {isActive && <Check className="w-3 h-3 shrink-0 text-purple-600" />}
-                        </button>
+                        <div key={tx.id} className="flex items-center justify-between px-4 py-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Savings Deposit</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {tx.collectedByName || "Agent"} · {d.getTime() > 0 ? format(d, "MMM d, h:mm a") : "—"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-emerald-600">+₹{tx.amount.toLocaleString()}</p>
+                            <p className="text-xs text-slate-400">Bal: ₹{tx.balanceAfter.toLocaleString()}</p>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
                 )}
-              </div>
-            )}
+              </CardContent>
+            </Card>
           </div>
+        )}
 
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex gap-0.5 bg-slate-100 p-0.5 rounded-full text-xs">
-              <button className={`px-2 py-1 rounded-full font-medium transition-colors ${language === 'en' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('en')}>EN</button>
-              <button className={`px-2 py-1 rounded-full font-medium transition-colors ${language === 'kn' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} onClick={() => setLanguage('kn')}>ಕನ್ನಡ</button>
-            </div>
-            <SignOutButton>
-              <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-800 hover:bg-slate-100/60 h-8 px-2 transition-colors">
-                <LogOut className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">{t("logout")}</span>
-              </Button>
-            </SignOutButton>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 p-3 md:p-8 max-w-5xl mx-auto w-full space-y-4 md:space-y-6">
-        <Card className="bg-gradient-to-br from-purple-600 via-purple-700 to-indigo-800 text-white shadow-xl overflow-hidden relative border-none rounded-2xl md:rounded-3xl">
-          <div className="absolute -right-10 -top-10 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
-          <div className="absolute -left-10 -bottom-10 w-44 h-44 bg-white/10 rounded-full blur-3xl" />
-          <CardContent className="p-5 sm:p-8 relative z-10">
-            <p className="text-purple-100/90 font-semibold tracking-wide uppercase text-xs mb-2">{t("totalSavingsBalance")}</p>
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold mb-4 md:mb-6 tracking-tight">
-              ₹{(profile?.balance || 0).toLocaleString()}
-            </h1>
-            <div className="flex flex-wrap gap-4">
-              <Dialog open={isLoanOpen} onOpenChange={setIsLoanOpen}>
-                <DialogTrigger render={
-                  <Button className="bg-white text-purple-700 hover:bg-slate-50 border-none shadow-md font-bold px-6 py-2.5 h-12 rounded-xl transition-all duration-200" disabled={!!pendingLoan || !!activeLoan}>
-                    {pendingLoan ? t("loanPending") : t("applyForLoan")}
-                  </Button>
-                } />
-                <DialogContent className="rounded-2xl max-w-md w-[94%]">
-                  <DialogHeader>
-                    <DialogTitle className="text-xl font-bold text-slate-850">{t("applyForLoan")}</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleApplyLoan} className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-700 font-medium">{t("principal")}</Label>
-                      <Input type="number" required min="1000" placeholder="e.g. 50000" value={loanPrincipal} onChange={e => setLoanPrincipal(e.target.value)} className="h-12 text-md rounded-xl" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-700 font-medium">{t("duration")}</Label>
-                      <Input type="number" required min="1" max="60" placeholder="e.g. 12" value={loanDuration} onChange={e => setLoanDuration(e.target.value)} className="h-12 text-md rounded-xl" />
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-xl text-sm text-slate-600 border border-slate-100 leading-relaxed">{t("loanDetails")}</div>
-                    <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold h-12 text-md rounded-xl transition-all duration-200" disabled={isSubmitting}>
-                      {isSubmitting ? "..." : t("submitApplication")}
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="border-slate-200/80 rounded-2xl bg-white shadow-sm hover:shadow-md transition-shadow duration-200">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-orange-650" />
-                {t("loansEmi")}
-              </CardTitle>
+        {/* ── Passbook Tab ─────────────────────────────────────────────────── */}
+        {activeTab === "passbook" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Savings Passbook</CardTitle>
+              <p className="text-xs text-slate-500">Complete deposit history with running balance.</p>
             </CardHeader>
-            <CardContent>
-              {activeLoan ? (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-4 bg-orange-50/70 border border-orange-100 rounded-2xl">
-                    <div>
-                      <p className="text-xs text-slate-500 font-medium tracking-wide uppercase">Remaining Balance</p>
-                      <p className="font-extrabold text-2xl text-slate-900 mt-1">₹{activeLoan.balanceRemaining.toLocaleString()}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-500 font-medium tracking-wide uppercase">{t("calculatedEmi")}</p>
-                      <p className="font-extrabold text-2xl text-orange-600 mt-1">₹{activeLoan.emiAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-400 bg-slate-50 p-3 rounded-xl">
-                    Pay standard daily EMI or standard weekly EMI installments when your local collection agent visits you.
-                  </div>
-                </div>
-              ) : pendingLoan ? (
-                <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 text-slate-500">
-                  <p className="font-semibold text-orange-653 text-md">{t("loanPending")}</p>
-                  <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">Requested: ₹{pendingLoan.principal.toLocaleString()} for {pendingLoan.durationMonths} months.</p>
+            <CardContent className="p-0">
+              {sortedTxs.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                  <History className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No transactions yet.</p>
                 </div>
               ) : (
-                <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 text-slate-400">
-                  No active/pending loans found.
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-widest">Date</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-widest">Receipt</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-widest">Amount</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-bold text-slate-500 uppercase tracking-widest">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {sortedTxs.map((tx) => {
+                        const d = toDate(tx.collectedAt);
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-2.5 text-slate-600">
+                              {d.getTime() > 0 ? format(d, "MMM d, yyyy") : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-xs text-slate-400">{tx.receiptNo}</td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">+₹{tx.amount.toLocaleString()}</td>
+                            <td className="px-4 py-2.5 text-right font-bold text-slate-900">₹{tx.balanceAfter.toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>
           </Card>
+        )}
 
-          <Card className="border-slate-200/80 rounded-2xl bg-white shadow-sm hover:shadow-md transition-shadow duration-200">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <History className="w-5 h-5 text-slate-500" />
-                {t("collectionHistory")}
-              </CardTitle>
+        {/* ── Loans Tab ────────────────────────────────────────────────────── */}
+        {activeTab === "loans" && (
+          <div className="space-y-4">
+            {loans.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-slate-400">
+                  <CreditCard className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No loans on your account.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              loans.map((loan) => {
+                const st = (loan.status || "").toUpperCase();
+                const principal = loan.principalAmount ?? (loan as any).principal ?? 0;
+                const outstanding = loan.outstandingBalance ?? (loan as any).balanceRemaining ?? 0;
+                const tenure = loan.tenureMonths ?? (loan as any).durationMonths ?? 0;
+                const paidInstallments = installments.filter((i) => i.loanId === loan.id && i.status === "PAID").length;
+                return (
+                  <Card key={loan.id}>
+                    <CardContent className="p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-900">Loan Account</p>
+                          <p className="text-xs text-slate-400 font-mono mt-0.5">{loan.id.slice(-12)}</p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          st === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                          : st === "CLOSED" ? "bg-slate-100 text-slate-500 border-slate-200"
+                          : st === "PENDING" ? "bg-amber-50 text-amber-700 border-amber-100"
+                          : "bg-red-50 text-red-700 border-red-100"
+                        }`}>
+                          {st}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-xs text-slate-500">Principal</p>
+                          <p className="font-bold text-slate-900">₹{Number(principal).toLocaleString()}</p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-xs text-slate-500">Monthly EMI</p>
+                          <p className="font-bold text-slate-900">₹{Number(loan.emiAmount ?? 0).toFixed(2)}</p>
+                        </div>
+                        <div className={`rounded-xl p-3 ${outstanding > 0 ? "bg-orange-50" : "bg-emerald-50"}`}>
+                          <p className={`text-xs ${outstanding > 0 ? "text-orange-600" : "text-emerald-600"}`}>Outstanding</p>
+                          <p className={`font-bold ${outstanding > 0 ? "text-orange-700" : "text-emerald-700"}`}>
+                            {outstanding > 0 ? `₹${Number(outstanding).toLocaleString()}` : "Fully Paid ✓"}
+                          </p>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-xs text-slate-500">Progress</p>
+                          <p className="font-bold text-slate-900">{paidInstallments}/{tenure} EMIs</p>
+                        </div>
+                      </div>
+                      {outstanding > 0 && tenure > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                            <span>Repayment progress</span>
+                            <span>{Math.round((paidInstallments / tenure) * 100)}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2">
+                            <div
+                              className="bg-emerald-500 h-2 rounded-full transition-all"
+                              style={{ width: `${Math.min(100, (paidInstallments / tenure) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* ── EMI Schedule Tab ─────────────────────────────────────────────── */}
+        {activeTab === "emi_schedule" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">EMI Schedule</CardTitle>
+              <p className="text-xs text-slate-500">All installments across your loans.</p>
             </CardHeader>
-            <CardContent>
-              {collections.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 text-slate-400">
-                  No recent collections recorded.
+            <CardContent className="p-0">
+              {allInstallmentsSorted.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                  <CalendarDays className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No installments yet.</p>
                 </div>
               ) : (
-                <div className="space-y-3.5">
-                  {collections.sort((a, b) => {
-                    const dA = (a.timestamp as any)?.toDate?.() || new Date(a.timestamp);
-                    const dB = (b.timestamp as any)?.toDate?.() || new Date(b.timestamp);
-                    return dB.valueOf() - dA.valueOf();
-                  }).slice(0, 5).map(col => {
-                    const d = (col.timestamp as any)?.toDate?.() || new Date(col.timestamp);
+                <div className="divide-y divide-slate-50">
+                  {allInstallmentsSorted.map((inst) => {
+                    const dueDate = toDate(inst.dueDate);
+                    const isOverdue = inst.status !== "PAID" && isBefore(dueDate, today);
+                    const isPaid = inst.status === "PAID";
                     return (
-                      <div key={col.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl hover:bg-slate-100/50 transition-colors">
-                        <div>
-                          <p className="font-bold text-slate-800 text-sm">Daily Deposit</p>
-                          <p className="text-xs text-slate-400 mt-0.5">{d ? format(d, 'MMM d • h:mm a') : 'N/A'}</p>
+                      <div key={inst.id} className={`flex items-center justify-between px-4 py-3 ${isOverdue ? "bg-red-50" : isPaid ? "bg-emerald-50/30" : ""}`}>
+                        <div className="flex items-start gap-3">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${isPaid ? "bg-emerald-100" : isOverdue ? "bg-red-100" : "bg-slate-100"}`}>
+                            {isPaid ? (
+                              <CheckCircle className="w-4 h-4 text-emerald-600" />
+                            ) : isOverdue ? (
+                              <AlertTriangle className="w-4 h-4 text-red-600" />
+                            ) : (
+                              <Clock className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">EMI #{inst.installmentNo}</p>
+                            <p className={`text-xs mt-0.5 ${isOverdue ? "text-red-600 font-semibold" : "text-slate-500"}`}>
+                              {isOverdue ? "Overdue · " : isPaid ? "Paid · " : "Due · "}
+                              {dueDate.getTime() > 0 ? format(dueDate, "MMM d, yyyy") : "—"}
+                            </p>
+                            {isPaid && inst.receiptNo && (
+                              <p className="text-[10px] text-slate-400 font-mono">{inst.receiptNo}</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="font-extrabold text-emerald-600 text-md bg-emerald-50 px-3 py-1 rounded-full">+₹{col.amount}</div>
+                        <div className="text-right">
+                          <p className={`font-bold text-sm ${isPaid ? "text-emerald-600" : isOverdue ? "text-red-600" : "text-slate-900"}`}>
+                            ₹{Number(inst.emiAmount).toFixed(2)}
+                          </p>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isPaid ? "bg-emerald-100 text-emerald-700" : isOverdue ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
+                            {isPaid ? "PAID" : isOverdue ? "OVERDUE" : "DUE"}
+                          </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -335,8 +464,49 @@ export default function CustomerDashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
+        )}
+
+        {/* ── Receipts Tab ─────────────────────────────────────────────────── */}
+        {activeTab === "receipts" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Payment Receipts</CardTitle>
+              <p className="text-xs text-slate-500">All savings and EMI payment receipts.</p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {sortedCollections.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No receipts yet.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-50">
+                  {sortedCollections.map((col) => {
+                    const d = toDate(col.collectedAt || col.timestamp);
+                    const isSavings = col.collectionType !== "LOAN_EMI";
+                    return (
+                      <div key={col.id} className="flex items-center justify-between px-4 py-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isSavings ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"}`}>
+                              {isSavings ? "SAVINGS" : "EMI"}
+                            </span>
+                            <span className="font-mono text-xs text-slate-400">{col.receiptNo || "—"}</span>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {col.collectedByName || "Agent"} · {d.getTime() > 0 ? format(d, "MMM d, yyyy · h:mm a") : "—"}
+                          </p>
+                        </div>
+                        <p className="font-bold text-emerald-600 text-sm">₹{Number(col.amount).toLocaleString()}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
