@@ -10,9 +10,14 @@ const clerkClient = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
 });
 
-const LOCAL_PORT = process.env.VITE_PORT
-  ? parseInt(process.env.VITE_PORT)
-  : 5000;
+// Use REPLIT_DEV_DOMAIN when available (Replit environment), otherwise fall back to localhost
+const getBaseUrl = () => {
+  if (process.env.REPLIT_DEV_DOMAIN) {
+    return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  }
+  const localPort = process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 5000;
+  return `http://localhost:${localPort}`;
+};
 
 // ─── Legacy: provision-user (keep for SetupPasswordPage backward compat) ─────
 app.post("/api/provision-user", async (req, res) => {
@@ -56,7 +61,7 @@ app.post("/api/provision-user", async (req, res) => {
       userId,
       expiresInSeconds: 60 * 60 * 24 * 7,
     });
-    const origin = `http://localhost:${LOCAL_PORT}`;
+    const origin = getBaseUrl();
     setupUrl = `${origin}/auth/setup-password?token=${token.token}`;
   } catch (err: any) {
     const msg = err?.errors?.[0]?.longMessage || err?.message || "Failed to create setup link";
@@ -119,7 +124,7 @@ app.post("/api/add-member", async (req, res) => {
     }
 
     // New user — create Clerk org invitation (sends email automatically)
-    const origin = `http://localhost:${LOCAL_PORT}`;
+    const origin = getBaseUrl();
     const invitation = await clerkClient.organizations.createOrganizationInvitation({
       organizationId,
       emailAddress: emailKey,
