@@ -7,27 +7,55 @@ import AuthLayout from "./AuthLayout";
 export default function ForgotPasswordPage() {
   const { isLoaded, signIn } = useSignIn();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [email, setEmail]   = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [sent, setSent] = useState(false);
+  const [error, setError]   = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded || !signIn || loading) return;
     setError("");
     setLoading(true);
+
+    const identifier = email.trim().toLowerCase();
+    console.log("════════════════════════════════════════════════");
+    console.log("[FC ForgotPassword] ▶ Requesting password reset OTP");
+    console.log("[FC ForgotPassword]   identifier:", identifier);
+    console.log("[FC ForgotPassword]   timestamp :", new Date().toISOString());
+    console.log("════════════════════════════════════════════════");
+
+    const t0 = Date.now();
     try {
       await signIn.create({
         strategy: "reset_password_email_code",
-        identifier: email.trim().toLowerCase(),
+        identifier,
       });
-      sessionStorage.setItem("fc_reset_email", email.trim().toLowerCase());
-      setSent(true);
+      const sentAt = new Date().toISOString();
+      const took = Date.now() - t0;
+      console.log("[FC ForgotPassword] signIn.create() resolved — took:", `${took}ms`);
+      console.log("[FC ForgotPassword] OTP dispatched — recording sent_at:", sentAt);
+
+      sessionStorage.setItem("fc_reset_email", identifier);
+      sessionStorage.setItem("fc_otp_sent_at", sentAt);
+      sessionStorage.setItem("fc_otp_type", "reset_password");
+      sessionStorage.removeItem("fc_otp_verified_at");
+      sessionStorage.removeItem("fc_otp_errors");
+      const count = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0") + 1;
+      sessionStorage.setItem("fc_otp_request_count", String(count));
+
+      console.log("────────────────────────────────────────────");
+      console.log("[FC OTP] ✉  Reset OTP dispatched");
+      console.log("[FC OTP]    sent_at      :", sentAt);
+      console.log("[FC OTP]    api_took     :", `${took}ms`);
+      console.log("[FC OTP]    request_count:", count);
+      console.log("────────────────────────────────────────────");
+
       navigate("/auth/reset-password", { replace: true });
     } catch (err: any) {
       const code = err?.errors?.[0]?.code ?? "";
-      console.error("[FC ForgotPassword] Error:", code, err?.errors?.[0]?.longMessage ?? err?.message, err);
+      console.error("[FC ForgotPassword] Error — took:", `${Date.now() - t0}ms`);
+      console.error("[FC ForgotPassword]   code   :", code);
+      console.error("[FC ForgotPassword]   message:", err?.errors?.[0]?.longMessage ?? err?.message, err);
       if (code === "too_many_requests") setError("Too many attempts. Please wait a moment and try again.");
       else setError("Account not found.");
     } finally {

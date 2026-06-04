@@ -4,6 +4,22 @@ import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
+function recordOtpSent(type: "signup_verify" | "reset_password") {
+  const sentAt = new Date().toISOString();
+  sessionStorage.setItem("fc_otp_sent_at", sentAt);
+  sessionStorage.setItem("fc_otp_type", type);
+  sessionStorage.removeItem("fc_otp_verified_at");
+  sessionStorage.removeItem("fc_otp_errors");
+  const count = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0") + 1;
+  sessionStorage.setItem("fc_otp_request_count", String(count));
+  console.log("────────────────────────────────────────────");
+  console.log("[FC OTP] ✉  OTP dispatched");
+  console.log("[FC OTP]    type         :", type);
+  console.log("[FC OTP]    sent_at      :", sentAt);
+  console.log("[FC OTP]    request_count:", count);
+  console.log("────────────────────────────────────────────");
+}
+
 export default function SignUpPage() {
   const { isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, signUp, setActive } = useSignUp();
@@ -82,17 +98,15 @@ export default function SignUpPage() {
 
     try {
       if (invitationTicket) {
-        // ── STEP 2: Clerk user creation via invitation ticket ────────────────
         console.log("════════════════════════════════════════════════");
         console.log("[FC STEP 2] ▶ Clerk user creation via invitation ticket");
         console.log("[FC STEP 2]   firstName:", firstName || "(not provided)");
         console.log("[FC STEP 2]   lastName :", lastName  || "(not provided)");
         console.log("[FC STEP 2]   ticket   :", invitationTicket.substring(0, 20) + "…");
         console.log("════════════════════════════════════════════════");
-
-        // ── STEP 3: Password setup ───────────────────────────────────────────
         console.log("[FC STEP 3] ▶ Password setup — calling signUp.create({ strategy: 'ticket', password })…");
 
+        const t0 = Date.now();
         const result = await signUp.create({
           strategy: "ticket",
           ticket: invitationTicket,
@@ -100,15 +114,13 @@ export default function SignUpPage() {
           firstName: firstName || undefined,
           lastName: lastName || undefined,
         });
-
-        console.log("[FC STEP 3] signUp.create() (invitation) result:");
+        console.log("[FC STEP 3] signUp.create() (invitation) — took:", `${Date.now() - t0}ms`);
         console.log("[FC STEP 3]   status           :", result.status);
         console.log("[FC STEP 3]   createdSessionId :", result.createdSessionId ?? "null");
         console.log("[FC STEP 3]   emailAddress     :", result.emailAddress ?? "—");
         console.log("[FC STEP 3]   unverifiedFields :", result.unverifiedFields ?? []);
 
         if (result.status === "complete" && result.createdSessionId) {
-          console.log("[FC STEP 3] ✓ Password accepted — status=complete");
           console.log("[FC STEP 8] ▶ Session creation — activating session:", result.createdSessionId);
           await setActive!({ session: result.createdSessionId });
           console.log("[FC STEP 8] ✓ Session activated — redirecting to /auth/callback");
@@ -119,10 +131,11 @@ export default function SignUpPage() {
 
         if (result.status === "missing_requirements") {
           console.log("[FC STEP 3] Password set — email verification still required");
-          console.log("[FC STEP 4] ▶ Email verification — unverified fields:", result.unverifiedFields);
           if (result.unverifiedFields?.includes("email_address")) {
+            const t1 = Date.now();
             await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-            console.log("[FC STEP 4] Verification code sent — navigating to /auth/verify-email");
+            console.log("[FC STEP 4] prepareEmailAddressVerification — took:", `${Date.now() - t1}ms`);
+            recordOtpSent("signup_verify");
             sessionStorage.setItem("fc_signup_email", result.emailAddress || "");
             navigate("/auth/verify-email", { replace: true });
           }
@@ -134,7 +147,6 @@ export default function SignUpPage() {
         return;
       }
 
-      // ── STEP 2: Normal sign-up (no ticket) ────────────────────────────────
       const emailKey = email.trim().toLowerCase();
       console.log("════════════════════════════════════════════════");
       console.log("[FC STEP 2] ▶ Clerk user creation (normal sign-up)");
@@ -143,13 +155,17 @@ export default function SignUpPage() {
       console.log("[FC STEP 2]   lastName :", lastName  || "(not provided)");
       console.log("════════════════════════════════════════════════");
 
-      console.log("[FC STEP 3] ▶ Password setup — calling signUp.create({ emailAddress, password })…");
+      const t0 = Date.now();
+      console.log("[FC STEP 3] ▶ signUp.create({ emailAddress, password })…");
       await signUp.create({ emailAddress: emailKey, password, firstName, lastName });
+      console.log("[FC STEP 3] signUp.create() done — took:", `${Date.now() - t0}ms`, "| status:", signUp.status);
 
-      console.log("[FC STEP 3] signUp.create() done — status:", signUp.status);
-      console.log("[FC STEP 4] ▶ Email verification — sending OTP to:", emailKey);
+      console.log("[FC STEP 4] ▶ Email verification — calling prepareEmailAddressVerification…");
+      const t1 = Date.now();
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
-      console.log("[FC STEP 4] OTP sent — navigating to /auth/verify-email");
+      console.log("[FC STEP 4] prepareEmailAddressVerification — took:", `${Date.now() - t1}ms`);
+
+      recordOtpSent("signup_verify");
       sessionStorage.setItem("fc_signup_email", emailKey);
       navigate("/auth/verify-email", { replace: true });
 
@@ -244,7 +260,7 @@ export default function SignUpPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v) => !v)}
+                  onClick={() => setShowPassword(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
                   tabIndex={-1}
                 >
@@ -267,7 +283,7 @@ export default function SignUpPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirm((v) => !v)}
+                  onClick={() => setShowConfirm(v => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
                   tabIndex={-1}
                 >
