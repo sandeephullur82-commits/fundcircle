@@ -84,10 +84,6 @@ function generateInvoiceNumber() {
   return `FC-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
 }
 
-function slugify(name: string) {
-  return name.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_]+/g, "-").substring(0, 28) + "-" + Math.random().toString(36).substring(2, 6);
-}
-
 function formatCardNumber(value: string) {
   return value.replace(/\D/g, "").substring(0, 16).replace(/(.{4})/g, "$1 ").trim();
 }
@@ -192,7 +188,6 @@ export default function OwnerOnboarding() {
       organizationId: orgId,
       name: orgName.trim(),
       ownerName: getEffectiveName(),
-      slug: "",
       phone: phone.trim(),
       address: address.trim(),
       currency: CURRENCY.code,
@@ -256,8 +251,7 @@ export default function OwnerOnboarding() {
     setProcessing(true);
     try {
       console.log("[FC Onboarding] Step 1: Creating Clerk organization…");
-      const slug = slugify(orgName);
-      const org = await createOrganization({ name: orgName.trim(), slug });
+      const org = await createOrganization({ name: orgName.trim() });
       console.log("[FC Onboarding] Step 1 ✓ Clerk org created:", org.id);
 
       console.log("[FC Onboarding] Step 2: Writing Firestore organization doc…");
@@ -268,8 +262,6 @@ export default function OwnerOnboarding() {
       await createMembershipInFirestore(org.id);
       console.log("[FC Onboarding] Step 3 ✓ organizationMembers + users written");
 
-      // Pre-cache the owner role (keyed per-org) so the timeout fallback in
-      // RoleProtectedRoute resolves instantly instead of waiting the full 5 s.
       setCached(`role_${user.id}_${org.id}`, "org:owner");
       console.log("[FC Onboarding] Role cached for instant fallback");
 
@@ -322,8 +314,7 @@ export default function OwnerOnboarding() {
       await new Promise((r) => setTimeout(r, 1500));
 
       console.log("[FC Onboarding] Step 1: Creating Clerk organization…");
-      const slug = slugify(orgName);
-      const org = await createOrganization({ name: orgName.trim(), slug });
+      const org = await createOrganization({ name: orgName.trim() });
       console.log("[FC Onboarding] Step 1 ✓ Clerk org created:", org.id);
 
       console.log("[FC Onboarding] Step 2: Writing Firestore organization doc…");

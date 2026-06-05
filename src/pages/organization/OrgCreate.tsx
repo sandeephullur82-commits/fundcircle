@@ -3,7 +3,7 @@ import { useOrganizationList, useUser } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { Building2, Globe, ArrowRight, RefreshCw, Sparkles, Shield, AlertTriangle } from "lucide-react";
+import { Building2, ArrowRight, RefreshCw, Sparkles, Shield, AlertTriangle } from "lucide-react";
 import BackToHomeButton from "@/components/BackToHomeButton";
 import { useLanguage } from "@/lib/languageContext";
 import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from "firebase/firestore";
@@ -18,7 +18,6 @@ export default function OrgCreate() {
   const { language } = useLanguage();
 
   const [orgName, setOrgName] = useState("");
-  const [orgSlug, setOrgSlug] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const [existingOrgName, setExistingOrgName] = useState<string | null>(null);
@@ -47,22 +46,10 @@ export default function OrgCreate() {
     checkOwnership();
   }, [isLoaded, user?.id]);
 
-  const handleNameChange = (name: string) => {
-    setOrgName(name);
-    const suggestedSlug = name
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/[\s_]+/g, "-")
-      .substring(0, 30);
-    setOrgSlug(suggestedSlug);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (existingOrgName) return;
     if (!orgName.trim()) return toast.error("Please enter an organization name.");
-    if (!orgSlug.trim()) return toast.error("Please specify a URL slug.");
 
     setIsLoading(true);
     try {
@@ -70,16 +57,12 @@ export default function OrgCreate() {
         return toast.error("You do not have administrative permission to establish organizations.");
       }
 
-      const org = await createOrganization({
-        name: orgName.trim(),
-        slug: orgSlug.trim()
-      });
+      const org = await createOrganization({ name: orgName.trim() });
 
       await setDoc(doc(db, "organizations", org.id), {
         id: org.id,
         organizationId: org.id,
         name: orgName.trim(),
-        slug: orgSlug.trim(),
         ownerClerkUserId: user?.id || "",
         ownerEmail: user?.primaryEmailAddress?.emailAddress || "",
         createdAt: serverTimestamp(),
@@ -226,27 +209,6 @@ export default function OrgCreate() {
                       className="h-12 w-full pl-11 pr-4 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:bg-white text-sm transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500"
                     />
                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="org-slug-input" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                    Workspace URL Slug
-                  </label>
-                  <div className="relative">
-                    <Globe className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
-                    <input
-                      id="org-slug-input"
-                      type="text"
-                      required
-                      placeholder="mandya-pigmy-bank"
-                      value={orgSlug}
-                      onChange={(e) => setOrgSlug(e.target.value.replace(/[^a-zA-Z0-9-]/g, "").toLowerCase())}
-                      className="h-12 w-full pl-11 pr-4 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:bg-white text-sm transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 font-semibold px-1">
-                    Your workspace will be accessible at: <span className="text-blue-600 font-bold">fundcircle.com/{orgSlug || "slug"}</span>
-                  </p>
                 </div>
 
                 <button
