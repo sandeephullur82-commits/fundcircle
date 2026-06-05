@@ -36,7 +36,8 @@ export default function SignUpPage() {
   // is called. This ref blocks that premature redirect.
   const submittingRef = useRef(false);
 
-  const [fullName, setFullName]               = useState("");
+  const [firstName, setFirstName]             = useState("");
+  const [lastName, setLastName]               = useState("");
   const [email, setEmail]                     = useState("");
   const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -91,16 +92,15 @@ export default function SignUpPage() {
     if (!isLoaded || !signUp || loading) return;
     setError("");
 
-    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
-    if (password.length < 8)          { setError("Password must be at least 8 characters."); return; }
+    if (!invitationTicket && !firstName.trim()) { setError("First name is required."); return; }
+    if (!invitationTicket && !lastName.trim())  { setError("Last name is required."); return; }
+    if (!invitationTicket && !email.trim())     { setError("Email address is required."); return; }
+    if (password.length < 8)                    { setError("Password must be at least 8 characters."); return; }
+    if (password !== confirmPassword)           { setError("Passwords do not match."); return; }
     if (!invitationTicket && !agreedToTerms) {
       setError("Please accept the terms and conditions to continue.");
       return;
     }
-
-    const nameParts = fullName.trim().split(/\s+/);
-    const firstName = nameParts[0] || "";
-    const lastName  = nameParts.slice(1).join(" ") || "";
 
     submittingRef.current = true;
     setLoading(true);
@@ -264,18 +264,33 @@ export default function SignUpPage() {
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label className={labelClass}>Full name</label>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Raj Kumar"
-              required={!invitationTicket}
-              autoFocus
-              className={inputClass}
-            />
-          </div>
+          {!invitationTicket && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className={labelClass}>First name <span className="text-red-400">*</span></label>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Raj"
+                  required
+                  autoFocus
+                  className={inputClass}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Last name <span className="text-red-400">*</span></label>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Kumar"
+                  required
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          )}
 
           {!invitationTicket && (
             <div className="space-y-1.5">
