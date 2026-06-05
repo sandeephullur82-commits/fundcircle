@@ -62,12 +62,18 @@ export default function VerifyEmailPage() {
     }
 
     // Already complete — activate and move on.
-    if (signUp.status === "complete" && signUp.createdSessionId && setActive) {
-      console.log("[FC Verify] signUp already complete — activating session:", signUp.createdSessionId);
-      setActive({ session: signUp.createdSessionId }).then(() => {
-        console.log("[FC Verify] ✓ Session activated — redirecting to /auth/callback");
+    // Do NOT gate on createdSessionId: Clerk can return status=complete with
+    // createdSessionId:null when the session was already activated elsewhere.
+    if (signUp.status === "complete") {
+      console.log("[FC Verify] signUp already complete on mount — sessionId:", signUp.createdSessionId ?? "null");
+      const doComplete = async () => {
+        if (signUp.createdSessionId && setActive) {
+          await setActive({ session: signUp.createdSessionId });
+        }
+        sessionStorage.removeItem("fc_signup_email");
         navigate("/auth/callback", { replace: true });
-      });
+      };
+      doComplete();
     }
   }, [isLoaded, signUp?.status, signUp?.id, signUp?.createdSessionId]);
 
@@ -79,6 +85,31 @@ export default function VerifyEmailPage() {
       setError(stored);
     }
   }, []);
+
+  // ── Shared completion helper ─────────────────────────────────────────────────
+  // Called from both the happy-path (status=complete) and the recovery path
+  // (verification_already_verified). Does NOT gate on createdSessionId being
+  // truthy — per the Clerk quirk where status=complete can arrive with
+  // createdSessionId:null when the session was already activated.
+  const completeSignUp = useCallback(async (sessionId: string | null, sentAt: string | null) => {
+    console.log("[FC Verify] ▶ completeSignUp | sessionId:", sessionId ?? "null (session already active)");
+    const verifiedAt = new Date().toISOString();
+    sessionStorage.setItem("fc_otp_verified_at", verifiedAt);
+    if (sentAt) {
+      const deliveryMs = new Date(verifiedAt).getTime() - new Date(sentAt).getTime();
+      console.log("[FC OTP] ✓ Verification complete | delivery_ms:", deliveryMs, `(${(deliveryMs / 1000).toFixed(1)}s)`);
+    }
+    if (sessionId) {
+      console.log("[FC Verify] ▶ Activating session:", sessionId);
+      await setActive({ session: sessionId });
+      console.log("[FC Verify] ✓ Session activated");
+    } else {
+      console.warn("[FC Verify] createdSessionId=null — session already active, skipping setActive");
+    }
+    sessionStorage.removeItem("fc_signup_email");
+    console.log("[FC Verify] → Redirecting to /auth/callback");
+    navigate("/auth/callback", { replace: true });
+  }, [setActive, navigate]);
 
   const performVerify = useCallback(async (code: string) => {
     if (!isLoaded || !signUp) return;
@@ -120,30 +151,15 @@ export default function VerifyEmailPage() {
       const status = result.status as string;
 
       console.log("Verification result:", result);
+      console.log("Verification status:", status);
+      console.log("Session:", result.createdSessionId ?? "null");
       console.log("[FC Verify] ✓ attemptEmailAddressVerification result:");
       console.log("[FC Verify]   status           :", status);
       console.log("[FC Verify]   createdSessionId :", result.createdSessionId ?? "null");
       console.log("[FC Verify]   api_took         :", `${Date.now() - verifyStart}ms`);
 
       if (status === "complete") {
-        const verifiedAt = new Date().toISOString();
-        sessionStorage.setItem("fc_otp_verified_at", verifiedAt);
-        if (sentAt) {
-          const deliveryMs = new Date(verifiedAt).getTime() - new Date(sentAt).getTime();
-          console.log("[FC OTP] ✓ Verification complete | delivery_ms:", deliveryMs, `(${(deliveryMs / 1000).toFixed(1)}s)`);
-        }
-
-        if (result.createdSessionId) {
-          console.log("[FC Verify] ▶ Activating session:", result.createdSessionId);
-          await setActive({ session: result.createdSessionId });
-          console.log("[FC Verify] ✓ Session activated");
-        } else {
-          console.warn("[FC Verify] status=complete, sessionId=null — session already active");
-        }
-
-        sessionStorage.removeItem("fc_signup_email");
-        console.log("[FC Verify] → Redirecting to /auth/callback");
-        navigate("/auth/callback", { replace: true });
+        await completeSignUp(result.createdSessionId, sentAt);
       } else {
         console.warn("[FC Verify] ✗ Unexpected verification status:", status);
         setError("Verification incomplete. Please try again.");
@@ -152,12 +168,23 @@ export default function VerifyEmailPage() {
       const errCode = err?.errors?.[0]?.code ?? "unknown";
       const msg     = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? "unknown";
       console.error("════════════════════════════════════════════════");
-      console.error("[FC Verify] ✗ Verification FAILED");
-      console.error("[FC Verify]   error code    :", errCode);
-      console.error("[FC Verify]   error message :", msg);
-      console.error("[FC Verify]   all errors    :", err?.errors ?? "none");
+      console.error("[FC Verify] ✗ Verification error | code:", errCode, "| message:", msg);
+      console.error("[FC Verify]   all errors:", err?.errors ?? "none");
       console.error(JSON.stringify(err, null, 2));
       console.error("════════════════════════════════════════════════");
+
+      // ── verification_already_verified ───────────────────────────────────
+      // Clerk throws this when attemptEmailAddressVerification is called on
+      // an email that was already verified (e.g. auto-submit fired twice, or
+      // the user refreshed and Clerk already completed the verification).
+      // Treat it as success: the signUp reactive object is already complete.
+      if (errCode === "verification_already_verified") {
+        console.log("[FC Verify] verification_already_verified — email already verified, recovering signup state");
+        console.log("[FC Verify]   signUp.status          :", signUp.status);
+        console.log("[FC Verify]   signUp.createdSessionId:", signUp.createdSessionId ?? "null");
+        await completeSignUp(signUp.createdSessionId ?? null, sentAt);
+        return;
+      }
 
       if (errCode === "too_many_requests")
         setError("Too many attempts. Please wait a moment and try again.");
@@ -171,7 +198,7 @@ export default function VerifyEmailPage() {
       verifyingRef.current = false;
       setLoading(false);
     }
-  }, [isLoaded, signUp, setActive, navigate, email]);
+  }, [isLoaded, signUp, setActive, navigate, email, completeSignUp]);
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
