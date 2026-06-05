@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { format, isBefore, startOfDay } from "date-fns";
-import { Search, CreditCard, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
+import { Search, CreditCard, Loader2, AlertTriangle, CheckCircle, Banknote, Smartphone, Building2 } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { recordEMICollection } from "@/lib/services";
 import { getDocs, query, collection, where } from "firebase/firestore";
@@ -43,6 +43,8 @@ export default function AgentEMICollection() {
   const [loadingLoan, setLoadingLoan] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI" | "BANK_TRANSFER">("CASH");
+  const [upiRef, setUpiRef] = useState("");
 
   // A loan is "mine" if:
   //   1. It has an explicit loanAssignedCollectorId that matches my userId, OR
@@ -115,6 +117,10 @@ export default function AgentEMICollection() {
 
   const handleCollectEMI = async () => {
     if (!selectedCustomer || !customerLoan?.nextInstallment || !orgId || !user?.id) return;
+    if (paymentMode !== "CASH" && !upiRef.trim()) {
+      toast.error("Please enter the payment reference number.");
+      return;
+    }
     const loan = customerLoan.loan;
     const inst = customerLoan.nextInstallment;
     setSubmitting(true);
@@ -128,6 +134,8 @@ export default function AgentEMICollection() {
         agentId: user.id,
         agentName,
         amount: inst.emiAmount,
+        paymentMode,
+        paymentReference: upiRef.trim() || undefined,
       });
 
       const custName = (selectedCustomer as any).fullName || (selectedCustomer as any).name || selectedCustomer.email || "";
@@ -152,6 +160,8 @@ export default function AgentEMICollection() {
 
       setSelectedCustomer(null);
       setCustomerLoan(null);
+      setPaymentMode("CASH");
+      setUpiRef("");
     } catch (err: any) {
       toast.error(err?.message || "EMI collection failed.");
     } finally {
@@ -325,6 +335,31 @@ export default function AgentEMICollection() {
                         ? format(toDate(customerLoan.nextInstallment.dueDate), "MMM d, yyyy")
                         : "—"}
                     </p>
+                  </div>
+
+                  {/* Payment Mode Selector */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-600">Payment Mode</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        { id: "CASH" as const, label: "Cash", icon: <Banknote className="w-4 h-4" /> },
+                        { id: "UPI" as const, label: "UPI", icon: <Smartphone className="w-4 h-4" /> },
+                        { id: "BANK_TRANSFER" as const, label: "Bank", icon: <Building2 className="w-4 h-4" /> },
+                      ]).map(({ id, label, icon }) => (
+                        <button key={id} type="button" onClick={() => { setPaymentMode(id); if (id === "CASH") setUpiRef(""); }}
+                          className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-xs font-semibold transition-colors ${paymentMode === id ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+                          {icon} {label}
+                        </button>
+                      ))}
+                    </div>
+                    {paymentMode !== "CASH" && (
+                      <Input
+                        value={upiRef}
+                        onChange={(e) => setUpiRef(e.target.value)}
+                        placeholder={paymentMode === "UPI" ? "UPI Transaction ID…" : "Bank Transfer Reference…"}
+                        className="h-10 text-sm"
+                      />
+                    )}
                   </div>
 
                   <div className="flex gap-3">

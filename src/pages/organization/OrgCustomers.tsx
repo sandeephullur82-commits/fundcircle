@@ -9,10 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createDirectMember, validateCustomerEmail, reassignCustomer } from "@/lib/services";
 import { useOrganization, useUser } from "@clerk/clerk-react";
-import { where } from "firebase/firestore";
+import { where, doc, updateDoc, serverTimestamp, getDocs, query, collection } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import {
   Search, Plus, AlertTriangle, Crown, Users, ChevronDown, RefreshCw,
-  Loader2, KeyRound, Copy, Check, ShieldCheck,
+  Loader2, KeyRound, Copy, Check, ShieldCheck, Pencil, UserX, Eye, Phone,
+  MapPin, FileText, UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -58,6 +60,20 @@ export default function OrgCustomers() {
   const [reassigningCustomer, setReassigningCustomer] = useState<any>(null);
   const [newCollectorId, setNewCollectorId] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
+
+  // Edit customer state
+  const [editCustomer, setEditCustomer] = useState<Membership | null>(null);
+  const [editPhone, setEditPhone] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editNominee, setEditNominee] = useState({ name: "", relation: "", phone: "" });
+  const [editCollectorId, setEditCollectorId] = useState("");
+  const [editCustomerType, setEditCustomerType] = useState<"SAVINGS" | "LOAN" | "SAVINGS_LOAN">("SAVINGS_LOAN");
+  const [editNotes, setEditNotes] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Deactivate state
+  const [deactivateCustomer, setDeactivateCustomer] = useState<Membership | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   const activeOwners = owners.filter((o: any) => o.status === "ACTIVE" || o.status === "active");
   const activeAgents = agents.filter((a: any) => a.status === "ACTIVE" || a.status === "active");
@@ -208,6 +224,66 @@ export default function OrgCustomers() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleOpenEdit = (customer: Membership) => {
+    setEditCustomer(customer);
+    setEditPhone(customer.phone || "");
+    setEditAddress(customer.address || "");
+    setEditNominee({
+      name: customer.nominee?.name || "",
+      relation: customer.nominee?.relation || "",
+      phone: customer.nominee?.phone || "",
+    });
+    setEditCollectorId((customer as any).assignedAgentId || "");
+    setEditCustomerType(((customer as any).customerType as any) || "SAVINGS_LOAN");
+    setEditNotes((customer as any).notes || "");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editCustomer) return;
+    setSavingEdit(true);
+    const newCollector = collectorsForAssignment.find((c) => c.id === editCollectorId);
+    try {
+      await updateDoc(doc(db, "organizationMembers", editCustomer.id), {
+        phone: editPhone,
+        address: editAddress,
+        nominee: editNominee,
+        customerType: editCustomerType,
+        notes: editNotes,
+        ...(newCollector ? {
+          assignedAgentId: newCollector.id,
+          assignedAgentName: newCollector.fullName || (newCollector as any).name || "",
+        } : {}),
+        updatedAt: serverTimestamp(),
+      });
+      toast.success("Customer updated successfully.");
+      setEditCustomer(null);
+    } catch (err) {
+      toast.error("Failed to update customer.");
+    } finally { setSavingEdit(false); }
+  };
+
+  const handleDeactivate = async () => {
+    if (!deactivateCustomer) return;
+    // Guard: check for active loans
+    const custActiveLoans = activeLoansByCustomer[deactivateCustomer.id] || 0;
+    if (custActiveLoans > 0) {
+      toast.error("Cannot deactivate: customer has active loans. Close loans first.");
+      setDeactivateCustomer(null);
+      return;
+    }
+    setDeactivating(true);
+    try {
+      const isActive = (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE";
+      await updateDoc(doc(db, "organizationMembers", deactivateCustomer.id), {
+        status: isActive ? "INACTIVE" : "ACTIVE",
+        updatedAt: serverTimestamp(),
+      });
+      toast.success(isActive ? "Customer deactivated." : "Customer reactivated.");
+      setDeactivateCustomer(null);
+    } catch { toast.error("Failed to update customer status."); }
+    finally { setDeactivating(false); }
   };
 
   const handleReassign = async () => {
@@ -546,7 +622,7 @@ export default function OrgCustomers() {
                   <TableHead className="text-right">Savings Balance</TableHead>
                   <TableHead className="text-center">Active Loans</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-24"></TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -631,19 +707,23 @@ export default function OrgCustomers() {
                             {statusLabel(customer.status as string)}
                           </span>
                         </TableCell>
-                        <TableCell>
-                          {collectorsForAssignment.length > 1 && (
-                            <button
-                              onClick={() => {
-                                setReassigningCustomer(customer);
-                                setNewCollectorId((customer as any).assignedAgentId || "");
-                              }}
-                              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sky-600 transition-colors"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Reassign
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button onClick={() => handleOpenEdit(customer)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="Edit customer">
+                              <Pencil className="w-3.5 h-3.5" />
                             </button>
-                          )}
+                            {collectorsForAssignment.length > 1 && (
+                              <button onClick={() => { setReassigningCustomer(customer); setNewCollectorId((customer as any).assignedAgentId || ""); }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="Reassign">
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button onClick={() => setDeactivateCustomer(customer)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Deactivate/Activate">
+                              <UserX className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -704,18 +784,14 @@ export default function OrgCustomers() {
                           <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status as string)}`}>
                             {statusLabel(customer.status as string)}
                           </span>
-                          {collectorsForAssignment.length > 1 && (
-                            <button
-                              onClick={() => {
-                                setReassigningCustomer(customer);
-                                setNewCollectorId((customer as any).assignedAgentId || "");
-                              }}
-                              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sky-600 transition-colors"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Reassign
-                            </button>
-                          )}
+                          <div className="flex gap-1">
+                            <button onClick={() => handleOpenEdit(customer)} className="p-1 rounded text-slate-400 hover:text-emerald-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                            {collectorsForAssignment.length > 1 && (
+                              <button onClick={() => { setReassigningCustomer(customer); setNewCollectorId((customer as any).assignedAgentId || ""); }}
+                                className="p-1 rounded text-slate-400 hover:text-sky-600 transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
+                            )}
+                            <button onClick={() => setDeactivateCustomer(customer)} className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"><UserX className="w-3.5 h-3.5" /></button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -726,6 +802,135 @@ export default function OrgCustomers() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Customer Dialog */}
+      <Dialog open={!!editCustomer} onOpenChange={(o) => !o && setEditCustomer(null)}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-emerald-600" /> Edit Customer
+            </DialogTitle>
+          </DialogHeader>
+          {editCustomer && (
+            <div className="space-y-4 mt-2">
+              <div className="bg-slate-50 rounded-lg px-3 py-2">
+                <p className="font-semibold text-slate-900 text-sm">{editCustomer.fullName || (editCustomer as any).name || editCustomer.email}</p>
+                <p className="text-xs text-slate-500">{editCustomer.email}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-slate-400" /> Phone Number</Label>
+                <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="+91 98765 43210" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400" /> Address</Label>
+                <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="House no, street, city…" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Customer Type</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["SAVINGS", "LOAN", "SAVINGS_LOAN"] as const).map((type) => {
+                    const labels: Record<string, string> = { SAVINGS: "Savings Only", LOAN: "Loan Only", SAVINGS_LOAN: "Savings + Loan" };
+                    const cls = {
+                      SAVINGS: editCustomerType === type ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200",
+                      LOAN: editCustomerType === type ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200",
+                      SAVINGS_LOAN: editCustomerType === type ? "bg-violet-600 text-white border-violet-600" : "bg-white text-slate-600 border-slate-200",
+                    }[type];
+                    return (
+                      <button key={type} type="button" onClick={() => setEditCustomerType(type)}
+                        className={`px-2 py-2 rounded-lg border text-xs font-semibold transition-colors ${cls}`}>
+                        {labels[type]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Assigned Collector</Label>
+                <div className="relative">
+                  <select value={editCollectorId} onChange={(e) => setEditCollectorId(e.target.value)}
+                    className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-900 h-11 focus:border-slate-400 focus:outline-none">
+                    <option value="">— Unassigned —</option>
+                    {collectorsForAssignment.map((c) => (
+                      <option key={c.id} value={c.id}>{c.fullName || (c as any).name || c.email}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Nominee Name</Label>
+                <Input value={editNominee.name} onChange={(e) => setEditNominee({ ...editNominee, name: e.target.value })} placeholder="Nominee full name" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Relation</Label>
+                  <Input value={editNominee.relation} onChange={(e) => setEditNominee({ ...editNominee, relation: e.target.value })} placeholder="Spouse, Child…" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nominee Phone</Label>
+                  <Input value={editNominee.phone} onChange={(e) => setEditNominee({ ...editNominee, phone: e.target.value })} placeholder="+91…" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5 text-slate-400" /> Notes</Label>
+                <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2}
+                  placeholder="Internal notes…"
+                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none resize-none" />
+              </div>
+
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setEditCustomer(null)}>Cancel</Button>
+                <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleSaveEdit} disabled={savingEdit}>
+                  {savingEdit ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving…</> : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Deactivate Customer Dialog */}
+      <Dialog open={!!deactivateCustomer} onOpenChange={(o) => !o && setDeactivateCustomer(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <UserX className="w-5 h-5" /> {deactivateCustomer && (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "Deactivate" : "Reactivate"} Customer
+            </DialogTitle>
+          </DialogHeader>
+          {deactivateCustomer && (
+            <div className="space-y-4 mt-2">
+              <div className={`rounded-xl border p-4 space-y-2 ${(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+                <p className="font-semibold text-slate-900 text-sm">{deactivateCustomer.fullName || (deactivateCustomer as any).name || deactivateCustomer.email}</p>
+                {(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? (
+                  <p className="text-xs text-red-700">
+                    This customer will be marked <strong>Inactive</strong>. They will no longer be able to sign in. Existing savings and loan records are preserved.
+                    {(activeLoansByCustomer[deactivateCustomer.id] || 0) > 0 && (
+                      <><br /><strong className="text-red-800">⚠ This customer has {activeLoansByCustomer[deactivateCustomer.id]} active loan(s). Close them first.</strong></>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-xs text-emerald-700">This customer will be reactivated and can sign in again.</p>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => setDeactivateCustomer(null)}>Cancel</Button>
+                <Button
+                  className={`flex-1 ${(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}
+                  onClick={handleDeactivate} disabled={deactivating || ((deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" && (activeLoansByCustomer[deactivateCustomer.id] || 0) > 0)}>
+                  {deactivating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</> :
+                    (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "Deactivate" : "Reactivate"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Reassign Dialog */}
       <Dialog open={!!reassigningCustomer} onOpenChange={(open) => { if (!open) { setReassigningCustomer(null); setNewCollectorId(""); } }}>

@@ -1,13 +1,15 @@
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
-import { Collection, Loan, Membership, LoanInstallment } from "@/types";
+import { Collection, Loan, Membership, LoanInstallment, LoanApplication } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users, CreditCard, TrendingUp, IndianRupee,
   UserCheck, CalendarDays, AlertTriangle, PiggyBank,
+  Wallet, FileText, Activity, BarChart2,
 } from "lucide-react";
 import { format, startOfDay, startOfMonth, subMonths, isBefore } from "date-fns";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend,
 } from "recharts";
 
 function toDate(ts: any): Date {
@@ -17,23 +19,29 @@ function toDate(ts: any): Date {
   return new Date(ts);
 }
 
+const COLORS = ["#10b981", "#6366f1", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6"];
+
 export default function OrgOverview() {
   const { data: collections, loading: collLoading } = useCollectionRealtime<Collection>("collections");
   const { data: members, loading: membersLoading } = useCollectionRealtime<Membership>("organizationMembers");
   const { data: loans, loading: loansLoading } = useCollectionRealtime<Loan>("loans");
   const { data: savingsAccounts, loading: savLoading } = useCollectionRealtime<any>("savings_accounts");
   const { data: installments, loading: instLoading } = useCollectionRealtime<LoanInstallment>("loan_installments");
+  const { data: loanApps, loading: appsLoading } = useCollectionRealtime<LoanApplication>("loanApplications");
 
-  const isLoading = collLoading || membersLoading || loansLoading || savLoading || instLoading;
+  const isLoading = collLoading || membersLoading || loansLoading || savLoading || instLoading || appsLoading;
 
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="h-8 bg-slate-200 w-48 rounded" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[...Array(8)].map((_, i) => <div key={i} className="h-28 bg-slate-200 rounded-2xl" />)}
+          {[...Array(12)].map((_, i) => <div key={i} className="h-28 bg-slate-200 rounded-2xl" />)}
         </div>
-        <div className="h-64 bg-slate-200 rounded-2xl" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="h-64 bg-slate-200 rounded-2xl" />
+          <div className="h-64 bg-slate-200 rounded-2xl" />
+        </div>
       </div>
     );
   }
@@ -43,20 +51,33 @@ export default function OrgOverview() {
   const activeAgents = agents.filter((a: any) => (a.status || "").toUpperCase() === "ACTIVE");
   const activeCustomers = customers.filter((c: any) => (c.status || "").toUpperCase() === "ACTIVE");
 
-  const today = startOfDay(new Date());
-  const todayCollections = collections.filter((c) => toDate(c.collectedAt || c.timestamp) >= today);
-  const todayTotal = todayCollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  // Customer type breakdown
+  const savingsOnlyCustomers = activeCustomers.filter((c: any) => c.customerType === "SAVINGS");
+  const loanOnlyCustomers = activeCustomers.filter((c: any) => c.customerType === "LOAN");
+  const savingsLoanCustomers = activeCustomers.filter((c: any) => !c.customerType || c.customerType === "SAVINGS_LOAN");
 
+  const today = startOfDay(new Date());
+
+  // Collections
+  const todayCollections = collections.filter((c) => toDate(c.collectedAt || c.timestamp) >= today);
+  const todaySavingsCollections = todayCollections.filter((c) => c.collectionType !== "LOAN_EMI");
+  const todayEMICollections = todayCollections.filter((c) => c.collectionType === "LOAN_EMI");
+  const todayTotal = todayCollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const todayEMITotal = todayEMICollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+  // Savings
   const totalSavings = savingsAccounts.reduce((s: number, a: any) => s + (Number(a.totalBalance) || 0), 0);
+
+  // Loans
   const activeLoans = loans.filter((l) => l.status === "ACTIVE" || (l.status as string) === "active");
   const pendingLoans = loans.filter((l) => l.status === "PENDING" || (l.status as string) === "pending");
+  const totalLoanPortfolio = loans.reduce((s, l) => s + (l.principalAmount ?? (l as any).principal ?? 0), 0);
   const totalLoanOutstanding = activeLoans.reduce((s, l) => s + (l.outstandingBalance ?? (l as any).balanceRemaining ?? 0), 0);
 
-  const pendingEMIs = installments.filter((inst) => {
-    if (inst.status === "PAID") return false;
-    return isBefore(toDate(inst.dueDate), new Date());
-  });
+  // Pending applications
+  const pendingApps = loanApps.filter((a) => a.status === "PENDING" || a.status === "DRAFT");
 
+  // Overdue loans
   const overdueLoansCount = new Set(
     installments
       .filter((inst) => inst.status !== "PAID" && isBefore(toDate(inst.dueDate), today))
@@ -64,146 +85,249 @@ export default function OrgOverview() {
   ).size;
 
   const now = new Date();
+
+  // Monthly collection data (last 12 months)
   const monthlyData = Array.from({ length: 12 }, (_, i) => {
     const monthStart = startOfMonth(subMonths(now, 11 - i));
     const monthEnd = startOfMonth(subMonths(now, 10 - i));
-    const total = collections
+    const savings = collections
       .filter((c) => {
         const d = toDate(c.collectedAt || c.timestamp);
-        return d >= monthStart && d < monthEnd;
+        return d >= monthStart && d < monthEnd && c.collectionType !== "LOAN_EMI";
       })
       .reduce((s, c) => s + (Number(c.amount) || 0), 0);
-    return { month: format(monthStart, "MMM"), amount: total };
+    const emi = collections
+      .filter((c) => {
+        const d = toDate(c.collectedAt || c.timestamp);
+        return d >= monthStart && d < monthEnd && c.collectionType === "LOAN_EMI";
+      })
+      .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    return { month: format(monthStart, "MMM"), savings, emi, total: savings + emi };
   });
+
+  // Loan portfolio trend (loans created per month)
+  const loanPortfolioData = Array.from({ length: 6 }, (_, i) => {
+    const monthStart = startOfMonth(subMonths(now, 5 - i));
+    const monthEnd = startOfMonth(subMonths(now, 4 - i));
+    const count = loans.filter((l) => {
+      const d = toDate(l.createdAt);
+      return d >= monthStart && d < monthEnd;
+    }).length;
+    const amount = loans
+      .filter((l) => {
+        const d = toDate(l.createdAt);
+        return d >= monthStart && d < monthEnd;
+      })
+      .reduce((s, l) => s + (l.principalAmount ?? 0), 0);
+    return { month: format(monthStart, "MMM"), loans: count, amount };
+  });
+
+  // Customer type pie
+  const customerTypePie = [
+    { name: "Savings Only", value: savingsOnlyCustomers.length },
+    { name: "Loan Only", value: loanOnlyCustomers.length },
+    { name: "Savings+Loan", value: savingsLoanCustomers.length },
+  ].filter((d) => d.value > 0);
 
   const recentCollections = [...collections]
     .sort((a, b) => toDate(b.collectedAt || b.timestamp).valueOf() - toDate(a.collectedAt || a.timestamp).valueOf())
-    .slice(0, 6);
+    .slice(0, 8);
+
+  // Recent activities (loans + collections mixed)
+  const recentActivities = [
+    ...recentCollections.map((c) => ({
+      id: c.id,
+      type: c.collectionType === "LOAN_EMI" ? "emi" : "savings",
+      amount: c.amount,
+      name: "",
+      customerId: c.customerId,
+      time: toDate(c.collectedAt || c.timestamp),
+      receiptNo: c.receiptNo,
+    })),
+  ].sort((a, b) => b.time.valueOf() - a.time.valueOf()).slice(0, 8);
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div className="space-y-5 md:space-y-6">
       <div>
         <h2 className="text-xl md:text-2xl font-bold text-slate-900">Dashboard Overview</h2>
         <p className="text-slate-500 text-sm">Real-time operational intelligence for your organization.</p>
       </div>
 
-      {/* 8 KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <MetricCard
-          title="Total Savings"
-          value={`₹${totalSavings.toLocaleString()}`}
-          icon={<PiggyBank className="w-5 h-5 text-emerald-600" />}
-          trend="Combined customer savings balances"
-          bg="bg-emerald-50"
-        />
-        <MetricCard
-          title="Loans Outstanding"
-          value={`₹${totalLoanOutstanding.toLocaleString()}`}
-          icon={<CreditCard className="w-5 h-5 text-orange-600" />}
-          trend={`${activeLoans.length} active loans`}
-          bg="bg-orange-50"
-        />
-        <MetricCard
-          title="Today's Collections"
-          value={`₹${todayTotal.toLocaleString()}`}
-          icon={<IndianRupee className="w-5 h-5 text-blue-600" />}
-          trend={`${todayCollections.length} transaction${todayCollections.length !== 1 ? "s" : ""} today`}
-          bg="bg-blue-50"
-        />
-        <MetricCard
-          title="Active Customers"
-          value={activeCustomers.length.toString()}
+      {/* 12 KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard title="Total Customers" value={activeCustomers.length.toString()}
           icon={<Users className="w-5 h-5 text-violet-600" />}
-          trend={`${customers.length} total registered`}
-          bg="bg-violet-50"
-        />
-        <MetricCard
-          title="Active Agents"
-          value={activeAgents.length.toString()}
+          trend={`${customers.length} total registered`} bg="bg-violet-50" />
+        <MetricCard title="Total Agents" value={activeAgents.length.toString()}
           icon={<UserCheck className="w-5 h-5 text-sky-600" />}
-          trend={`${agents.length} total collectors`}
-          bg="bg-sky-50"
-        />
-        <MetricCard
-          title="Pending EMIs"
-          value={pendingEMIs.length.toString()}
-          icon={<CalendarDays className="w-5 h-5 text-amber-600" />}
-          trend="Due or overdue installments"
-          bg="bg-amber-50"
-        />
-        <MetricCard
-          title="Overdue Loans"
-          value={overdueLoansCount.toString()}
+          trend={`${agents.length} total collectors`} bg="bg-sky-50" />
+        <MetricCard title="Savings Customers" value={savingsOnlyCustomers.length.toString()}
+          icon={<PiggyBank className="w-5 h-5 text-emerald-600" />}
+          trend="Savings-only accounts" bg="bg-emerald-50" />
+        <MetricCard title="Loan Customers" value={loanOnlyCustomers.length.toString()}
+          icon={<CreditCard className="w-5 h-5 text-indigo-600" />}
+          trend="Loan-only accounts" bg="bg-indigo-50" />
+        <MetricCard title="Savings + Loan" value={savingsLoanCustomers.length.toString()}
+          icon={<Wallet className="w-5 h-5 text-teal-600" />}
+          trend="Combined account holders" bg="bg-teal-50" />
+        <MetricCard title="Total Savings" value={`₹${totalSavings.toLocaleString()}`}
+          icon={<PiggyBank className="w-5 h-5 text-emerald-600" />}
+          trend="Combined savings balance" bg="bg-emerald-50" />
+        <MetricCard title="Loan Portfolio" value={`₹${totalLoanPortfolio.toLocaleString()}`}
+          icon={<BarChart2 className="w-5 h-5 text-blue-600" />}
+          trend={`${activeLoans.length} active loans`} bg="bg-blue-50" />
+        <MetricCard title="Outstanding Loans" value={`₹${totalLoanOutstanding.toLocaleString()}`}
+          icon={<CreditCard className="w-5 h-5 text-orange-600" />}
+          trend="Total remaining balance" bg="bg-orange-50" />
+        <MetricCard title="Today's Collections" value={`₹${todayTotal.toLocaleString()}`}
+          icon={<IndianRupee className="w-5 h-5 text-blue-600" />}
+          trend={`${todayCollections.length} transactions`} bg="bg-blue-50" />
+        <MetricCard title="Today's EMI" value={`₹${todayEMITotal.toLocaleString()}`}
+          icon={<Activity className="w-5 h-5 text-indigo-600" />}
+          trend={`${todayEMICollections.length} EMI collected`} bg="bg-indigo-50" />
+        <MetricCard title="Pending Applications" value={(pendingApps.length + pendingLoans.length).toString()}
+          icon={<FileText className="w-5 h-5 text-teal-600" />}
+          trend="Loans awaiting approval" bg="bg-teal-50" />
+        <MetricCard title="Overdue Loans" value={overdueLoansCount.toString()}
           icon={<AlertTriangle className="w-5 h-5 text-red-600" />}
-          trend="Loans with missed installments"
-          bg="bg-red-50"
-        />
-        <MetricCard
-          title="Pending Approvals"
-          value={pendingLoans.length.toString()}
-          icon={<TrendingUp className="w-5 h-5 text-teal-600" />}
-          trend="Loan applications awaiting review"
-          bg="bg-teal-50"
-        />
+          trend="Loans with missed EMIs" bg="bg-red-50" />
       </div>
 
-      {/* Monthly Collection Chart */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-slate-500" />
-            Monthly Collection Summary — Last 12 Months
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={monthlyData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#94a3b8" }}
-                axisLine={false} tickLine={false}
-                tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`}
-              />
-              <Tooltip
-                formatter={(value: number) => [`₹${value.toLocaleString()}`, "Collections"]}
-                contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }}
-              />
-              <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} maxBarSize={40} />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Charts row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="shadow-sm lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-slate-500" />
+              Collection Performance — Last 12 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={monthlyData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false}
+                  tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={48} />
+                <Tooltip formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name === "savings" ? "Savings" : "EMI"]}
+                  contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
+                <Legend formatter={(v) => v === "savings" ? "Savings" : "EMI"} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="savings" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="emi" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={36} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Customer Type Pie */}
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Customer Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {customerTypePie.length === 0 ? (
+              <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No customers yet.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie data={customerTypePie} cx="50%" cy="50%" innerRadius={50} outerRadius={80}
+                    paddingAngle={3} dataKey="value" label={({ name, percent }) => `${Math.round(percent * 100)}%`}
+                    labelLine={false} fontSize={10}>
+                    {customerTypePie.map((_, index) => (
+                      <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number, name: string) => [v, name]} contentStyle={{ borderRadius: "10px", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Loan Portfolio Trend */}
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-slate-500" />
+              Loan Disbursements — Last 6 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={loanPortfolioData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false}
+                  tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={48} />
+                <Tooltip formatter={(value: number) => [`₹${value.toLocaleString()}`, "Disbursed"]}
+                  contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
+                <Area type="monotone" dataKey="amount" stroke="#6366f1" fill="#e0e7ff" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Savings Growth */}
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <PiggyBank className="w-4 h-4 text-slate-500" />
+              Savings Collections — Last 6 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={monthlyData.slice(-6)} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false}
+                  tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={48} />
+                <Tooltip formatter={(value: number) => [`₹${value.toLocaleString()}`, "Savings"]}
+                  contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
+                <Line type="monotone" dataKey="savings" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 shadow-sm">
-          <CardHeader><CardTitle className="text-base">Recent Collections</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Recent Activity Feed</CardTitle></CardHeader>
           <CardContent>
-            {recentCollections.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">No collections recorded yet.</div>
+            {recentActivities.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-sm">No activity yet.</div>
             ) : (
               <div className="space-y-2">
-                {recentCollections.map((col) => {
-                  const customer = members.find((m) => m.id === col.customerId || m.clerkUserId === col.customerId);
-                  const d = toDate(col.collectedAt || col.timestamp);
-                  const isSavings = col.collectionType !== "LOAN_EMI";
+                {recentActivities.map((act) => {
+                  const customer = members.find((m) => m.id === act.customerId || m.clerkUserId === act.customerId);
+                  const name = (customer as any)?.fullName || (customer as any)?.name || act.customerId?.slice(-6) || "Customer";
+                  const isEMI = act.type === "emi";
                   return (
-                    <div key={col.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                      <div>
-                        <p className="font-semibold text-sm text-slate-900">
-                          {(customer as any)?.fullName || (customer as any)?.name || col.customerId?.slice(-6)}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isSavings ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"}`}>
-                            {isSavings ? "SAVINGS" : "EMI"}
-                          </span>
-                          <span className="text-xs text-slate-500">
-                            {col.collectedByName || "Agent"} · {d.getTime() > 0 ? format(d, "MMM d, h:mm a") : "—"}
-                          </span>
+                    <div key={act.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isEMI ? "bg-indigo-100" : "bg-emerald-100"}`}>
+                          {isEMI ? <CreditCard className="w-4 h-4 text-indigo-600" /> : <PiggyBank className="w-4 h-4 text-emerald-600" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-slate-900 truncate">{name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isEMI ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>
+                              {isEMI ? "EMI" : "SAVINGS"}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {act.time.getTime() > 0 ? format(act.time, "MMM d, h:mm a") : "—"}
+                            </span>
+                            {act.receiptNo && <span className="text-xs text-slate-300 font-mono hidden sm:inline">{act.receiptNo}</span>}
+                          </div>
                         </div>
                       </div>
-                      <span className="font-bold text-emerald-600 text-sm">+₹{Number(col.amount).toLocaleString()}</span>
+                      <span className="font-bold text-emerald-600 text-sm shrink-0 ml-2">+₹{Number(act.amount).toLocaleString()}</span>
                     </div>
                   );
                 })}
@@ -218,15 +342,14 @@ export default function OrgOverview() {
             {[
               { label: "Add Customer", tab: "customers", color: "bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100" },
               { label: "Add Agent", tab: "agents", color: "bg-sky-50 text-sky-700 border-sky-100 hover:bg-sky-100" },
-              { label: "New Loan Application", tab: "loans", color: "bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100" },
-              { label: "View Reports", tab: "reports", color: "bg-slate-50 text-slate-700 border-slate-100 hover:bg-slate-100" },
+              { label: "Approve Loans", tab: "loans", color: "bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100" },
+              { label: "View Collections", tab: "collections", color: "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100" },
+              { label: "Generate Reports", tab: "reports", color: "bg-slate-50 text-slate-700 border-slate-100 hover:bg-slate-100" },
               { label: "Audit Logs", tab: "auditLogs", color: "bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100" },
             ].map((action) => (
-              <button
-                key={action.tab}
+              <button key={action.tab}
                 onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: action.tab }))}
-                className={`w-full p-3 rounded-xl border text-sm font-semibold text-left transition-colors ${action.color}`}
-              >
+                className={`w-full p-3 rounded-xl border text-sm font-semibold text-left transition-colors ${action.color}`}>
                 {action.label}
               </button>
             ))}
@@ -242,10 +365,10 @@ function MetricCard({ title, value, icon, trend, bg }: {
 }) {
   return (
     <Card className="shadow-sm border-slate-200">
-      <CardContent className="p-4 md:p-5">
-        <div className="flex items-center justify-between mb-3">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-medium text-slate-500 leading-tight pr-1">{title}</h3>
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${bg}`}>{icon}</div>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${bg}`}>{icon}</div>
         </div>
         <p className="text-xl md:text-2xl font-bold text-slate-900">{value}</p>
         <p className="text-[10px] text-slate-400 mt-1 leading-tight">{trend}</p>

@@ -1,0 +1,509 @@
+You are a Principal FinTech SaaS Architect, Enterprise Product Designer, Senior React Engineer, Firestore Architect, and Multi-Tenant RBAC Specialist.
+
+Refactor and enhance the FundCircle Owner Dashboard and Agent Dashboard.
+
+IMPORTANT:
+
+- Do not remove existing functionality.
+- Preserve Clerk Authentication.
+- Preserve Firestore integration.
+- Preserve Multi-Tenant architecture.
+- Use realtime Firestore updates.
+- Mobile-first responsive design.
+- Production-ready implementation only.
+
+==================================================
+OWNER DASHBOARD
+
+Owner must have complete control over:
+
+- Customers
+- Agents
+- Savings
+- Loans
+- Collections
+- Reports
+
+==================================================
+OWNER DASHBOARD OVERVIEW
+
+Create summary cards:
+
+- Total Customers
+- Total Agents
+- Savings Customers
+- Loan Customers
+- Savings + Loan Customers
+- Total Savings Balance
+- Total Loan Portfolio
+- Outstanding Loan Amount
+- Today's Collections
+- Today's EMI Collections
+- Pending Loan Applications
+- Overdue Loans
+
+Add:
+
+- Savings Growth Chart
+- Loan Portfolio Chart
+- Collection Performance Chart
+- Recent Activities Feed
+
+==================================================
+AGENT MANAGEMENT MODULE
+
+Owner has FULL CRUD access.
+
+CREATE AGENT
+
+Fields:
+
+- First Name
+- Last Name
+- Email
+- Phone
+- Employee Code
+- Address
+- Notes
+
+System:
+
+- Generate Random Password
+- Create Clerk User
+- Create Firestore Agent Record
+- Create Organization Membership
+
+==================================================
+VIEW AGENT
+
+Show:
+
+- Profile
+- Assigned Customers
+- Assigned Loans
+- Collections Completed
+- Performance
+- Status
+
+==================================================
+UPDATE AGENT
+
+Owner can update:
+
+- Phone
+- Address
+- Status
+- Assigned Customers
+- Assigned Loans
+- Notes
+
+==================================================
+DELETE AGENT
+
+Use soft delete only.
+
+Statuses:
+
+ACTIVE
+INACTIVE
+ARCHIVED
+
+Never permanently delete.
+
+==================================================
+CUSTOMER MANAGEMENT MODULE
+
+Owner has FULL CRUD access.
+
+CREATE CUSTOMER
+
+Fields:
+
+- First Name
+- Last Name
+- Email
+- Phone
+- Address
+- Nominee Details
+- Assigned Collector
+- Customer Type
+
+Customer Types:
+
+- Savings Only
+- Loan Only
+- Savings + Loan
+
+==================================================
+VIEW CUSTOMER
+
+Show:
+
+- Profile
+- Savings Accounts
+- Loan Accounts
+- Passbook
+- Receipts
+- Collection History
+- Assigned Collector
+
+==================================================
+UPDATE CUSTOMER
+
+Owner can update:
+
+- Phone
+- Address
+- Nominee Details
+- Assigned Collector
+- Customer Type
+- Notes
+
+==================================================
+DELETE CUSTOMER
+
+Rules:
+
+Allow delete only if:
+
+- No Active Loans
+- No Pending Collections
+
+Otherwise:
+
+Set status:
+
+INACTIVE
+
+==================================================
+ASSIGNMENT CENTER
+
+Owner can:
+
+Assign Customer Collector
+
+Assign Loan Collector
+
+Reassign Customer Collector
+
+Reassign Loan Collector
+
+Track Assignment History
+
+Store:
+
+assignedCollectorId
+assignedCollectorName
+
+==================================================
+LOAN APPROVAL CENTER
+
+Owner can:
+
+View Loan Applications
+
+Modify:
+
+- Loan Amount
+- Interest Rate
+- Tenure
+- EMI Frequency
+- Processing Fee
+- Start Date
+
+Assign Collection Agent
+
+Approve
+
+Reject
+
+Disburse
+
+==================================================
+COLLECTION MONITORING
+
+Owner can monitor:
+
+- Daily Collections
+- EMI Collections
+- Agent Collections
+- Missed Collections
+- Overdue Loans
+- Recovery Rate
+
+==================================================
+REPORTS
+
+Generate:
+
+Customer Reports
+
+Agent Reports
+
+Savings Reports
+
+Loan Reports
+
+Collection Reports
+
+Daily Reports
+
+Monthly Reports
+
+Yearly Reports
+
+Export:
+
+PDF
+Excel
+
+==================================================
+AUDIT LOGS
+
+Track:
+
+Customer Created
+
+Customer Updated
+
+Customer Deleted
+
+Agent Created
+
+Agent Updated
+
+Agent Archived
+
+Loan Approved
+
+Loan Rejected
+
+EMI Collected
+
+Assignment Changed
+
+Store:
+
+User
+Action
+Timestamp
+Organization
+
+==================================================
+AGENT DASHBOARD
+
+Agents only access data assigned to them.
+
+Never show:
+
+- Other agents' customers
+- Other agents' loans
+- Owner-only reports
+
+==================================================
+AGENT DASHBOARD OVERVIEW
+
+Show:
+
+- Assigned Customers
+- Assigned Loans
+- Savings Collections Today
+- EMI Collections Today
+- Pending Collections
+- Overdue Collections
+- Today's Activity
+
+==================================================
+MY CUSTOMERS
+
+Show:
+
+- Assigned Customers
+- Customer Profile
+- Savings Details
+- Loan Details
+- Passbook
+
+==================================================
+COLLECTION CENTER
+
+Allow:
+
+Savings Collection
+
+EMI Collection
+
+Penalty Collection
+
+Missed Collection Recovery
+
+Fields:
+
+- Amount
+- Date
+- Payment Mode
+- Notes
+
+Payment Modes:
+
+Cash
+UPI
+Bank Transfer
+
+==================================================
+LOAN VERIFICATION MODULE
+
+Agent can verify:
+
+- Residence
+- Identity
+- Income
+- Business
+- References
+
+Submit:
+
+Verification Report
+
+Verification Notes
+
+Verification Status
+
+==================================================
+RECEIPTS
+
+Agent can:
+
+View Receipts
+
+Generate Receipts
+
+Share Receipts
+
+Download PDF
+
+==================================================
+PERFORMANCE MODULE
+
+Show:
+
+Collections Today
+
+Collections This Month
+
+Customers Managed
+
+Loans Managed
+
+Recovery Percentage
+
+Performance Trend
+
+==================================================
+ROLE PERMISSIONS
+
+OWNER
+
+Can:
+
+Create Agent
+Update Agent
+Archive Agent
+
+Create Customer
+Update Customer
+Deactivate Customer
+
+Approve Loan
+Reject Loan
+Modify Loan Terms
+
+Assign Customers
+Assign Loans
+
+View All Reports
+
+View Audit Logs
+
+---
+
+AGENT
+
+Can:
+
+View Assigned Customers
+
+Collect Savings
+
+Collect EMI
+
+Collect Penalties
+
+Submit Verification Reports
+
+View Own Performance
+
+Update Customer Notes
+
+Cannot:
+
+Create Agent
+
+Delete Agent
+
+Approve Loan
+
+Modify Loan Terms
+
+View Other Agents' Data
+
+View Owner Reports
+
+==================================================
+FIRESTORE COLLECTIONS
+
+agents
+
+customers
+
+loans
+
+loanApplications
+
+collections
+
+receipts
+
+auditLogs
+
+assignments
+
+reports
+
+==================================================
+FINAL REQUIREMENT
+
+Generate complete production-ready implementation.
+
+Use:
+
+React
+TypeScript
+Clerk Authentication
+Firebase Firestore
+React Query
+Realtime Listeners
+
+No mock data.
+
+No placeholders.
+
+Full CRUD for Customers and Agents.
+
+Complete role-based permissions.
+
+Complete assignment system.
+
+Complete loan management workflow.
+
+Production-ready only.

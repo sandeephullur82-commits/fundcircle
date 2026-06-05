@@ -2,6 +2,7 @@ import { useUser, useOrganization, useOrganizationList, SignOutButton } from "@c
 import {
   LogOut, Users, History,
   AlertCircle, Menu, LayoutDashboard, ChevronDown, Check, Building2, CreditCard,
+  ShieldCheck, TrendingUp,
 } from "lucide-react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -16,11 +17,13 @@ import AgentCustomers from "./AgentCustomers";
 import AgentPending from "./AgentPending";
 import AgentHistory from "./AgentHistory";
 import AgentEMICollection from "./AgentEMICollection";
+import AgentLoanVerification from "./AgentLoanVerification";
 
 const menuItems = [
   { id: "overview", label: "Today's Summary", icon: LayoutDashboard },
   { id: "pending", label: "Pending Visits", icon: AlertCircle },
   { id: "emi", label: "EMI Collection", icon: CreditCard },
+  { id: "verification", label: "Loan Verification", icon: ShieldCheck },
   { id: "customers", label: "My Customers", icon: Users },
   { id: "history", label: "Collection History", icon: History },
 ];
@@ -111,6 +114,9 @@ export default function AgentDashboard() {
           </TabsContent>
           <TabsContent value="customers" className="mt-0">
             <AgentCustomers />
+          </TabsContent>
+          <TabsContent value="verification" className="mt-0">
+            <AgentLoanVerification />
           </TabsContent>
           <TabsContent value="history" className="mt-0">
             <AgentHistory />

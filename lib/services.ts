@@ -415,6 +415,8 @@ export async function recordEMICollection(params: {
   agentId: string;
   agentName: string;
   amount: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  paymentReference?: string;
 }): Promise<EMICollectionResult> {
   if (!params.amount || params.amount <= 0) throw new Error("EMI amount must be greater than zero.");
 
@@ -468,6 +470,8 @@ export async function recordEMICollection(params: {
     timestamp: serverTimestamp(),
     status: "completed",
     assigned_to_user_id: params.agentId,
+    paymentMode: params.paymentMode || "CASH",
+    ...(params.paymentReference ? { paymentReference: params.paymentReference } : {}),
   });
 
   await createAuditLog({
