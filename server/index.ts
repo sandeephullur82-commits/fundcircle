@@ -105,8 +105,10 @@ app.post("/api/create-agent", async (req, res) => {
     });
     const alreadyMember = list.data.some((m: any) => m.publicUserData?.userId === userId);
     if (!alreadyMember) {
+      const agentRole = "org:member";
+      console.log("[FC CreateAgent] Assigning role:", agentRole, "to userId:", userId, "in org:", organizationId);
       await clerkClient.organizations.createOrganizationMembership({
-        organizationId, userId, role: "org:pigmy_collector",
+        organizationId, userId, role: agentRole,
       });
     }
   } catch (err: any) {
@@ -163,8 +165,10 @@ app.post("/api/create-customer", async (req, res) => {
     });
     const alreadyMember = list.data.some((m: any) => m.publicUserData?.userId === userId);
     if (!alreadyMember) {
+      const customerRole = "org:member";
+      console.log("[FC CreateCustomer] Assigning role:", customerRole, "to userId:", userId, "in org:", organizationId);
       await clerkClient.organizations.createOrganizationMembership({
-        organizationId, userId, role: "org:customer",
+        organizationId, userId, role: customerRole,
       });
     }
   } catch (err: any) {
@@ -200,8 +204,10 @@ app.post("/api/agents/:userId/reactivate", async (req, res) => {
   if (!organizationId) return res.status(400).json({ error: "organizationId required" });
 
   try {
+    const reactivateRole = "org:member";
+    console.log("[FC ReactivateAgent] Assigning role:", reactivateRole, "to userId:", userId, "in org:", organizationId);
     await clerkClient.organizations.createOrganizationMembership({
-      organizationId, userId, role: "org:pigmy_collector",
+      organizationId, userId, role: reactivateRole,
     });
     return res.json({ success: true });
   } catch (err: any) {

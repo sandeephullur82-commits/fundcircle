@@ -1,6 +1,7 @@
 export type ClerkOrganizationRole =
-  | "org:owner"
   | "org:admin"
+  | "org:member"
+  | "org:owner"
   | "org:pigmy_collector"
   | "org:customer"
   | string
