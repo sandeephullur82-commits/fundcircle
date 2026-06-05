@@ -154,9 +154,21 @@ export default function SignUpPage() {
 
       // ── Normal sign-up flow ─────────────────────────────────────────────
       const emailKey = email.trim().toLowerCase();
-      console.log("[FC SignUp] ▶ Normal sign-up | email:", emailKey, "| firstName:", firstName, "| lastName:", lastName);
 
-      console.log("[FC SignUp] ▶ Step 1: signUp.create({ emailAddress, password })…");
+      const payload = {
+        emailAddress: emailKey,
+        password:     password.replace(/./g, "*"),
+        firstName:    firstName || "(empty)",
+        lastName:     lastName  || "(empty)",
+      };
+      console.log("════════════════════════════════════════════════");
+      console.log("[FC SignUp] ▶ Signup payload (password masked):", JSON.stringify(payload));
+      console.log("[FC SignUp]   isLoaded     :", isLoaded);
+      console.log("[FC SignUp]   signUp.id    :", signUp?.id ?? "null (fresh)");
+      console.log("[FC SignUp]   signUp.status:", signUp?.status ?? "null");
+      console.log("════════════════════════════════════════════════");
+
+      console.log("[FC SignUp] ▶ Calling signUp.create…");
       const t0 = Date.now();
       const created = await signUp.create({ emailAddress: emailKey, password, firstName, lastName });
       console.log("[FC SignUp] ✓ signUp.create() done in", `${Date.now() - t0}ms`);
@@ -172,9 +184,22 @@ export default function SignUpPage() {
 
       console.log("[FC SignUp] ▶ Step 2: prepareEmailAddressVerification({ strategy: 'email_code' })…");
       const t1 = Date.now();
-      await created.prepareEmailAddressVerification({ strategy: "email_code" });
-      console.log("[FC SignUp] ✓ prepareEmailAddressVerification done in", `${Date.now() - t1}ms`);
-      console.log("[FC SignUp] ✓ OTP email dispatched to:", emailKey);
+      try {
+        await created.prepareEmailAddressVerification({ strategy: "email_code" });
+        console.log("[FC SignUp] ✓ prepareEmailAddressVerification done in", `${Date.now() - t1}ms`);
+        console.log("[FC SignUp] ✓ OTP email dispatched to:", emailKey);
+      } catch (prepareErr: any) {
+        const pCode = prepareErr?.errors?.[0]?.code ?? "unknown";
+        const pMsg  = prepareErr?.errors?.[0]?.longMessage ?? prepareErr?.errors?.[0]?.message ?? prepareErr?.message ?? "unknown";
+        console.error("════════════════════════════════════════════════");
+        console.error("[FC SignUp] ✗ prepareEmailAddressVerification FAILED");
+        console.error("[FC SignUp]   code   :", pCode);
+        console.error("[FC SignUp]   message:", pMsg);
+        console.error("Clerk Error:", JSON.stringify(prepareErr, null, 2));
+        console.error("════════════════════════════════════════════════");
+        setError(`Could not send verification email: [${pCode}] ${pMsg}`);
+        return;
+      }
 
       recordOtpSent("signup_verify");
       sessionStorage.setItem("fc_signup_email", emailKey);
@@ -182,18 +207,28 @@ export default function SignUpPage() {
 
     } catch (err: any) {
       const code = err?.errors?.[0]?.code ?? "unknown";
-      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? err?.message ?? "unknown";
-      console.error("[FC SignUp] ✗ Error during sign-up flow");
+      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? err?.message ?? String(err);
+
+      console.error("════════════════════════════════════════════════");
+      console.error("[FC SignUp] ✗ signUp.create() FAILED");
       console.error("[FC SignUp]   code   :", code);
       console.error("[FC SignUp]   message:", msg);
-      console.error("[FC SignUp]   errors :", err?.errors ?? "none");
+      console.error("[FC SignUp]   errors :", JSON.stringify(err?.errors ?? null, null, 2));
+      console.error("Clerk Error:", JSON.stringify(err, null, 2));
+      console.error("════════════════════════════════════════════════");
 
-      if (code === "form_identifier_exists")     setError("An account with this email already exists.");
-      else if (code === "form_param_format_invalid") setError("Please enter a valid email address.");
-      else if (code === "too_many_requests")     setError("Too many attempts. Please wait a moment and try again.");
+      if (code === "form_identifier_exists")
+        setError("An account with this email already exists. Please sign in instead.");
+      else if (code === "form_param_format_invalid")
+        setError("Please enter a valid email address.");
+      else if (code === "too_many_requests")
+        setError("Too many attempts. Please wait a moment and try again.");
       else if (code === "form_password_pwned" || code === "form_password_size_check_failed")
         setError("Please choose a stronger password (min. 8 characters).");
-      else setError("Could not create account. Please try again.");
+      else if (code === "form_param_nil" || code === "form_param_missing")
+        setError(`Missing required field: ${msg}`);
+      else
+        setError(`Sign-up failed: [${code}] ${msg}`);
     } finally {
       submittingRef.current = false;
       setLoading(false);
