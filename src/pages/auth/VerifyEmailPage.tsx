@@ -24,8 +24,9 @@ export default function VerifyEmailPage() {
   const [countdown, setCountdown] = useState(30);
 
   const inputRefs  = useRef<(HTMLInputElement | null)[]>([]);
-  const loadingRef = useRef(false);
-  const email      = sessionStorage.getItem("fc_signup_email") || "";
+  const loadingRef    = useRef(false);
+  const verifyingRef  = useRef(false);       // atomic guard — set BEFORE async call
+  const email         = sessionStorage.getItem("fc_signup_email") || "";
 
   useEffect(() => { loadingRef.current = loading; }, [loading]);
 
@@ -80,27 +81,45 @@ export default function VerifyEmailPage() {
   }, []);
 
   const performVerify = useCallback(async (code: string) => {
-    if (!isLoaded || !signUp || loadingRef.current) return;
+    if (!isLoaded || !signUp) return;
+    // Atomic guard: prevents double-call from auto-submit + manual submit racing
+    if (verifyingRef.current) {
+      console.log("[FC Verify] ⚠ performVerify called while already in-flight — skipped");
+      return;
+    }
+
+    // ── Diagnostic: OTP value ──────────────────────────────────────────────
+    console.log("════════════════════════════════════════════════");
+    console.log("OTP entered:", code);
+    console.log("OTP length:", code.length);
+    console.log("SignUp status:", signUp.status);
+    console.log("SignUp id:", signUp.id ?? "null");
+    console.log("SignUp unverifiedFields:", signUp.unverifiedFields ?? []);
+    console.log("SignUp emailAddress:", signUp.emailAddress ?? "(none)");
+    console.log("════════════════════════════════════════════════");
+
     if (code.length !== 6) { setError("Please enter all 6 digits."); return; }
     setError("");
+    verifyingRef.current = true;   // set atomically BEFORE any await
     setLoading(true);
 
     const sentAt      = sessionStorage.getItem("fc_otp_sent_at");
     const verifyStart = Date.now();
     console.log("[FC Verify] ▶ Attempting email verification");
-    console.log("[FC Verify]   email        :", email || "(not in sessionStorage)");
-    console.log("[FC Verify]   signUp.id    :", signUp.id ?? "null");
-    console.log("[FC Verify]   signUp.status:", signUp.status);
-    console.log("[FC Verify]   otp_sent_at  :", sentAt ?? "not recorded");
+    console.log("[FC Verify]   email         :", email || "(not in sessionStorage)");
+    console.log("[FC Verify]   signUp.id     :", signUp.id ?? "null");
+    console.log("[FC Verify]   signUp.status :", signUp.status);
+    console.log("[FC Verify]   otp_sent_at   :", sentAt ?? "not recorded");
     if (sentAt) {
       console.log("[FC Verify]   wait since sent:", `${((Date.now() - new Date(sentAt).getTime()) / 1000).toFixed(1)}s`);
     }
 
     try {
-      console.log("[FC Verify] ▶ signUp.attemptEmailAddressVerification({ code })…");
+      console.log("Calling attemptEmailAddressVerification with payload:", { code });
       const result = await signUp.attemptEmailAddressVerification({ code });
       const status = result.status as string;
 
+      console.log("Verification result:", result);
       console.log("[FC Verify] ✓ attemptEmailAddressVerification result:");
       console.log("[FC Verify]   status           :", status);
       console.log("[FC Verify]   createdSessionId :", result.createdSessionId ?? "null");
@@ -132,17 +151,24 @@ export default function VerifyEmailPage() {
     } catch (err: any) {
       const errCode = err?.errors?.[0]?.code ?? "unknown";
       const msg     = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? "unknown";
-      console.error("[FC Verify] ✗ Verification error");
-      console.error("[FC Verify]   code   :", errCode);
-      console.error("[FC Verify]   message:", msg);
-      console.error("[FC Verify]   errors :", err?.errors ?? "none");
+      console.error("════════════════════════════════════════════════");
+      console.error("[FC Verify] ✗ Verification FAILED");
+      console.error("[FC Verify]   error code    :", errCode);
+      console.error("[FC Verify]   error message :", msg);
+      console.error("[FC Verify]   all errors    :", err?.errors ?? "none");
+      console.error(JSON.stringify(err, null, 2));
+      console.error("════════════════════════════════════════════════");
 
-      if (errCode === "too_many_requests")       setError("Too many attempts. Please wait a moment and try again.");
-      else if (errCode === "verification_expired") setError("Code expired. Please request a new one.");
-      else setError("Invalid or expired code. Please try again.");
+      if (errCode === "too_many_requests")
+        setError("Too many attempts. Please wait a moment and try again.");
+      else if (errCode === "verification_expired")
+        setError("Code expired. Please request a new one.");
+      else
+        setError(`Verification failed: [${errCode}] ${msg}`);
       setOtp(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
     } finally {
+      verifyingRef.current = false;
       setLoading(false);
     }
   }, [isLoaded, signUp, setActive, navigate, email]);
@@ -162,11 +188,27 @@ export default function VerifyEmailPage() {
   }, [otp, isLoaded, signUp, performVerify]);
 
   const handleChange = (index: number, value: string) => {
-    if (!/^[0-9]*$/.test(value)) return;
+    const digits = value.replace(/\D/g, "");
+    if (!digits) return;
+
+    // Handle browser autofill / paste-into-input: if >1 digit arrives in one
+    // change event (e.g. browser "one-time-code" autofill fills the first input
+    // with the whole 6-digit string), distribute them across all boxes.
+    if (digits.length > 1) {
+      const updated = [...otp];
+      digits.split("").forEach((d, i) => {
+        if (index + i < 6) updated[index + i] = d;
+      });
+      setOtp(updated);
+      const nextIndex = Math.min(index + digits.length, 5);
+      inputRefs.current[nextIndex]?.focus();
+      return;
+    }
+
     const updated = [...otp];
-    updated[index] = value.slice(-1);
+    updated[index] = digits;
     setOtp(updated);
-    if (value && index < 5) inputRefs.current[index + 1]?.focus();
+    if (index < 5) inputRefs.current[index + 1]?.focus();
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -266,7 +308,7 @@ export default function VerifyEmailPage() {
                 maxLength={1}
                 value={digit}
                 autoFocus={i === 0}
-                autoComplete="one-time-code"
+                autoComplete={i === 0 ? "one-time-code" : "off"}
                 aria-label={`Digit ${i + 1} of 6`}
                 onChange={(e) => handleChange(i, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(i, e)}
