@@ -21,10 +21,11 @@ async function runDiagnostics(
   console.log("════════════════════════════════════════════");
 
   console.group("[FC Diag] 1. Clerk user");
-  console.log("  id          :", user?.id ?? "MISSING");
-  console.log("  email       :", user?.primaryEmailAddress?.emailAddress ?? "MISSING");
+  console.log("  id           :", user?.id ?? "MISSING");
+  console.log("  email        :", user?.primaryEmailAddress?.emailAddress ?? "MISSING");
   const emailVerified = user?.primaryEmailAddress?.verification?.status === "verified";
-  console.log("  emailVerified:", emailVerified ? "✓ yes" : "✗ NO");
+  console.log("  emailVerified:", emailVerified ? "✓ yes" : "✗ NO — user exists in Clerk but email not verified");
+  console.log("  createdAt    :", user?.createdAt ?? "—");
   console.groupEnd();
 
   console.group("[FC Diag] 2. Clerk org memberships");
@@ -32,12 +33,13 @@ async function runDiagnostics(
   clerkMemberships.forEach((m, i) => {
     console.log(`  [${i}] orgId: ${m.organization?.id} | role: ${m.role}`);
   });
-  console.log("  activeOrgId  :", activeOrgId ?? "null");
+  console.log("  activeOrgId  :", activeOrgId ?? "null — new user, no org yet (expected for fresh signup)");
   console.groupEnd();
 
   console.group("[FC Diag] 3. Firestore membership");
   if (user?.id && activeOrgId) {
     const docId = membershipIdFor(activeOrgId, user.id);
+    console.log("  looking up   : organizationMembers/" + docId);
     try {
       const snap = await getDoc(doc(db, "organizationMembers", docId));
       if (snap.exists()) {
@@ -52,8 +54,10 @@ async function runDiagnostics(
     } catch (err) {
       console.error("  Firestore read error:", err);
     }
+  } else if (!user?.id) {
+    console.warn("  Skipped — no userId");
   } else {
-    console.warn("  Skipped — no userId or activeOrgId");
+    console.log("  Skipped — no activeOrgId (expected for fresh signup, will route to /onboarding)");
   }
   console.groupEnd();
 
@@ -90,41 +94,78 @@ export default function AuthCallbackPage() {
   }, [timedOut, navigate]);
 
   useEffect(() => {
+    // ── Log entry-point state on every render so we can see exactly what
+    // values Clerk has propagated at each render cycle.
+    console.log(
+      "[FC AuthCallback] render —",
+      "isLoaded:", isLoaded,
+      "| isSignedIn:", isSignedIn,
+      "| orgListLoaded:", orgListLoaded,
+      "| userId:", user?.id ?? "null",
+      "| memberships:", userMemberships?.data?.length ?? "?",
+      "| activeOrg:", organization?.id ?? "null",
+      "| redirected:", redirectedRef.current
+    );
+
     // ── Wait for Clerk to fully propagate ────────────────────────────────────
-    // setActive() activates the session synchronously in Clerk's internals, but
-    // the React context (isSignedIn / user) updates one render cycle later.
+    // setActive() activates the session in Clerk's internals, but the React
+    // context (isSignedIn / user) updates one render cycle later.
     // Without this guard, performRedirect() fires on the intermediate render
-    // where isLoaded=true + orgListLoaded=true but isSignedIn=false, causing it
-    // to immediately navigate("/auth/sign-in") and lock redirectedRef permanently.
-    if (!isLoaded || !orgListLoaded) return;
-    if (!isSignedIn || !user) return; // session not propagated yet — wait for next render
+    // where isLoaded=true + orgListLoaded=true but isSignedIn=false.
+    if (!isLoaded || !orgListLoaded) {
+      console.log("[FC AuthCallback] ⏳ Waiting — isLoaded:", isLoaded, "orgListLoaded:", orgListLoaded);
+      return;
+    }
+    if (!isSignedIn || !user) {
+      console.log("[FC AuthCallback] ⏳ Waiting — session not yet propagated (isSignedIn:", isSignedIn, ")");
+      return;
+    }
+    if (redirectedRef.current) {
+      console.log("[FC AuthCallback] Already redirected — skipping");
+      return;
+    }
 
     const performRedirect = async () => {
-      // Safety: this can no longer fire when !isSignedIn, but keep for type narrowing.
       if (!user) return;
 
       setStatus("Verifying your account…");
-      console.log("[FC AuthCallback] ▶ performRedirect() userId:", user.id);
+      console.log("════════════════════════════════════════════════");
+      console.log("[FC AuthCallback] ▶ performRedirect()");
+      console.log("[FC AuthCallback]   userId      :", user.id);
+      console.log("[FC AuthCallback]   email       :", user.primaryEmailAddress?.emailAddress ?? "—");
+      console.log("[FC AuthCallback]   isSignedIn  :", isSignedIn);
+      console.log("[FC AuthCallback]   activeOrg   :", organization?.id ?? "null");
+      console.log("[FC AuthCallback]   memberships :", userMemberships?.data?.length ?? 0);
+      console.log("════════════════════════════════════════════════");
 
       try {
         const memberships = userMemberships?.data ?? [];
 
+        // ── Multi-org non-owner: send to org selector ─────────────────────
         const isMultiOrgNonOwner =
           !organization?.id &&
           memberships.length > 1 &&
           memberships[0]?.role !== "org:admin" &&
           memberships[0]?.role !== "org:owner";
 
+        console.log("[FC AuthCallback] isMultiOrgNonOwner:", isMultiOrgNonOwner);
+
         if (isMultiOrgNonOwner) {
+          console.log("[FC AuthCallback] → /org-select (multi-org non-owner)");
           redirectedRef.current = true;
           navigate("/org-select", { replace: true });
           return;
         }
 
+        // ── Activate first org if none active ─────────────────────────────
         if (!organization?.id && memberships.length && setActive) {
           const firstOrgId = memberships[0].organization.id;
           setStatus("Activating your organisation…");
+          console.log("[FC AuthCallback] Activating first org:", firstOrgId);
           await setActive({ organization: firstOrgId });
+          console.log("[FC AuthCallback] ✓ setActive({ organization }) complete");
+        } else if (!memberships.length) {
+          console.log("[FC AuthCallback] No Clerk memberships — new user, skipping setActive (will route to /onboarding)");
         }
 
         const activeOrgId =
@@ -132,38 +173,59 @@ export default function AuthCallbackPage() {
           userMemberships?.data?.[0]?.organization?.id ||
           null;
 
+        console.log("[FC AuthCallback] activeOrgId (resolved):", activeOrgId ?? "null");
+
         setStatus("Preparing your workspace…");
         await runDiagnostics(user, activeOrgId, memberships);
 
+        console.log("[FC AuthCallback] ▶ resolveUserRedirectTarget(userId:", user.id, ", activeOrgId:", activeOrgId ?? "null", ")");
         const redirect = await resolveUserRedirectTarget(user, activeOrgId);
-        console.log("[FC AuthCallback] resolveUserRedirectTarget() →", redirect.path);
+        console.log("[FC AuthCallback] ✓ resolveUserRedirectTarget() returned:");
+        console.log("[FC AuthCallback]   path            :", redirect.path);
+        console.log("[FC AuthCallback]   membership      :", redirect.membership ? "found" : "null (new user)");
+        console.log("[FC AuthCallback]   role            :", redirect.role ?? "null");
+        console.log("[FC AuthCallback]   organizationId  :", redirect.organizationId ?? "null");
+        console.log("[FC AuthCallback]   profileIncomplete:", redirect.profileIncomplete);
 
-        if (redirectedRef.current) return;
+        if (redirectedRef.current) {
+          console.log("[FC AuthCallback] Already redirected during async — aborting");
+          return;
+        }
         redirectedRef.current = true;
 
+        // ── No Firestore membership ────────────────────────────────────────
         if (!redirect.membership) {
           if (memberships.length && activeOrgId) {
+            // Clerk org exists but Firestore doc is missing → use Clerk role fallback
             const clerkRole = memberships[0].role;
             const normalized = normalizeClerkRole(clerkRole);
             const fallbackPath = getDashboardPath(normalized);
-            console.warn("[FC AuthCallback] No Firestore doc — Clerk role fallback:", clerkRole, "→", fallbackPath);
+            console.warn(
+              "[FC AuthCallback] No Firestore doc but Clerk org exists — role fallback:",
+              clerkRole, "→", fallbackPath
+            );
             navigate(fallbackPath, { replace: true });
             return;
           }
+          // Brand new user — no org, no Firestore doc → onboarding
+          console.log("[FC AuthCallback] → /onboarding (new user, no Firestore membership, no Clerk org)");
           navigate("/onboarding", { replace: true });
           return;
         }
 
+        // ── Ensure correct org is active before navigating ────────────────
         if (redirect.organizationId && setActive && organization?.id !== redirect.organizationId) {
+          console.log("[FC AuthCallback] Activating org from redirect result:", redirect.organizationId);
           try { await setActive({ organization: redirect.organizationId }); } catch (e) {
-            console.warn("[FC AuthCallback] setActive() failed (non-fatal):", e);
+            console.warn("[FC AuthCallback] setActive() for redirect org failed (non-fatal):", e);
           }
         }
 
+        console.log("[FC AuthCallback] → navigating to:", redirect.path);
         navigate(redirect.path, { replace: true });
 
       } catch (error: any) {
-        console.error("[FC AuthCallback] Error:", error);
+        console.error("[FC AuthCallback] ✗ performRedirect() error:", error);
         if (redirectedRef.current) return;
         redirectedRef.current = true;
         toast.error(error?.message ?? "Unable to finish authentication.");
