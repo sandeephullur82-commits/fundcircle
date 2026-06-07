@@ -167,12 +167,13 @@ export function PublicNavbar() {
 
         <nav className="hidden md:flex items-center gap-1">
           {NAV_LINKS.map((item) => (
-            <NavLinkItem
-              key={item.label}
-              item={item}
-              pathname={pathname}
-              scrolled={scrolled}
-            />
+            <React.Fragment key={item.label}>
+              <NavLinkItem
+                item={item}
+                pathname={pathname}
+                scrolled={scrolled as boolean}
+              />
+            </React.Fragment>
           ))}
         </nav>
 
@@ -229,13 +230,14 @@ export function PublicNavbar() {
           >
             <nav className="flex flex-col gap-1 px-4 pb-4 pt-2">
               {NAV_LINKS.map((item) => (
-                <NavLinkItem
-                  key={item.label}
-                  item={item}
-                  pathname={pathname}
-                  scrolled={scrolled}
-                  onClose={() => setMobileOpen(false)}
-                />
+                <React.Fragment key={item.label}>
+                  <NavLinkItem
+                    item={item}
+                    pathname={pathname}
+                    scrolled={scrolled as boolean}
+                    onClose={() => setMobileOpen(false)}
+                  />
+                </React.Fragment>
               ))}
               {!isSignedIn && (
                 <Link

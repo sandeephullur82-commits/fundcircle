@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
-import { createClerkClient } from "@clerk/backend";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 
 // ─── Process-level crash guards ───────────────────────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -58,7 +58,7 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   }
   const token = authHeader.slice(7);
   try {
-    const payload = await clerkClient.verifyToken(token);
+    const payload = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY });
     (req as any).clerkUserId = payload.sub;
     (req as any).clerkPayload = payload;
     next();

@@ -202,7 +202,7 @@ export default function EMITab({ installments, loans }: Props) {
           </CardContent>
         </Card>
       ) : (
-        Object.entries(groupedByLoan).map(([loanId, insts]) => {
+        Object.entries(groupedByLoan).map(([loanId, insts]: [string, LoanInstallment[]]) => {
           const loan = loanMap[loanId];
           const isExpanded = expandedLoan === loanId || Object.keys(groupedByLoan).length === 1;
           return (

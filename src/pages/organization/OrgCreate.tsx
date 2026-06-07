@@ -205,7 +205,7 @@ export default function OrgCreate() {
                       required
                       placeholder="e.g. Mandya Pigmy Co-operative Bank"
                       value={orgName}
-                      onChange={(e) => handleNameChange(e.target.value)}
+                      onChange={(e) => setOrgName(e.target.value)}
                       className="h-12 w-full pl-11 pr-4 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 placeholder-slate-400 focus:bg-white text-sm transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500"
                     />
                   </div>

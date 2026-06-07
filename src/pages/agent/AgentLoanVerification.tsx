@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { LoanApplication, Membership } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

@@ -641,7 +641,6 @@ export default function OrgAgents() {
                   <p className="text-xs text-amber-600">
                     {nextStatus === "INACTIVE" && "Agent will be deactivated. Their assigned customers will remain unchanged."}
                     {nextStatus === "ARCHIVED" && "Agent will be archived. This is a soft delete — data is preserved."}
-                    {nextStatus === "ACTIVE" && "Agent will be reactivated."}
                   </p>
                 </div>
                 <div className="flex gap-3">

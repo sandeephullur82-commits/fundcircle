@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -114,7 +114,7 @@ export default function ChangePasswordPage() {
       <div className="relative z-10 w-full max-w-md space-y-6">
         <div className="flex justify-center">
           <Link to="/" className="flex flex-col items-center gap-2">
-            <BrandMark size={48} />
+            <BrandMark size="lg" />
             <div className="text-center">
               <p className="text-lg font-bold text-white tracking-tight">FundCircle</p>
               <p className="text-[11px] text-white/35 font-medium tracking-[0.15em] uppercase">Micro-Savings Platform</p>

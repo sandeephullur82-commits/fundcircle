@@ -1,3 +1,4 @@
+import React from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Collection, Loan, Membership, LoanInstallment, LoanApplication } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
