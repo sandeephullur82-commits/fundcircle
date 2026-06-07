@@ -10,13 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor, ignoreUpgradeRequest } from "@/lib/services";
 import { useDocumentRealtime, useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Navigate } from "react-router-dom";
+import { toast } from "sonner";
 import { BrandMark } from "@/components/BrandLogo";
 import OrgOverview from "./OrgOverview";
 import OrgCustomers from "./OrgCustomers";
@@ -72,6 +73,62 @@ export default function OrgDashboard() {
   const { data: pendingSetupMembers } = useCollectionRealtime<any>("organizationMembers", [where("status", "==", "PENDING_SETUP")]);
   const pendingSetupCount = pendingSetupMembers.length;
 
+  // Pending loan and savings applications — for badges + push toasts
+  const { data: pendingLoanApps } = useCollectionRealtime<any>("loanApplications", [
+    where("status", "==", "PENDING"),
+  ]);
+  const { data: pendingSavingsApps } = useCollectionRealtime<any>("savings_applications", [
+    where("status", "==", "PENDING"),
+  ]);
+
+  // Delta-detection refs — null means "initial snapshot not yet recorded"
+  const prevLoanAppIds = useRef<Set<string> | null>(null);
+  const prevSavingsAppIds = useRef<Set<string> | null>(null);
+
+  // Toast when a NEW pending loan application arrives
+  useEffect(() => {
+    const currentIds = new Set(pendingLoanApps.map((a: any) => a.id));
+    if (prevLoanAppIds.current === null) {
+      prevLoanAppIds.current = currentIds;
+      return;
+    }
+    const newOnes = pendingLoanApps.filter((a: any) => !prevLoanAppIds.current!.has(a.id));
+    newOnes.forEach((app: any) => {
+      const amount = app.loanAmount ? `₹${Number(app.loanAmount).toLocaleString()}` : null;
+      toast.info(
+        `💳 New loan application${amount ? ` · ${amount}` : ""}`,
+        {
+          description: "A customer has applied for a loan and is awaiting your review.",
+          action: { label: "Review", onClick: () => setActiveTab("loans") },
+          duration: 8000,
+        }
+      );
+    });
+    prevLoanAppIds.current = currentIds;
+  }, [pendingLoanApps]);
+
+  // Toast when a NEW pending savings application arrives
+  useEffect(() => {
+    const currentIds = new Set(pendingSavingsApps.map((a: any) => a.id));
+    if (prevSavingsAppIds.current === null) {
+      prevSavingsAppIds.current = currentIds;
+      return;
+    }
+    const newOnes = pendingSavingsApps.filter((a: any) => !prevSavingsAppIds.current!.has(a.id));
+    newOnes.forEach((app: any) => {
+      const planName = app.planName ? ` — ${app.planName}` : "";
+      toast.info(
+        `💰 New savings application${planName}`,
+        {
+          description: "A customer has applied for a savings plan and is awaiting your approval.",
+          action: { label: "Review", onClick: () => setActiveTab("savings") },
+          duration: 8000,
+        }
+      );
+    });
+    prevSavingsAppIds.current = currentIds;
+  }, [pendingSavingsApps]);
+
   const clerkRole = normalizeClerkRole((user?.publicMetadata as any)?.role as string | undefined);
   const membershipRoleNormalized = normalizeClerkRole(membershipDoc?.role?.toString() || null);
   const effectiveRole = membershipRoleNormalized || clerkRole || null;
@@ -91,8 +148,8 @@ export default function OrgDashboard() {
     { id: "customers", label: "Customers", icon: Users },
     { id: "agents", label: "Collectors", icon: Users, badge: pendingSetupCount || undefined },
     { id: "collections", label: "Collections", icon: Wallet },
-    { id: "savings", label: "Savings Management", icon: ArrowUpCircle },
-    { id: "loans", label: "Loans & EMI", icon: CreditCard },
+    { id: "savings", label: "Savings Management", icon: ArrowUpCircle, badge: pendingSavingsApps.length || undefined },
+    { id: "loans", label: "Loans & EMI", icon: CreditCard, badge: pendingLoanApps.length || undefined },
     { id: "reports", label: "Reports", icon: FileText },
     { id: "auditLogs", label: "Audit Logs", icon: ClipboardList },
     { id: "notifications", label: "Notifications", icon: Bell, badge: unreadCount },
