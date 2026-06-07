@@ -1,37 +1,32 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useSignIn, useClerk } from "@clerk/clerk-react";
+import { useSignIn } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2, ArrowLeft, RefreshCw, ShieldCheck, Clock } from "lucide-react";
+import {
+  Eye, EyeOff, Loader2, ArrowLeft, RefreshCw,
+  ShieldCheck, CheckCircle2,
+} from "lucide-react";
 import AuthLayout from "./AuthLayout";
-import OtpDiagnosticsPanel from "./OtpDiagnosticsPanel";
-
-function appendOtpError(code: string, message: string) {
-  const existing = JSON.parse(sessionStorage.getItem("fc_otp_errors") || "[]");
-  existing.push({ code, message, time: new Date().toLocaleTimeString() });
-  sessionStorage.setItem("fc_otp_errors", JSON.stringify(existing.slice(-10)));
-}
 
 export default function ResetPasswordPage() {
   const { isLoaded, signIn, setActive } = useSignIn();
-  const clerk = useClerk();
   const navigate = useNavigate();
 
-  const [otp, setOtp]                   = useState(["", "", "", "", "", ""]);
-  const [newPassword, setNewPassword]   = useState("");
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm]   = useState(false);
-  const [loading, setLoading]           = useState(false);
-  const [resending, setResending]       = useState(false);
-  const [countdown, setCountdown]       = useState(30);
-  const [error, setError]               = useState("");
-  const [elapsed, setElapsed]           = useState(0);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [countdown, setCountdown] = useState(30);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(3);
 
-  const inputRefs  = useRef<(HTMLInputElement | null)[]>([]);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const loadingRef = useRef(false);
-  const email      = sessionStorage.getItem("fc_reset_email") || "";
-  const sentAtStr  = sessionStorage.getItem("fc_otp_sent_at") || "";
+  const email = sessionStorage.getItem("fc_reset_email") || "";
 
   useEffect(() => { loadingRef.current = loading; }, [loading]);
 
@@ -39,6 +34,7 @@ export default function ResetPasswordPage() {
     if (!email) navigate("/auth/forgot-password", { replace: true });
   }, [email, navigate]);
 
+  // Countdown before resend is available
   useEffect(() => {
     if (countdown > 0) {
       const t = setTimeout(() => setCountdown(c => c - 1), 1000);
@@ -46,13 +42,18 @@ export default function ResetPasswordPage() {
     }
   }, [countdown]);
 
+  // Auto-redirect after success
   useEffect(() => {
-    if (!sentAtStr) return;
-    const sentAt = new Date(sentAtStr).getTime();
-    const iv = setInterval(() => setElapsed(Math.floor((Date.now() - sentAt) / 1000)), 500);
-    return () => clearInterval(iv);
-  }, [sentAtStr]);
+    if (!success) return;
+    if (redirectCountdown <= 0) {
+      navigate("/auth/sign-in", { replace: true });
+      return;
+    }
+    const t = setTimeout(() => setRedirectCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [success, redirectCountdown, navigate]);
 
+  // ── OTP input handlers ──────────────────────────────────────────────────────
   const handleOtpChange = (index: number, value: string) => {
     if (!/^[0-9]*$/.test(value)) return;
     const updated = [...otp];
@@ -78,6 +79,7 @@ export default function ResetPasswordPage() {
     }
   };
 
+  // ── Resend ──────────────────────────────────────────────────────────────────
   const handleResend = async () => {
     if (!isLoaded || !signIn || countdown > 0 || !email || resending) return;
     setResending(true);
@@ -86,45 +88,41 @@ export default function ResetPasswordPage() {
         strategy: "reset_password_email_code",
         identifier: email,
       });
-      const sentAt = new Date().toISOString();
-      sessionStorage.setItem("fc_otp_sent_at", sentAt);
-      sessionStorage.removeItem("fc_otp_verified_at");
-      const count = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0") + 1;
-      sessionStorage.setItem("fc_otp_request_count", String(count));
-      console.log("[FC OTP] Reset code resent — sent_at:", sentAt, "request_count:", count);
-
       setOtp(["", "", "", "", "", ""]);
       setError("");
       setCountdown(30);
       inputRefs.current[0]?.focus();
-      toast.success("A new reset code has been sent.");
+      toast.success("New verification code sent.");
     } catch (err: any) {
-      const msg = err?.errors?.[0]?.message ?? String(err);
-      appendOtpError(err?.errors?.[0]?.code ?? "resend_failed", msg);
-      toast.error("Failed to resend. Please go back and try again.");
+      const code = err?.errors?.[0]?.code ?? "";
+      if (code === "too_many_requests") {
+        toast.error("Too many attempts. Please wait before requesting a new code.");
+      } else {
+        toast.error("Failed to resend. Please go back and try again.");
+      }
     } finally {
       setResending(false);
     }
   };
 
+  // ── Submit ──────────────────────────────────────────────────────────────────
   const performReset = useCallback(async (code: string) => {
     if (!isLoaded || !signIn || loadingRef.current) return;
-    if (code.length !== 6) { setError("Please enter the 6-digit code from your email."); return; }
-    if (newPassword.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (newPassword !== confirmPassword) { setError("Passwords do not match."); return; }
+    if (code.length !== 6) {
+      setError("Please enter the 6-digit code from your email.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
 
     setError("");
     setLoading(true);
-
-    const sentAt = sessionStorage.getItem("fc_otp_sent_at");
-    console.log("════════════════════════════════════════════════");
-    console.log("[FC ResetPassword] ▶ Attempting password reset");
-    console.log("[FC ResetPassword]   otp_sent_at:", sentAt ?? "not recorded");
-    if (sentAt) {
-      const waitMs = Date.now() - new Date(sentAt).getTime();
-      console.log("[FC ResetPassword]   wait since sent:", `${(waitMs / 1000).toFixed(1)}s`);
-    }
-    console.log("════════════════════════════════════════════════");
 
     try {
       const result = await signIn.attemptFirstFactor({
@@ -132,47 +130,50 @@ export default function ResetPasswordPage() {
         code,
         password: newPassword,
       });
-      const status = result.status as string;
-      console.log("[FC ResetPassword] attemptFirstFactor — status:", status, "| sessionId:", result.createdSessionId ?? "null");
 
-      if (status === "complete") {
-        const verifiedAt = new Date().toISOString();
-        sessionStorage.setItem("fc_otp_verified_at", verifiedAt);
-        if (sentAt) {
-          const deliveryMs = new Date(verifiedAt).getTime() - new Date(sentAt).getTime();
-          console.log("[FC OTP] ✓ Reset complete — delivery_ms:", deliveryMs, `(${(deliveryMs / 1000).toFixed(1)}s)`);
-        }
-
+      if ((result.status as string) === "complete") {
         if (result.createdSessionId) {
           await setActive({ session: result.createdSessionId });
-        } else {
-          console.warn("[FC ResetPassword] status=complete, sessionId=null — session already active");
         }
         sessionStorage.removeItem("fc_reset_email");
-        toast.success("Password updated successfully!");
-        navigate("/router", { replace: true });
+        setSuccess(true);
       } else {
-        console.warn("[FC ResetPassword] Unexpected status:", status);
         setError("Could not complete password reset. Please try again.");
       }
     } catch (err: any) {
       const errCode = err?.errors?.[0]?.code ?? "";
-      const msg     = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? String(err);
-      console.error("[FC ResetPassword] Error:", errCode, msg, err);
-      appendOtpError(errCode, msg);
-      if (errCode === "too_many_requests") setError("Too many attempts. Please wait a moment and try again.");
-      else if (errCode === "form_password_pwned" || errCode === "form_password_size_check_failed") setError("Please choose a stronger password (min. 8 characters).");
-      else setError("Invalid or expired code. Please request a new one.");
+      if (errCode === "too_many_requests") {
+        setError("Too many attempts. Please wait a moment and try again.");
+      } else if (
+        errCode === "form_password_pwned" ||
+        errCode === "form_password_size_check_failed" ||
+        errCode === "form_password_length_too_short"
+      ) {
+        setError("Please choose a stronger password (min. 8 characters, avoid common passwords).");
+      } else if (
+        errCode === "form_code_incorrect" ||
+        errCode === "incorrect_code"
+      ) {
+        setError("Invalid code. Please check the code and try again.");
+      } else if (
+        errCode === "verification_expired" ||
+        errCode === "form_code_expired"
+      ) {
+        setError("This code has expired. Please request a new one.");
+      } else {
+        setError("Invalid or expired code. Please request a new one.");
+      }
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, signIn, setActive, navigate, newPassword, confirmPassword]);
+  }, [isLoaded, signIn, setActive, newPassword, confirmPassword]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await performReset(otp.join(""));
   };
 
+  // Auto-submit when all 6 digits entered and passwords are valid
   useEffect(() => {
     const code = otp.join("");
     if (
@@ -187,9 +188,41 @@ export default function ResetPasswordPage() {
     }
   }, [otp, isLoaded, signIn, newPassword, confirmPassword, performReset]);
 
-  const isDev = import.meta.env.DEV ||
-    (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "").startsWith("pk_test_");
+  // ── Success Screen ──────────────────────────────────────────────────────────
+  if (success) {
+    return (
+      <AuthLayout hideBackButton>
+        <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50 text-center">
+          <div className="flex flex-col items-center gap-4 mb-6">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-500/25 bg-emerald-500/10">
+              <CheckCircle2 className="h-8 w-8 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-[1.6rem] font-bold text-white leading-tight">
+                Password Updated Successfully
+              </h2>
+              <p className="mt-2 text-sm text-white/45">
+                Your password has been changed successfully.
+              </p>
+            </div>
+          </div>
 
+          <button
+            onClick={() => navigate("/auth/sign-in", { replace: true })}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:from-violet-500 hover:to-blue-500"
+          >
+            Go To Sign In
+          </button>
+
+          <p className="mt-4 text-xs text-white/30">
+            Redirecting in {redirectCountdown}s…
+          </p>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  // ── Reset Form ──────────────────────────────────────────────────────────────
   return (
     <AuthLayout>
       <div className="rounded-3xl border border-white/[0.08] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-2xl shadow-black/50">
@@ -203,22 +236,7 @@ export default function ResetPasswordPage() {
             {email && <span className="font-semibold text-white/70">{email}</span>}
             {" "}and choose a new password
           </p>
-          {elapsed > 0 && (
-            <p className="mt-1.5 flex items-center gap-1 text-[11px] text-white/30">
-              <Clock className="h-3 w-3" />
-              Waiting {elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}
-            </p>
-          )}
         </div>
-
-        {isDev && (
-          <div className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-3.5 py-2.5">
-            <p className="text-[11px] text-amber-300/90 leading-relaxed">
-              <strong>Development mode:</strong> Expect <strong>15–60 s</strong> email delivery.
-              Switch to a Production Clerk instance + custom SMTP for instant delivery.
-            </p>
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
@@ -227,6 +245,7 @@ export default function ResetPasswordPage() {
             </div>
           )}
 
+          {/* OTP Input */}
           <div className="space-y-2">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
               Verification code
@@ -250,7 +269,7 @@ export default function ResetPasswordPage() {
             </div>
             <div className="text-center pt-0.5">
               {countdown > 0 ? (
-                <p className="text-xs text-white/30">Resend in {countdown}s</p>
+                <p className="text-xs text-white/30">Resend Code in {countdown}s</p>
               ) : (
                 <button
                   type="button"
@@ -259,12 +278,13 @@ export default function ResetPasswordPage() {
                   className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-50"
                 >
                   <RefreshCw className={`h-3 w-3 ${resending ? "animate-spin" : ""}`} />
-                  {resending ? "Sending…" : "Resend code"}
+                  {resending ? "Sending…" : "Resend Code"}
                 </button>
               )}
             </div>
           </div>
 
+          {/* New Password */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
               New password
@@ -289,6 +309,7 @@ export default function ResetPasswordPage() {
             </div>
           </div>
 
+          {/* Confirm Password */}
           <div className="space-y-1.5">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/45">
               Confirm new password
@@ -321,12 +342,10 @@ export default function ResetPasswordPage() {
             {loading ? (
               <><Loader2 className="h-4 w-4 animate-spin" />Updating password…</>
             ) : (
-              "Update password"
+              "Update Password"
             )}
           </button>
         </form>
-
-        <OtpDiagnosticsPanel />
 
         <div className="mt-4 text-center">
           <Link
