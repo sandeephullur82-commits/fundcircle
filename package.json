@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server/index.ts & node_modules/.bin/vite --port=5000 --host=0.0.0.0",
+    "dev": "node_modules/.bin/tsx server/index.ts & node_modules/.bin/vite --port=5000 --host=0.0.0.0",
     "build:client": "vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --format=esm --packages=external",
     "build": "npm run build:client && npm run build:server",
