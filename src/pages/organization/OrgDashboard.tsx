@@ -5,7 +5,6 @@ import {
   ArrowUpCircle, X, Plus, UserPlus, UserCheck, PiggyBank,
   Landmark, IndianRupee, CheckCircle2, BarChart2,
 } from "lucide-react";
-import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useState, useEffect, useRef } from "react";
-import { doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor, ignoreUpgradeRequest } from "@/lib/services";
@@ -382,58 +381,38 @@ export default function OrgDashboard() {
         })}
       </nav>
 
-      {/* FAB Speed Dial — admin mode only */}
-      {mode === "admin" && organization?.id && (
-        <FABSpeedDial
+      {/* Quick Actions FAB — admin mode only */}
+      {mode === "admin" && (
+        <QuickActionsFAB
           open={fabOpen}
           setOpen={setFabOpen}
           onAction={(tab) => { setActiveTab(tab); setFabOpen(false); }}
-          orgId={organization.id}
         />
       )}
     </div>
   );
 }
 
-// ── FAB Speed Dial ────────────────────────────────────────────────────────────
+// ── Quick Actions FAB + Bottom Sheet ──────────────────────────────────────────
 const FAB_SIZE = 56;
-const FAB_MARGIN = 24;
 
 const FAB_ACTIONS = [
-  { id: "addCustomer",      label: "Add Customer",        icon: UserPlus,     tab: "customers",   color: "bg-blue-600 hover:bg-blue-700",      ring: "focus-visible:ring-blue-400" },
-  { id: "addAgent",         label: "Add Agent",           icon: UserCheck,    tab: "agents",      color: "bg-sky-600 hover:bg-sky-700",        ring: "focus-visible:ring-sky-400" },
-  { id: "newSavings",       label: "New Savings Account", icon: PiggyBank,    tab: "savings",     color: "bg-emerald-600 hover:bg-emerald-700", ring: "focus-visible:ring-emerald-400" },
-  { id: "newLoan",          label: "New Loan",            icon: Landmark,     tab: "loans",       color: "bg-indigo-600 hover:bg-indigo-700",  ring: "focus-visible:ring-indigo-400" },
-  { id: "recordCollection", label: "Record Collection",   icon: IndianRupee,  tab: "collections", color: "bg-teal-600 hover:bg-teal-700",      ring: "focus-visible:ring-teal-400" },
-  { id: "approveLoan",      label: "Approve Loan",        icon: CheckCircle2, tab: "loans",       color: "bg-orange-500 hover:bg-orange-600",  ring: "focus-visible:ring-orange-400" },
-  { id: "generateReport",   label: "Generate Report",     icon: BarChart2,    tab: "reports",     color: "bg-purple-600 hover:bg-purple-700",  ring: "focus-visible:ring-purple-400" },
+  { id: "addCustomer",      label: "Add Customer",        emoji: "👤", icon: UserPlus,     tab: "customers",   color: "bg-blue-600"    },
+  { id: "addAgent",         label: "Add Agent",           emoji: "👨", icon: UserCheck,    tab: "agents",      color: "bg-sky-600"     },
+  { id: "newSavings",       label: "New Savings Account", emoji: "🏦", icon: PiggyBank,    tab: "savings",     color: "bg-emerald-600" },
+  { id: "newLoan",          label: "New Loan",            emoji: "💰", icon: Landmark,     tab: "loans",       color: "bg-indigo-600"  },
+  { id: "recordCollection", label: "Record Collection",   emoji: "₹",  icon: IndianRupee,  tab: "collections", color: "bg-teal-600"    },
+  { id: "approveLoan",      label: "Approve Loan",        emoji: "✅", icon: CheckCircle2, tab: "loans",       color: "bg-orange-500"  },
+  { id: "generateReport",   label: "Generate Report",     emoji: "📊", icon: BarChart2,    tab: "reports",     color: "bg-purple-600"  },
 ] as const;
 
-function clampFABPos(x: number, y: number) {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  return {
-    x: Math.max(8, Math.min(vw - FAB_SIZE - 8, x)),
-    y: Math.max(8, Math.min(vh - FAB_SIZE - 8, y)),
-  };
-}
-
-function defaultFABPos() {
-  return clampFABPos(
-    window.innerWidth - FAB_SIZE - FAB_MARGIN,
-    window.innerHeight - FAB_SIZE - FAB_MARGIN,
-  );
-}
-
-function FABSpeedDial({
-  open, setOpen, onAction, orgId,
+function QuickActionsFAB({
+  open, setOpen, onAction,
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
   onAction: (tab: string) => void;
-  orgId: string;
 }) {
-  // ── Responsive breakpoint detection ──────────────────────────────────────
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 767px)");
@@ -443,124 +422,8 @@ function FABSpeedDial({
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  // ── Desktop: drag state + DOM refs ───────────────────────────────────────
-  const fabRef  = useRef<HTMLDivElement>(null);
-  const dialRef = useRef<HTMLDivElement>(null);
-  const posRef  = useRef(defaultFABPos());
-  const [posLoaded, setPosLoaded] = useState(false);
-  const [openUpward, setOpenUpward] = useState(true);
-
-  const drag = useRef({
-    active: false,
-    startClientX: 0, startClientY: 0,
-    startPosX: 0, startPosY: 0,
-    moved: false,
-    rafId: null as number | null,
-  });
-
-  // ── Bottom sheet: swipe-down tracking ─────────────────────────────────────
   const sheetTouchStartY = useRef(0);
 
-  // ── Apply position — updates FAB + speed-dial overlay via direct DOM writes
-  const applyPos = useCallback((x: number, y: number) => {
-    posRef.current = { x, y };
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const isUp = y > vh * 0.35;
-
-    if (fabRef.current) {
-      fabRef.current.style.left = `${x}px`;
-      fabRef.current.style.top  = `${y}px`;
-    }
-    // Speed-dial overlay: right-edge aligned with FAB right-edge, stacks upward/downward
-    if (dialRef.current) {
-      const dr = dialRef.current;
-      const dialRight = Math.max(8, vw - x - FAB_SIZE);
-      dr.style.right = `${dialRight}px`;
-      if (isUp) {
-        dr.style.bottom = `${vh - y}px`;
-        dr.style.top    = "auto";
-        dr.style.flexDirection = "column-reverse";
-      } else {
-        dr.style.top    = `${y + FAB_SIZE + 8}px`;
-        dr.style.bottom = "auto";
-        dr.style.flexDirection = "column";
-      }
-    }
-    setOpenUpward(isUp);
-  }, []);
-
-  // ── Realtime Firestore position sync (desktop only — mobile pos is fixed) ──
-  useEffect(() => {
-    if (!orgId) return;
-    const uiRef = doc(db, "organizations", orgId, "settings", "ui");
-    const unsub = onSnapshot(uiRef, (snap) => {
-      const data = snap.data();
-      if (data?.fabPosition?.x !== undefined && data?.fabPosition?.y !== undefined) {
-        const c = clampFABPos(data.fabPosition.x, data.fabPosition.y);
-        if (!drag.current.active) applyPos(c.x, c.y);
-      } else {
-        const def = defaultFABPos();
-        if (!drag.current.active) applyPos(def.x, def.y);
-      }
-      setPosLoaded(true);
-    });
-    return () => unsub();
-  }, [orgId, applyPos]);
-
-  // ── Save position to Firestore ────────────────────────────────────────────
-  const savePos = useCallback(async (x: number, y: number) => {
-    if (!orgId) return;
-    try {
-      await setDoc(
-        doc(db, "organizations", orgId, "settings", "ui"),
-        { fabPosition: { x, y }, updatedAt: serverTimestamp() },
-        { merge: true },
-      );
-    } catch (_) {}
-  }, [orgId]);
-
-  // ── Drag handlers (desktop only) ──────────────────────────────────────────
-  const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    if (isMobile) return;
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    const d = drag.current;
-    d.active = true; d.moved = false;
-    d.startClientX = e.clientX; d.startClientY = e.clientY;
-    d.startPosX = posRef.current.x; d.startPosY = posRef.current.y;
-    (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-  }, [isMobile]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (!d.active) return;
-    const dx = e.clientX - d.startClientX;
-    const dy = e.clientY - d.startClientY;
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) d.moved = true;
-    if (!d.moved) return;
-    e.preventDefault();
-    // Cancel prior RAF and schedule a fresh one with the latest delta
-    if (d.rafId !== null) cancelAnimationFrame(d.rafId);
-    d.rafId = requestAnimationFrame(() => {
-      applyPos(clampFABPos(d.startPosX + dx, d.startPosY + dy).x,
-               clampFABPos(d.startPosX + dx, d.startPosY + dy).y);
-      d.rafId = null;
-    });
-  }, [applyPos]);
-
-  const onPointerUp = useCallback((_e: React.PointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (!d.active) return;
-    d.active = false;
-    if (d.rafId !== null) { cancelAnimationFrame(d.rafId); d.rafId = null; }
-    if (d.moved) {
-      savePos(posRef.current.x, posRef.current.y);
-    } else {
-      setOpen(!open);
-    }
-  }, [open, setOpen, savePos]);
-
-  // ── Close on ESC ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -568,73 +431,95 @@ function FABSpeedDial({
     return () => document.removeEventListener("keydown", h);
   }, [open, setOpen]);
 
-  // ── Close on outside click (desktop speed-dial only) ─────────────────────
-  useEffect(() => {
-    if (!open || isMobile) return;
-    const h = (e: MouseEvent) => {
-      const inFab  = fabRef.current?.contains(e.target as Node);
-      const inDial = dialRef.current?.contains(e.target as Node);
-      if (!inFab && !inDial) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open, isMobile, setOpen]);
+  const handleAction = (tab: string) => {
+    setOpen(false);
+    onAction(tab);
+  };
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // MOBILE RENDER — fixed FAB + Bottom Sheet
-  // ══════════════════════════════════════════════════════════════════════════
-  if (isMobile) {
-    return (
-      <>
-        {/* Fixed FAB — bottom:80px clears bottom nav (~56px) + padding */}
-        <button
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          aria-label={open ? "Close quick actions" : "Open quick actions"}
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: 16,
-            width: FAB_SIZE,
-            height: FAB_SIZE,
-            zIndex: 9999,
-            borderRadius: "50%",
-            transform: open ? "rotate(45deg)" : "rotate(0deg)",
-            transition: "transform 220ms ease",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-[0_4px_24px_rgba(0,0,0,0.30)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
-        >
-          <Plus className="w-6 h-6" aria-hidden="true" />
-        </button>
-
-        {/* Bottom Sheet — only mounted when open */}
-        {open && (
-          <>
-            {/* Scrim overlay */}
+  const actionList = (
+    <div style={{ padding: "0 8px 4px" }}>
+      {FAB_ACTIONS.map((action) => {
+        const Icon = action.icon;
+        return (
+          <button
+            key={action.id}
+            onClick={() => handleAction(action.tab)}
+            aria-label={action.label}
+            style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 16,
+              padding: "13px 12px", borderRadius: 14, background: "transparent",
+              border: "none", cursor: "pointer", textAlign: "left",
+            }}
+            onPointerDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f1f5f9"; }}
+            onPointerUp={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            onPointerLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+          >
             <div
-              aria-hidden="true"
-              style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }}
-              onClick={() => setOpen(false)}
-            />
+              className={`${action.color} text-white`}
+              style={{ width: 44, height: 44, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            >
+              <Icon style={{ width: 20, height: 20 }} aria-hidden="true" />
+            </div>
+            <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{action.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
-            {/* Sheet panel */}
+  return (
+    <>
+      {/* ── Fixed FAB — bottom-right always ── */}
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={open ? "Close quick actions" : "Open quick actions"}
+        style={{
+          position: "fixed",
+          bottom: isMobile ? 80 : 24,
+          right: isMobile ? 16 : 24,
+          width: FAB_SIZE,
+          height: FAB_SIZE,
+          zIndex: 9999,
+          borderRadius: "50%",
+          transform: open ? "rotate(45deg)" : "rotate(0deg)",
+          transition: "transform 220ms ease",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-[0_4px_24px_rgba(0,0,0,0.30)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+      >
+        <Plus className="w-6 h-6" aria-hidden="true" />
+      </button>
+
+      {/* ── Bottom sheet / centered dialog ── */}
+      {open && (
+        <>
+          {/* Scrim */}
+          <div
+            aria-hidden="true"
+            onClick={() => setOpen(false)}
+            style={{
+              position: "fixed", inset: 0, zIndex: 10000,
+              background: "rgba(0,0,0,0.48)",
+              backdropFilter: "blur(4px)",
+            }}
+          />
+
+          {isMobile ? (
+            /* ── Mobile: bottom sheet ── */
             <div
               role="dialog"
               aria-modal="true"
-              aria-label="Quick actions"
+              aria-labelledby="qa-sheet-title"
               style={{
-                position: "fixed",
-                bottom: 0,
-                left: 0,
-                right: 0,
+                position: "fixed", bottom: 0, left: 0, right: 0,
                 zIndex: 10001,
                 borderRadius: "20px 20px 0 0",
                 background: "#ffffff",
-                boxShadow: "0 -8px 48px rgba(0,0,0,0.16)",
+                boxShadow: "0 -8px 48px rgba(0,0,0,0.18)",
                 paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)",
                 animation: "fabSheetUp 260ms cubic-bezier(0.32, 0.72, 0, 1) both",
               }}
@@ -644,150 +529,55 @@ function FABSpeedDial({
               }}
             >
               {/* Drag handle */}
-              <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 4 }}>
+              <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 2 }}>
                 <div style={{ width: 40, height: 4, borderRadius: 2, background: "#e2e8f0" }} aria-hidden="true" />
               </div>
-
-              <div style={{ padding: "4px 8px 4px" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", padding: "8px 16px 6px" }}>
-                  Quick Actions
-                </p>
-
-                {FAB_ACTIONS.map((action) => {
-                  const Icon = action.icon;
-                  const bgColor = action.color.split(" ")[0];
-                  return (
-                    <button
-                      key={action.id}
-                      onClick={() => { setOpen(false); onAction(action.tab); }}
-                      aria-label={action.label}
-                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "14px 16px", borderRadius: 16, background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
-                      onPointerDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f1f5f9"; }}
-                      onPointerUp={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-                      onPointerLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-                    >
-                      <div className={`${bgColor} text-white`} style={{ width: 44, height: 44, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <Icon style={{ width: 20, height: 20 }} aria-hidden="true" />
-                      </div>
-                      <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{action.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <p
+                id="qa-sheet-title"
+                style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", padding: "10px 20px 4px" }}
+              >
+                Quick Actions
+              </p>
+              {actionList}
             </div>
-          </>
-        )}
-      </>
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // DESKTOP RENDER — draggable FAB + speed-dial as separate fixed overlay
-  // ══════════════════════════════════════════════════════════════════════════
-  if (!posLoaded) return null;
-
-  const { x, y } = posRef.current;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  // Right offset aligns speed-dial right-edge with FAB right-edge
-  const dialRight = Math.max(8, vw - x - FAB_SIZE);
-  const dialStyle: React.CSSProperties = {
-    position: "fixed",
-    right: dialRight,
-    ...(openUpward
-      ? { bottom: vh - y, top: "auto", flexDirection: "column-reverse" as const, paddingBottom: 12 }
-      : { top: y + FAB_SIZE + 8, bottom: "auto", flexDirection: "column" as const, paddingTop: 12 }),
-    zIndex: 9998,
-    display: "flex",
-    alignItems: "flex-end",
-    gap: 12,
-    pointerEvents: "none",
-  };
-
-  return (
-    <>
-      {/* ── Draggable FAB button ── */}
-      <div
-        ref={fabRef}
-        style={{ position: "fixed", left: x, top: y, width: FAB_SIZE, height: FAB_SIZE, zIndex: 9999 }}
-        role="group"
-        aria-label="Quick actions"
-      >
-        <button
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          aria-expanded={open}
-          aria-haspopup="true"
-          aria-label={open ? "Close quick actions" : "Open quick actions (drag to move)"}
-          style={{
-            transform: open ? "rotate(45deg)" : "rotate(0deg)",
-            transition: drag.current.active
-              ? "none"
-              : "transform 220ms ease, box-shadow 150ms ease",
-          }}
-          className="w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 text-white shadow-[0_4px_20px_rgba(0,0,0,0.28)] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 touch-none select-none cursor-grab active:cursor-grabbing"
-        >
-          <Plus className="w-6 h-6 pointer-events-none" aria-hidden="true" />
-        </button>
-      </div>
-
-      {/* ── Speed-dial overlay (separate from FAB container — prevents overflow clipping) ── */}
-      <div ref={dialRef} style={dialStyle}>
-        {FAB_ACTIONS.map((action, i) => {
-          const Icon = action.icon;
-          const delay = open
-            ? `${i * 35}ms`
-            : `${(FAB_ACTIONS.length - 1 - i) * 25}ms`;
-          return (
+          ) : (
+            /* ── Desktop: centered action dialog ── */
             <div
-              key={action.id}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="qa-dialog-title"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                transitionDelay: delay,
-                opacity: open ? 1 : 0,
-                transform: open ? "scale(1) translateY(0)" : "scale(0.8) translateY(8px)",
-                transition: "opacity 180ms ease, transform 180ms ease",
-                pointerEvents: open ? "auto" : "none",
+                position: "fixed",
+                top: "50%", left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 10001,
+                borderRadius: 20,
+                background: "#ffffff",
+                boxShadow: "0 20px 64px rgba(0,0,0,0.20)",
+                width: "min(440px, calc(100vw - 32px))",
+                animation: "quickActionsIn 220ms cubic-bezier(0.32, 0.72, 0, 1) both",
               }}
             >
-              {/* Label — left of icon, max-width prevents left-edge overflow */}
-              <span
-                style={{
-                  background: "rgba(15,23,42,0.92)",
-                  color: "#fff",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: "6px 12px",
-                  borderRadius: 999,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-                  backdropFilter: "blur(4px)",
-                  whiteSpace: "nowrap",
-                  userSelect: "none",
-                  maxWidth: Math.max(80, x - 8),
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  display: "block",
-                }}
-              >
-                {action.label}
-              </span>
-              {/* Action button */}
-              <button
-                tabIndex={open ? 0 : -1}
-                aria-label={action.label}
-                onClick={() => onAction(action.tab)}
-                style={{ flexShrink: 0 }}
-                className={`w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${action.color} ${action.ring}`}
-              >
-                <Icon className="w-4.5 h-4.5" aria-hidden="true" />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 0" }}>
+                <p id="qa-dialog-title" style={{ fontSize: 16, fontWeight: 700, color: "#1e293b" }}>Quick Actions</p>
+                <button
+                  onClick={() => setOpen(false)}
+                  aria-label="Close quick actions"
+                  style={{
+                    width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer",
+                    background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <X style={{ width: 16, height: 16, color: "#64748b" }} aria-hidden="true" />
+                </button>
+              </div>
+              <div style={{ paddingTop: 8, paddingBottom: 12 }}>
+                {actionList}
+              </div>
             </div>
-          );
-        })}
-      </div>
+          )}
+        </>
+      )}
     </>
   );
 }
