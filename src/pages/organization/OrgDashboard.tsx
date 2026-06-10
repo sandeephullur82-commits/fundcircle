@@ -12,7 +12,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import React, { useState, useEffect, useRef } from "react";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor, ignoreUpgradeRequest } from "@/lib/services";
@@ -387,15 +387,17 @@ export default function OrgDashboard() {
           open={fabOpen}
           setOpen={setFabOpen}
           onAction={(tab) => { setActiveTab(tab); setFabOpen(false); }}
+          orgId={organization?.id || ""}
         />
       )}
     </div>
   );
 }
 
-// ── Quick Actions FAB Speed Dial ──────────────────────────────────────────────
+// ── Quick Actions FAB Speed Dial (Draggable) ──────────────────────────────────
 const FAB_SIZE = 56;
 const DIAL_ITEM_SIZE = 44;
+const DRAG_THRESHOLD = 6; // px movement before drag is registered
 
 const FAB_ACTIONS = [
   { id: "addCustomer",      label: "Add Customer",        icon: UserPlus,     tab: "customers",   color: "#2563eb" },
@@ -407,23 +409,61 @@ const FAB_ACTIONS = [
   { id: "generateReport",   label: "Generate Report",     icon: BarChart2,    tab: "reports",     color: "#9333ea" },
 ] as const;
 
+function getDefaultFabPos(): { x: number; y: number } {
+  const mob = window.innerWidth < 768;
+  return {
+    x: window.innerWidth  - FAB_SIZE - (mob ? 16 : 24),
+    y: window.innerHeight - FAB_SIZE - (mob ? 80 : 24),
+  };
+}
+
+function clampFabPos(x: number, y: number) {
+  return {
+    x: Math.max(0, Math.min(x, window.innerWidth  - FAB_SIZE)),
+    y: Math.max(0, Math.min(y, window.innerHeight - FAB_SIZE)),
+  };
+}
+
 function QuickActionsFAB({
-  open, setOpen, onAction,
+  open, setOpen, onAction, orgId,
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
   onAction: (tab: string) => void;
+  orgId: string;
 }) {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const mql = window.matchMedia("(max-width: 767px)");
-    const handler = () => setIsMobile(window.innerWidth < 768);
-    mql.addEventListener("change", handler);
-    handler();
-    return () => mql.removeEventListener("change", handler);
-  }, []);
+  // Persisted position — null means "use default (bottom-right)"
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // ESC to close
+  // Mutable drag state — all updated via ref to avoid re-render during move
+  const drag = useRef({
+    active:   false,
+    hasMoved: false,
+    startX:   0, startY:   0,
+    fabX:     0, fabY:     0,
+    pendingX: 0, pendingY: 0,
+    rafId:    null as number | null,
+  });
+
+  // ── Real-time Firestore position sync ──────────────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    const uiRef = doc(db, "organizations", orgId, "settings", "ui");
+    const unsub = onSnapshot(uiRef, (snap) => {
+      if (drag.current.active) return; // never clobber an active drag
+      if (!snap.exists()) { setPos(null); return; }
+      const fp = snap.data()?.fabPosition;
+      if (fp?.x !== undefined && fp?.y !== undefined) {
+        setPos(clampFabPos(fp.x, fp.y));
+      } else {
+        setPos(null);
+      }
+    }, () => {}); // silent fail
+    return unsub;
+  }, [orgId]);
+
+  // ── ESC closes Speed Dial ──────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -431,18 +471,93 @@ function QuickActionsFAB({
     return () => document.removeEventListener("keydown", h);
   }, [open, setOpen]);
 
+  // ── Firestore save (fire-and-forget) ───────────────────────────────────────
+  const savePos = (x: number, y: number) => {
+    if (!orgId) return;
+    setDoc(
+      doc(db, "organizations", orgId, "settings", "ui"),
+      { fabPosition: { x, y } },
+      { merge: true }
+    ).catch(() => {});
+  };
+
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button > 0) return; // primary only
+    e.stopPropagation();
+    const current = pos ?? getDefaultFabPos();
+    drag.current = {
+      active:   true,
+      hasMoved: false,
+      startX:   e.clientX,
+      startY:   e.clientY,
+      fabX:     current.x,
+      fabY:     current.y,
+      pendingX: current.x,
+      pendingY: current.y,
+      rafId:    null,
+    };
+    (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!drag.current.active) return;
+    const dx = e.clientX - drag.current.startX;
+    const dy = e.clientY - drag.current.startY;
+
+    if (!drag.current.hasMoved) {
+      if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+      drag.current.hasMoved = true;
+      setIsDragging(true);
+      setOpen(false); // close Speed Dial when dragging starts
+    }
+
+    const clamped = clampFabPos(drag.current.fabX + dx, drag.current.fabY + dy);
+    drag.current.pendingX = clamped.x;
+    drag.current.pendingY = clamped.y;
+
+    // Throttle DOM updates to one per animation frame
+    if (!drag.current.rafId) {
+      drag.current.rafId = requestAnimationFrame(() => {
+        setPos({ x: drag.current.pendingX, y: drag.current.pendingY });
+        drag.current.rafId = null;
+      });
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!drag.current.active) return;
+    drag.current.active = false;
+    if (drag.current.rafId) {
+      cancelAnimationFrame(drag.current.rafId);
+      drag.current.rafId = null;
+    }
+    setIsDragging(false);
+
+    if (drag.current.hasMoved) {
+      const { x, y } = clampFabPos(drag.current.pendingX, drag.current.pendingY);
+      setPos({ x, y });
+      savePos(x, y);
+    } else {
+      // No movement → treat as tap/click → toggle Speed Dial
+      setOpen(!open);
+    }
+  };
+
+  // ── Derived position + layout ──────────────────────────────────────────────
+  const currentPos = pos ?? getDefaultFabPos();
+  // Show dial above FAB when FAB is in lower half of screen, below otherwise
+  const dialAbove  = currentPos.y >= window.innerHeight * 0.45;
+
   const handleAction = (tab: string) => {
     setOpen(false);
     onAction(tab);
   };
 
-  const fabBottom = isMobile ? 80 : 24;
-  const fabRight  = isMobile ? 16 : 24;
-
   return (
     <>
-      {/* ── Invisible backdrop — captures outside click ── */}
-      {open && (
+      {/* Invisible backdrop — closes Speed Dial on outside click (not during drag) */}
+      {open && !isDragging && (
         <div
           aria-hidden="true"
           onClick={() => setOpen(false)}
@@ -450,53 +565,55 @@ function QuickActionsFAB({
         />
       )}
 
-      {/* ── Speed Dial container — anchored bottom-right ── */}
+      {/* ── Speed Dial container (absolutely placed) ── */}
       <div
         role="group"
         aria-label="Quick actions"
         style={{
-          position: "fixed",
-          bottom: fabBottom,
-          right: fabRight,
-          zIndex: 9999,
-          display: "flex",
-          flexDirection: "column",
+          position:  "fixed",
+          left:      currentPos.x,
+          top:       currentPos.y,
+          zIndex:    9999,
+          display:   "flex",
+          // When dialAbove: column = items first (above), FAB button last
+          // When dialBelow: column-reverse = FAB button first (top), items below
+          flexDirection: dialAbove ? "column" : "column-reverse",
           alignItems: "flex-end",
           gap: 10,
-          // Expand upward: dial items sit above the FAB
+          willChange: isDragging ? "left, top" : "auto",
         }}
       >
-        {/* ── Dial items (rendered top-to-bottom, appear bottom-first) ── */}
+        {/* ── Dial items ── */}
         <div
           role="menu"
           aria-label="Quick action items"
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            gap: 8,
-            marginBottom: 2,
-            // Pointer events only when open — avoids invisible blocking layer
-            pointerEvents: open ? "auto" : "none",
+            display:       "flex",
+            flexDirection: dialAbove ? "column" : "column-reverse",
+            alignItems:    "flex-end",
+            gap:           8,
+            pointerEvents: open && !isDragging ? "auto" : "none",
           }}
         >
           {FAB_ACTIONS.map((action, i) => {
-            const Icon = action.icon;
-            // Stagger: bottom item (index 6) enters first → smallest delay for last item
-            const enterDelay = `${i * 35}ms`;
-            const exitDelay  = `${(FAB_ACTIONS.length - 1 - i) * 22}ms`;
-            const delay = open ? enterDelay : exitDelay;
+            const Icon  = action.icon;
+            // Stagger delays: items closest to FAB appear first
+            const idx        = dialAbove ? i : (FAB_ACTIONS.length - 1 - i);
+            const enterDelay = `${idx * 35}ms`;
+            const exitDelay  = `${(FAB_ACTIONS.length - 1 - idx) * 22}ms`;
+            const delay      = open && !isDragging ? enterDelay : exitDelay;
+            const visible    = open && !isDragging;
             return (
               <div
                 key={action.id}
                 role="menuitem"
                 aria-label={action.label}
                 style={{
-                  display: "flex",
+                  display:   "flex",
                   alignItems: "center",
-                  gap: 10,
-                  opacity:   open ? 1 : 0,
-                  transform: open
+                  gap:       10,
+                  opacity:   visible ? 1 : 0,
+                  transform: visible
                     ? "scale(1) translateY(0px)"
                     : "scale(0.72) translateY(12px)",
                   transition: `opacity 180ms ease ${delay}, transform 210ms cubic-bezier(0.34,1.4,0.64,1) ${delay}`,
@@ -505,47 +622,49 @@ function QuickActionsFAB({
                 {/* Label pill */}
                 <span
                   style={{
-                    background: "rgba(15,23,42,0.85)",
-                    color: "#fff",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    padding: "5px 11px",
-                    borderRadius: 999,
-                    whiteSpace: "nowrap",
-                    userSelect: "none",
-                    boxShadow: "0 2px 10px rgba(0,0,0,0.20)",
+                    background:    "rgba(15,23,42,0.85)",
+                    color:         "#fff",
+                    fontSize:      12,
+                    fontWeight:    600,
+                    padding:       "5px 11px",
+                    borderRadius:  999,
+                    whiteSpace:    "nowrap",
+                    userSelect:    "none",
+                    boxShadow:     "0 2px 10px rgba(0,0,0,0.20)",
                     backdropFilter: "blur(4px)",
                   }}
                 >
                   {action.label}
                 </span>
-                {/* Icon button */}
+                {/* Coloured icon button */}
                 <button
-                  tabIndex={open ? 0 : -1}
+                  tabIndex={visible ? 0 : -1}
                   aria-label={action.label}
                   onClick={() => handleAction(action.tab)}
                   style={{
-                    width: DIAL_ITEM_SIZE,
-                    height: DIAL_ITEM_SIZE,
+                    width:        DIAL_ITEM_SIZE,
+                    height:       DIAL_ITEM_SIZE,
                     borderRadius: "50%",
-                    border: "none",
-                    cursor: "pointer",
-                    background: action.color,
-                    color: "#fff",
-                    display: "flex",
-                    alignItems: "center",
+                    border:       "none",
+                    cursor:       "pointer",
+                    background:   action.color,
+                    color:        "#fff",
+                    display:      "flex",
+                    alignItems:   "center",
                     justifyContent: "center",
-                    flexShrink: 0,
-                    boxShadow: "0 3px 12px rgba(0,0,0,0.22)",
-                    transition: "transform 120ms ease, box-shadow 120ms ease",
+                    flexShrink:   0,
+                    boxShadow:    "0 3px 12px rgba(0,0,0,0.22)",
+                    transition:   "transform 120ms ease, box-shadow 120ms ease",
                   }}
                   onPointerEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.12)";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 20px rgba(0,0,0,0.28)";
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.transform  = "scale(1.12)";
+                    el.style.boxShadow  = "0 6px 20px rgba(0,0,0,0.28)";
                   }}
                   onPointerLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
-                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 3px 12px rgba(0,0,0,0.22)";
+                    const el = e.currentTarget as HTMLButtonElement;
+                    el.style.transform  = "scale(1)";
+                    el.style.boxShadow  = "0 3px 12px rgba(0,0,0,0.22)";
                   }}
                 >
                   <Icon style={{ width: 18, height: 18 }} aria-hidden="true" />
@@ -557,25 +676,34 @@ function QuickActionsFAB({
 
         {/* ── Main FAB ── */}
         <button
-          onClick={() => setOpen(!open)}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           aria-expanded={open}
           aria-haspopup="menu"
-          aria-label={open ? "Close quick actions" : "Open quick actions"}
+          aria-label={isDragging ? "Drag FAB" : open ? "Close quick actions" : "Open quick actions"}
           style={{
-            width: FAB_SIZE,
-            height: FAB_SIZE,
+            width:        FAB_SIZE,
+            height:       FAB_SIZE,
             borderRadius: "50%",
-            border: "none",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
+            border:       "none",
+            cursor:       isDragging ? "grabbing" : "grab",
+            display:      "flex",
+            alignItems:   "center",
             justifyContent: "center",
-            flexShrink: 0,
-            transform: open ? "rotate(45deg)" : "rotate(0deg)",
-            transition: "transform 240ms cubic-bezier(0.34,1.4,0.64,1), box-shadow 150ms ease",
-            boxShadow: open
-              ? "0 6px 28px rgba(2,132,199,0.45)"
-              : "0 4px 20px rgba(0,0,0,0.28)",
+            flexShrink:   0,
+            touchAction:  "none",       // prevent scroll interference on mobile
+            userSelect:   "none",
+            transform:    open && !isDragging ? "rotate(45deg)" : "rotate(0deg)",
+            transition:   isDragging
+              ? "box-shadow 80ms ease"  // no rotation transition during drag
+              : "transform 240ms cubic-bezier(0.34,1.4,0.64,1), box-shadow 150ms ease",
+            boxShadow:    isDragging
+              ? "0 8px 32px rgba(0,0,0,0.38)"
+              : open
+                ? "0 6px 28px rgba(2,132,199,0.50)"
+                : "0 4px 20px rgba(0,0,0,0.28)",
           }}
           className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
         >

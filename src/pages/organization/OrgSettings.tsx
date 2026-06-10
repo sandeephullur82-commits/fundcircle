@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useOrganization, useUser } from "@clerk/clerk-react";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, updateDoc, deleteField } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { membershipIdFor } from "@/lib/services";
@@ -18,6 +18,7 @@ import {
   EyeOff,
   ChevronRight,
   Sliders,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,25 @@ export default function OrgSettings() {
       toast.error("Failed to save settings.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const [isResettingFab, setIsResettingFab] = useState(false);
+
+  const resetFabPosition = async () => {
+    if (!organization?.id) return;
+    setIsResettingFab(true);
+    try {
+      await updateDoc(
+        doc(db, "organizations", organization.id, "settings", "ui"),
+        { fabPosition: deleteField() }
+      );
+      toast.success("FAB position reset to default.");
+    } catch {
+      // Document might not exist yet — that's fine, default position is already applied
+      toast.success("FAB position reset to default.");
+    } finally {
+      setIsResettingFab(false);
     }
   };
 
@@ -331,8 +351,29 @@ export default function OrgSettings() {
                 </CardTitle>
                 <CardDescription>Customize the dashboard layout and interface elements.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="text-sm text-slate-500">No additional UI preferences available.</p>
+              <CardContent className="space-y-5">
+                {/* FAB Position */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Quick Actions Button Position</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Drag the floating action button (FAB) anywhere on screen. Its position is saved automatically.
+                      Use the button below to snap it back to the default bottom-right corner.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={resetFabPosition}
+                    disabled={isResettingFab}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    {isResettingFab
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <RotateCcw className="h-4 w-4" />
+                    }
+                    Reset FAB Position
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
