@@ -393,17 +393,18 @@ export default function OrgDashboard() {
   );
 }
 
-// ── Quick Actions FAB + Bottom Sheet ──────────────────────────────────────────
+// ── Quick Actions FAB Speed Dial ──────────────────────────────────────────────
 const FAB_SIZE = 56;
+const DIAL_ITEM_SIZE = 44;
 
 const FAB_ACTIONS = [
-  { id: "addCustomer",      label: "Add Customer",        emoji: "👤", icon: UserPlus,     tab: "customers",   color: "bg-blue-600"    },
-  { id: "addAgent",         label: "Add Agent",           emoji: "👨", icon: UserCheck,    tab: "agents",      color: "bg-sky-600"     },
-  { id: "newSavings",       label: "New Savings Account", emoji: "🏦", icon: PiggyBank,    tab: "savings",     color: "bg-emerald-600" },
-  { id: "newLoan",          label: "New Loan",            emoji: "💰", icon: Landmark,     tab: "loans",       color: "bg-indigo-600"  },
-  { id: "recordCollection", label: "Record Collection",   emoji: "₹",  icon: IndianRupee,  tab: "collections", color: "bg-teal-600"    },
-  { id: "approveLoan",      label: "Approve Loan",        emoji: "✅", icon: CheckCircle2, tab: "loans",       color: "bg-orange-500"  },
-  { id: "generateReport",   label: "Generate Report",     emoji: "📊", icon: BarChart2,    tab: "reports",     color: "bg-purple-600"  },
+  { id: "addCustomer",      label: "Add Customer",        icon: UserPlus,     tab: "customers",   color: "#2563eb" },
+  { id: "addAgent",         label: "Add Agent",           icon: UserCheck,    tab: "agents",      color: "#0284c7" },
+  { id: "newSavings",       label: "New Savings Account", icon: PiggyBank,    tab: "savings",     color: "#059669" },
+  { id: "newLoan",          label: "New Loan",            icon: Landmark,     tab: "loans",       color: "#4f46e5" },
+  { id: "recordCollection", label: "Record Collection",   icon: IndianRupee,  tab: "collections", color: "#0d9488" },
+  { id: "approveLoan",      label: "Approve Loan",        icon: CheckCircle2, tab: "loans",       color: "#ea580c" },
+  { id: "generateReport",   label: "Generate Report",     icon: BarChart2,    tab: "reports",     color: "#9333ea" },
 ] as const;
 
 function QuickActionsFAB({
@@ -422,8 +423,7 @@ function QuickActionsFAB({
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  const sheetTouchStartY = useRef(0);
-
+  // ESC to close
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -436,148 +436,152 @@ function QuickActionsFAB({
     onAction(tab);
   };
 
-  const actionList = (
-    <div style={{ padding: "0 8px 4px" }}>
-      {FAB_ACTIONS.map((action) => {
-        const Icon = action.icon;
-        return (
-          <button
-            key={action.id}
-            onClick={() => handleAction(action.tab)}
-            aria-label={action.label}
-            style={{
-              width: "100%", display: "flex", alignItems: "center", gap: 16,
-              padding: "13px 12px", borderRadius: 14, background: "transparent",
-              border: "none", cursor: "pointer", textAlign: "left",
-            }}
-            onPointerDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#f1f5f9"; }}
-            onPointerUp={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-            onPointerLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-          >
-            <div
-              className={`${action.color} text-white`}
-              style={{ width: 44, height: 44, borderRadius: 13, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-            >
-              <Icon style={{ width: 20, height: 20 }} aria-hidden="true" />
-            </div>
-            <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{action.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
+  const fabBottom = isMobile ? 80 : 24;
+  const fabRight  = isMobile ? 16 : 24;
 
   return (
     <>
-      {/* ── Fixed FAB — bottom-right always ── */}
-      <button
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={open ? "Close quick actions" : "Open quick actions"}
+      {/* ── Invisible backdrop — captures outside click ── */}
+      {open && (
+        <div
+          aria-hidden="true"
+          onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 9990 }}
+        />
+      )}
+
+      {/* ── Speed Dial container — anchored bottom-right ── */}
+      <div
+        role="group"
+        aria-label="Quick actions"
         style={{
           position: "fixed",
-          bottom: isMobile ? 80 : 24,
-          right: isMobile ? 16 : 24,
-          width: FAB_SIZE,
-          height: FAB_SIZE,
+          bottom: fabBottom,
+          right: fabRight,
           zIndex: 9999,
-          borderRadius: "50%",
-          transform: open ? "rotate(45deg)" : "rotate(0deg)",
-          transition: "transform 220ms ease",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          gap: 10,
+          // Expand upward: dial items sit above the FAB
         }}
-        className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white shadow-[0_4px_24px_rgba(0,0,0,0.30)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
       >
-        <Plus className="w-6 h-6" aria-hidden="true" />
-      </button>
-
-      {/* ── Bottom sheet / centered dialog ── */}
-      {open && (
-        <>
-          {/* Scrim */}
-          <div
-            aria-hidden="true"
-            onClick={() => setOpen(false)}
-            style={{
-              position: "fixed", inset: 0, zIndex: 10000,
-              background: "rgba(0,0,0,0.48)",
-              backdropFilter: "blur(4px)",
-            }}
-          />
-
-          {isMobile ? (
-            /* ── Mobile: bottom sheet ── */
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="qa-sheet-title"
-              style={{
-                position: "fixed", bottom: 0, left: 0, right: 0,
-                zIndex: 10001,
-                borderRadius: "20px 20px 0 0",
-                background: "#ffffff",
-                boxShadow: "0 -8px 48px rgba(0,0,0,0.18)",
-                paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)",
-                animation: "fabSheetUp 260ms cubic-bezier(0.32, 0.72, 0, 1) both",
-              }}
-              onTouchStart={(e) => { sheetTouchStartY.current = e.touches[0].clientY; }}
-              onTouchEnd={(e) => {
-                if (e.changedTouches[0].clientY - sheetTouchStartY.current > 60) setOpen(false);
-              }}
-            >
-              {/* Drag handle */}
-              <div style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 2 }}>
-                <div style={{ width: 40, height: 4, borderRadius: 2, background: "#e2e8f0" }} aria-hidden="true" />
-              </div>
-              <p
-                id="qa-sheet-title"
-                style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", padding: "10px 20px 4px" }}
+        {/* ── Dial items (rendered top-to-bottom, appear bottom-first) ── */}
+        <div
+          role="menu"
+          aria-label="Quick action items"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            gap: 8,
+            marginBottom: 2,
+            // Pointer events only when open — avoids invisible blocking layer
+            pointerEvents: open ? "auto" : "none",
+          }}
+        >
+          {FAB_ACTIONS.map((action, i) => {
+            const Icon = action.icon;
+            // Stagger: bottom item (index 6) enters first → smallest delay for last item
+            const enterDelay = `${i * 35}ms`;
+            const exitDelay  = `${(FAB_ACTIONS.length - 1 - i) * 22}ms`;
+            const delay = open ? enterDelay : exitDelay;
+            return (
+              <div
+                key={action.id}
+                role="menuitem"
+                aria-label={action.label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  opacity:   open ? 1 : 0,
+                  transform: open
+                    ? "scale(1) translateY(0px)"
+                    : "scale(0.72) translateY(12px)",
+                  transition: `opacity 180ms ease ${delay}, transform 210ms cubic-bezier(0.34,1.4,0.64,1) ${delay}`,
+                }}
               >
-                Quick Actions
-              </p>
-              {actionList}
-            </div>
-          ) : (
-            /* ── Desktop: centered action dialog ── */
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="qa-dialog-title"
-              style={{
-                position: "fixed",
-                top: "50%", left: "50%",
-                transform: "translate(-50%, -50%)",
-                zIndex: 10001,
-                borderRadius: 20,
-                background: "#ffffff",
-                boxShadow: "0 20px 64px rgba(0,0,0,0.20)",
-                width: "min(440px, calc(100vw - 32px))",
-                animation: "quickActionsIn 220ms cubic-bezier(0.32, 0.72, 0, 1) both",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 20px 0" }}>
-                <p id="qa-dialog-title" style={{ fontSize: 16, fontWeight: 700, color: "#1e293b" }}>Quick Actions</p>
-                <button
-                  onClick={() => setOpen(false)}
-                  aria-label="Close quick actions"
+                {/* Label pill */}
+                <span
                   style={{
-                    width: 32, height: 32, borderRadius: "50%", border: "none", cursor: "pointer",
-                    background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(15,23,42,0.85)",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: "5px 11px",
+                    borderRadius: 999,
+                    whiteSpace: "nowrap",
+                    userSelect: "none",
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.20)",
+                    backdropFilter: "blur(4px)",
                   }}
                 >
-                  <X style={{ width: 16, height: 16, color: "#64748b" }} aria-hidden="true" />
+                  {action.label}
+                </span>
+                {/* Icon button */}
+                <button
+                  tabIndex={open ? 0 : -1}
+                  aria-label={action.label}
+                  onClick={() => handleAction(action.tab)}
+                  style={{
+                    width: DIAL_ITEM_SIZE,
+                    height: DIAL_ITEM_SIZE,
+                    borderRadius: "50%",
+                    border: "none",
+                    cursor: "pointer",
+                    background: action.color,
+                    color: "#fff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    boxShadow: "0 3px 12px rgba(0,0,0,0.22)",
+                    transition: "transform 120ms ease, box-shadow 120ms ease",
+                  }}
+                  onPointerEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.12)";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 20px rgba(0,0,0,0.28)";
+                  }}
+                  onPointerLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)";
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 3px 12px rgba(0,0,0,0.22)";
+                  }}
+                >
+                  <Icon style={{ width: 18, height: 18 }} aria-hidden="true" />
                 </button>
               </div>
-              <div style={{ paddingTop: 8, paddingBottom: 12 }}>
-                {actionList}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+            );
+          })}
+        </div>
+
+        {/* ── Main FAB ── */}
+        <button
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-label={open ? "Close quick actions" : "Open quick actions"}
+          style={{
+            width: FAB_SIZE,
+            height: FAB_SIZE,
+            borderRadius: "50%",
+            border: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            transform: open ? "rotate(45deg)" : "rotate(0deg)",
+            transition: "transform 240ms cubic-bezier(0.34,1.4,0.64,1), box-shadow 150ms ease",
+            boxShadow: open
+              ? "0 6px 28px rgba(2,132,199,0.45)"
+              : "0 4px 20px rgba(0,0,0,0.28)",
+          }}
+          className="bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+        >
+          <Plus className="w-6 h-6 pointer-events-none" aria-hidden="true" />
+        </button>
+      </div>
     </>
   );
 }

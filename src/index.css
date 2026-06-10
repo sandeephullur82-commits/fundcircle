@@ -183,17 +183,6 @@
   background-color: rgba(148, 163, 184, 0.6);
 }
 
-/* ── FAB bottom sheet slide-up animation ─────────────────────────────────── */
-@keyframes fabSheetUp {
-  from { transform: translateY(100%); }
-  to   { transform: translateY(0); }
-}
-
-/* ── Quick Actions desktop dialog pop-in ─────────────────────────────────── */
-@keyframes quickActionsIn {
-  from { opacity: 0; transform: translate(-50%, -46%) scale(0.96); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
 
 /* ── fc-input: standard form field utility class ─────────────────────────── */
 .fc-input {
