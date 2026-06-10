@@ -26,8 +26,21 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const { organization } = useOrganization();
   const { getToken } = useAuth();
 
+  const agentId = user?.id || "";
+  const activeCollectorRole = collectorRole || "AGENT";
+  const activeCollectorName = collectorName || user?.fullName || "Collector";
+  const activeCollectorId = collectorId || user?.id || "";
+
   const { data: orgDoc } = useDocumentRealtime<any>("organizations", organization?.id ?? null);
-  const { data: allCustomers, loading } = useCollectionRealtime<Membership>("organizationMembers", [where("role", "==", "CUSTOMER")]);
+  // Firestore-level filter: only fetch customers assigned to this agent
+  const { data: allCustomers, loading } = useCollectionRealtime<Membership>("organizationMembers", [
+    where("role", "==", "CUSTOMER"),
+    where("assignedAgentId", "==", agentId || "NONE"),
+  ]);
+  // Separate org-wide count for plan limit checking
+  const { data: orgCustomers } = useCollectionRealtime<Membership>("organizationMembers", [
+    where("role", "==", "CUSTOMER"),
+  ]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
@@ -48,26 +61,20 @@ export default function AgentCustomers({ collectorRole = "AGENT", collectorName 
   const [isRequestingUpgrade, setIsRequestingUpgrade] = useState(false);
   const [upgradeRequestSent, setUpgradeRequestSent] = useState(false);
 
-  const agentId = user?.id || "";
-  const activeCollectorRole = collectorRole || "AGENT";
-  const activeCollectorName = collectorName || user?.fullName || "Collector";
-  const activeCollectorId = collectorId || user?.id || "";
-
   const currentPlan = orgDoc?.plan ?? "free";
   const PLAN_CUSTOMER_DEFAULTS: Record<string, number> = { free: 10, starter: 100, growth: 500, enterprise: 5000 };
   const maxCustomers: number = Math.max(orgDoc?.limits?.maxCustomers || PLAN_CUSTOMER_DEFAULTS[currentPlan] || 10, 1);
-  const activeCustomerCount = allCustomers.filter((c: any) => c.status === "ACTIVE").length;
+  // Use org-wide count for limit enforcement
+  const activeCustomerCount = orgCustomers.filter((c: any) => c.status === "ACTIVE").length;
   const pendingCustomerCount = allCustomers.filter((c: any) => c.status === "PENDING_SETUP").length;
   const atLimit = activeCustomerCount >= maxCustomers;
 
-  // Show customers assigned to this agent from organizationMembers (correct source)
+  // allCustomers is already Firestore-scoped to this agent; just apply search filter
   const myCustomers = allCustomers.filter((c: any) => {
-    const assignedToMe = c.assignedAgentId === agentId || c.assigned_to_user_id === agentId;
-    const nameMatch = !searchTerm ||
+    return !searchTerm ||
       ((c.fullName || c.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
       (c.phone || "").includes(searchTerm) ||
       (c.email || "").toLowerCase().includes(searchTerm.toLowerCase());
-    return assignedToMe && nameMatch;
   });
 
   const handleAddCustomerClick = () => {

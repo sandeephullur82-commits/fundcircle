@@ -140,11 +140,13 @@ export default function LoanApprovalDialog({
     setGuarantorName(""); setGuarantorPhone(""); setGuarantorRelation("");
     setApprovalNotes(loan?.approvalNotes || "");
     if (loan?.loanAssignedCollectorId) {
-      setCollectorId(loan.loanAssignedCollectorId);
+      const stored = loan.loanAssignedCollectorId;
+      const found = collectors.find((c) => c.id === stored || (c as any).clerkUserId === stored);
+      setCollectorId(found?.id || "");
     } else {
       const agentId = (customer as any)?.assignedAgentId || "";
-      const found = collectors.find((c) => c.id === agentId);
-      if (found) setCollectorId(agentId);
+      const found = collectors.find((c) => c.id === agentId || (c as any).clerkUserId === agentId);
+      if (found) setCollectorId(found.id);
       else if (collectors.length === 1) setCollectorId(collectors[0].id);
       else setCollectorId("");
     }
@@ -236,7 +238,7 @@ export default function LoanApprovalDialog({
     const fEmiDate       = firstEmiDate ? new Date(firstEmiDate) : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; })();
     const disbRef        = buildDisbRef();
     const collectorParams = {
-      loanAssignedCollectorId:   collector?.id || collectorId || "",
+      loanAssignedCollectorId:   (collector as any)?.clerkUserId || collector?.id || collectorId || "",
       loanAssignedCollectorName: collector ? ((collector.fullName || (collector as any).name) ?? "") : "",
       loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
     };

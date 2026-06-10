@@ -20,8 +20,10 @@ export default function AgentPending() {
   const { organization } = useOrganization();
   const agentId = user?.id || "";
 
+  // Firestore-level filter: only fetch customers assigned to this agent
   const { data: allMembers, loading: membersLoading } = useCollectionRealtime<Membership>("organizationMembers", [
     where("role", "in", ["CUSTOMER", "customer"]),
+    where("assignedAgentId", "==", agentId || "NONE"),
   ]);
   const { data: collections } = useCollectionRealtime<Collection>("collections");
   const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
@@ -30,10 +32,9 @@ export default function AgentPending() {
 
   const today = startOfDay(new Date());
 
+  // allMembers is already scoped to this agent; just filter by active status
   const myCustomers = allMembers.filter((m) => {
-    const isAssigned = m.assignedAgentId === agentId || m.assigned_to_user_id === agentId;
-    const isActive = (m as any).status === "ACTIVE";
-    return isAssigned && isActive;
+    return (m as any).status === "ACTIVE";
   });
 
   const myCollections = collections.filter((c) => c.agentId === agentId);

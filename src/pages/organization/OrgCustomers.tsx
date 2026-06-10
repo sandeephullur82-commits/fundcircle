@@ -265,7 +265,7 @@ export default function OrgCustomers() {
         role: "CUSTOMER",
         organizationId: organization.id,
         organizationName: organization.name || "",
-        assignedAgentId: collectorToAssign.id,
+        assignedAgentId: (collectorToAssign as any).clerkUserId || collectorToAssign.id,
         assignedAgentName: collectorToAssign.fullName || (collectorToAssign as any).name || "",
         assignedCollectorRole: (collectorToAssign.role as string) || "AGENT",
         customerType,
@@ -293,7 +293,11 @@ export default function OrgCustomers() {
       phone: customer.nomineePhone || customer.nominee?.phone || "",
       address: customer.nomineeAddress || customer.nominee?.address || "",
     });
-    setEditCollectorId((customer as any).assignedAgentId || "");
+    const assignedId = (customer as any).assignedAgentId || "";
+    const matchedColl = allCollectors.find(
+      (c: any) => c.id === assignedId || c.clerkUserId === assignedId
+    );
+    setEditCollectorId(matchedColl?.id || "");
     setEditCustomerType(((customer as any).customerType as any) || "SAVINGS_LOAN");
     setEditNotes((customer as any).notes || "");
     setNomineeOverrideReason("");
@@ -354,7 +358,7 @@ export default function OrgCustomers() {
         customerType: editCustomerType,
         notes: cleanNotes,
         ...(newCollector ? {
-          assignedAgentId: newCollector.id,
+          assignedAgentId: (newCollector as any).clerkUserId || newCollector.id,
           assignedAgentName: newCollector.fullName || (newCollector as any).name || "",
         } : {}),
         updatedAt: serverTimestamp(),
@@ -427,7 +431,7 @@ export default function OrgCustomers() {
     try {
       await reassignCustomer({
         customerId: reassigningCustomer.id,
-        newCollectorId,
+        newCollectorId: (newCollector as any).clerkUserId || newCollectorId,
         newCollectorName: newCollector.fullName || (newCollector as any).name || "",
         oldCollectorId: (reassigningCustomer as any).assignedAgentId || "",
         oldCollectorName: (reassigningCustomer as any).assignedAgentName || "",
@@ -785,8 +789,9 @@ export default function OrgCustomers() {
                   </TableRow>
                 ) : (
                   filteredCustomers.map((customer) => {
+                    const _aid = (customer as any).assignedAgentId || customer.agentId || "";
                     const assignedCollector = allCollectors.find(
-                      (c) => c.id === ((customer as any).assignedAgentId || customer.agentId)
+                      (c: any) => c.id === _aid || c.clerkUserId === _aid
                     );
                     const savingsBalance = savingsBalanceByCustomer[customer.id] || 0;
                     const activeLoans = activeLoansByCustomer[customer.id] || 0;
@@ -851,7 +856,12 @@ export default function OrgCustomers() {
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                             {collectorsForAssignment.length > 1 && (
-                              <button onClick={() => { setReassigningCustomer(customer); setNewCollectorId((customer as any).assignedAgentId || ""); }}
+                              <button onClick={() => {
+                              setReassigningCustomer(customer);
+                              const _aid2 = (customer as any).assignedAgentId || "";
+                              const _mc = collectorsForAssignment.find((c: any) => c.id === _aid2 || c.clerkUserId === _aid2);
+                              setNewCollectorId(_mc?.id || "");
+                            }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors" title="Reassign">
                                 <RefreshCw className="w-3.5 h-3.5" />
                               </button>
@@ -886,8 +896,9 @@ export default function OrgCustomers() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {filteredCustomers.map((customer) => {
+                  const _aidM = (customer as any).assignedAgentId || customer.agentId || "";
                   const assignedCollector = allCollectors.find(
-                    (c) => c.id === ((customer as any).assignedAgentId || customer.agentId)
+                    (c: any) => c.id === _aidM || c.clerkUserId === _aidM
                   );
                   const savingsBalance = savingsBalanceByCustomer[customer.id] || 0;
                   const activeLoans = activeLoansByCustomer[customer.id] || 0;
@@ -924,7 +935,12 @@ export default function OrgCustomers() {
                           <div className="flex gap-1">
                             <button onClick={() => handleOpenEdit(customer)} className="p-1 rounded text-slate-400 hover:text-emerald-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                             {collectorsForAssignment.length > 1 && (
-                              <button onClick={() => { setReassigningCustomer(customer); setNewCollectorId((customer as any).assignedAgentId || ""); }}
+                              <button onClick={() => {
+                                setReassigningCustomer(customer);
+                                const _aid3 = (customer as any).assignedAgentId || "";
+                                const _mc3 = collectorsForAssignment.find((c: any) => c.id === _aid3 || c.clerkUserId === _aid3);
+                                setNewCollectorId(_mc3?.id || "");
+                              }}
                                 className="p-1 rounded text-slate-400 hover:text-sky-600 transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
                             )}
                             <button onClick={() => setDeactivateCustomer(customer)} className="p-1 rounded text-slate-400 hover:text-red-600 transition-colors"><UserX className="w-3.5 h-3.5" /></button>
