@@ -5,14 +5,15 @@ import {
   ArrowUpCircle, X, Plus, UserPlus, UserCheck, PiggyBank,
   Landmark, IndianRupee, CheckCircle2, BarChart2,
 } from "lucide-react";
+import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useState, useEffect, useRef } from "react";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import React, { useState, useEffect, useRef } from "react";
+import { doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 import { where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { membershipIdFor, ignoreUpgradeRequest } from "@/lib/services";
@@ -382,11 +383,12 @@ export default function OrgDashboard() {
       </nav>
 
       {/* FAB Speed Dial — admin mode only */}
-      {mode === "admin" && (
+      {mode === "admin" && organization?.id && (
         <FABSpeedDial
           open={fabOpen}
           setOpen={setFabOpen}
           onAction={(tab) => { setActiveTab(tab); setFabOpen(false); }}
+          orgId={organization.id}
         />
       )}
     </div>
@@ -394,92 +396,238 @@ export default function OrgDashboard() {
 }
 
 // ── FAB Speed Dial ────────────────────────────────────────────────────────────
+const FAB_SIZE = 56;
+const FAB_MARGIN = 24;
+
 const FAB_ACTIONS = [
-  { id: "addCustomer",      label: "Add Customer",       icon: UserPlus,      tab: "customers",   color: "bg-blue-600 hover:bg-blue-700",    ring: "focus-visible:ring-blue-400" },
-  { id: "addAgent",         label: "Add Agent",          icon: UserCheck,     tab: "agents",      color: "bg-sky-600 hover:bg-sky-700",      ring: "focus-visible:ring-sky-400" },
-  { id: "newSavings",       label: "New Savings Account",icon: PiggyBank,     tab: "savings",     color: "bg-emerald-600 hover:bg-emerald-700", ring: "focus-visible:ring-emerald-400" },
-  { id: "newLoan",          label: "New Loan",           icon: Landmark,      tab: "loans",       color: "bg-indigo-600 hover:bg-indigo-700", ring: "focus-visible:ring-indigo-400" },
-  { id: "recordCollection", label: "Record Collection",  icon: IndianRupee,   tab: "collections", color: "bg-teal-600 hover:bg-teal-700",    ring: "focus-visible:ring-teal-400" },
-  { id: "approveLoan",      label: "Approve Loan",       icon: CheckCircle2,  tab: "loans",       color: "bg-orange-500 hover:bg-orange-600", ring: "focus-visible:ring-orange-400" },
-  { id: "generateReport",   label: "Generate Report",    icon: BarChart2,     tab: "reports",     color: "bg-purple-600 hover:bg-purple-700", ring: "focus-visible:ring-purple-400" },
+  { id: "addCustomer",      label: "Add Customer",        icon: UserPlus,     tab: "customers",   color: "bg-blue-600 hover:bg-blue-700",      ring: "focus-visible:ring-blue-400" },
+  { id: "addAgent",         label: "Add Agent",           icon: UserCheck,    tab: "agents",      color: "bg-sky-600 hover:bg-sky-700",        ring: "focus-visible:ring-sky-400" },
+  { id: "newSavings",       label: "New Savings Account", icon: PiggyBank,    tab: "savings",     color: "bg-emerald-600 hover:bg-emerald-700", ring: "focus-visible:ring-emerald-400" },
+  { id: "newLoan",          label: "New Loan",            icon: Landmark,     tab: "loans",       color: "bg-indigo-600 hover:bg-indigo-700",  ring: "focus-visible:ring-indigo-400" },
+  { id: "recordCollection", label: "Record Collection",   icon: IndianRupee,  tab: "collections", color: "bg-teal-600 hover:bg-teal-700",      ring: "focus-visible:ring-teal-400" },
+  { id: "approveLoan",      label: "Approve Loan",        icon: CheckCircle2, tab: "loans",       color: "bg-orange-500 hover:bg-orange-600",  ring: "focus-visible:ring-orange-400" },
+  { id: "generateReport",   label: "Generate Report",     icon: BarChart2,    tab: "reports",     color: "bg-purple-600 hover:bg-purple-700",  ring: "focus-visible:ring-purple-400" },
 ] as const;
 
-function FABSpeedDial({
-  open, setOpen, onAction,
-}: { open: boolean; setOpen: (v: boolean) => void; onAction: (tab: string) => void }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+function clampFABPos(x: number, y: number) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  return {
+    x: Math.max(8, Math.min(vw - FAB_SIZE - 8, x)),
+    y: Math.max(8, Math.min(vh - FAB_SIZE - 8, y)),
+  };
+}
 
-  // Close on ESC
+function defaultFABPos() {
+  return clampFABPos(
+    window.innerWidth - FAB_SIZE - FAB_MARGIN,
+    window.innerHeight - FAB_SIZE - FAB_MARGIN,
+  );
+}
+
+function FABSpeedDial({
+  open, setOpen, onAction, orgId,
+}: {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+  onAction: (tab: string) => void;
+  orgId: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // posRef tracks live position — used directly for DOM mutations (no re-render during drag)
+  const posRef = useRef(defaultFABPos());
+  // Separate state only for things that need a React re-render
+  const [posLoaded, setPosLoaded] = useState(false);
+  const [openUpward, setOpenUpward] = useState(true);
+
+  const drag = useRef({
+    active: false,
+    startClientX: 0,
+    startClientY: 0,
+    startPosX: 0,
+    startPosY: 0,
+    moved: false,
+    rafId: null as number | null,
+  });
+
+  // Apply position to DOM element directly (avoids re-render during RAF loop)
+  const applyPos = useCallback((x: number, y: number, skipDOMWrite = false) => {
+    posRef.current = { x, y };
+    if (!skipDOMWrite && containerRef.current) {
+      containerRef.current.style.left = `${x}px`;
+      containerRef.current.style.top = `${y}px`;
+    }
+    // Update dial direction when position changes
+    setOpenUpward(y > window.innerHeight * 0.35);
+  }, []);
+
+  // ── Realtime Firestore position sync ──────────────────────────────────────
+  useEffect(() => {
+    if (!orgId) return;
+    const uiRef = doc(db, "organizations", orgId, "settings", "ui");
+    const unsub = onSnapshot(uiRef, (snap) => {
+      const data = snap.data();
+      if (data?.fabPosition?.x !== undefined && data?.fabPosition?.y !== undefined) {
+        const clamped = clampFABPos(data.fabPosition.x, data.fabPosition.y);
+        // Don't interrupt an active drag from another device
+        if (!drag.current.active) applyPos(clamped.x, clamped.y);
+      } else {
+        const def = defaultFABPos();
+        if (!drag.current.active) applyPos(def.x, def.y);
+      }
+      setPosLoaded(true);
+    });
+    return () => unsub();
+  }, [orgId, applyPos]);
+
+  // ── Save position to Firestore ─────────────────────────────────────────────
+  const savePos = useCallback(async (x: number, y: number) => {
+    if (!orgId) return;
+    try {
+      await setDoc(
+        doc(db, "organizations", orgId, "settings", "ui"),
+        { fabPosition: { x, y }, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (_) {}
+  }, [orgId]);
+
+  // ── Drag: pointer events on FAB button ────────────────────────────────────
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    // Only primary button / first touch
+    if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+    const d = drag.current;
+    d.active = true;
+    d.moved = false;
+    d.startClientX = e.clientX;
+    d.startClientY = e.clientY;
+    d.startPosX = posRef.current.x;
+    d.startPosY = posRef.current.y;
+    // Capture pointer so move/up fire even when cursor leaves the element
+    (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = drag.current;
+    if (!d.active) return;
+    const dx = e.clientX - d.startClientX;
+    const dy = e.clientY - d.startClientY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) d.moved = true;
+    if (!d.moved) return;
+    e.preventDefault();
+    const newX = d.startPosX + dx;
+    const newY = d.startPosY + dy;
+    // Schedule DOM update via RAF for smoothness
+    if (d.rafId !== null) cancelAnimationFrame(d.rafId);
+    d.rafId = requestAnimationFrame(() => {
+      const clamped = clampFABPos(newX, newY);
+      applyPos(clamped.x, clamped.y);
+      d.rafId = null;
+    });
+  }, [applyPos]);
+
+  const onPointerUp = useCallback((_e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = drag.current;
+    if (!d.active) return;
+    d.active = false;
+    if (d.rafId !== null) { cancelAnimationFrame(d.rafId); d.rafId = null; }
+    if (d.moved) {
+      // Drag ended — persist final position
+      savePos(posRef.current.x, posRef.current.y);
+    } else {
+      // Tap/click — toggle speed dial
+      setOpen(!open);
+    }
+  }, [open, setOpen, savePos]);
+
+  // ── Close on ESC ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
   }, [open, setOpen]);
 
-  // Close on outside click
+  // ── Close on outside click ────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const h = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
   }, [open, setOpen]);
+
+  // Don't render until Firestore has resolved (avoids flash at wrong position)
+  if (!posLoaded) return null;
+
+  const { x, y } = posRef.current;
+  // Speed dial items are absolutely positioned above or below the FAB
+  const dialClass = openUpward
+    ? "absolute bottom-[68px] right-0 flex flex-col-reverse items-end gap-3"
+    : "absolute top-[68px] right-0 flex flex-col items-end gap-3";
 
   return (
     <div
       ref={containerRef}
-      className="fixed bottom-6 right-6 z-50 flex flex-col-reverse items-end gap-3"
+      style={{ position: "fixed", left: x, top: y, width: FAB_SIZE, zIndex: 50 }}
       role="group"
       aria-label="Quick actions"
     >
-      {/* ── Speed dial items ── */}
-      {FAB_ACTIONS.map((action, i) => {
-        const Icon = action.icon;
-        // Stagger: items fan upward, lowest index = closest to FAB button
-        const delay = open ? `${i * 35}ms` : `${(FAB_ACTIONS.length - 1 - i) * 25}ms`;
-        return (
-          <div
-            key={action.id}
-            className="flex items-center gap-3 justify-end"
-            style={{
-              transitionDelay: delay,
-              opacity: open ? 1 : 0,
-              transform: open ? "scale(1) translateY(0)" : "scale(0.7) translateY(12px)",
-              transition: "opacity 180ms ease, transform 180ms ease",
-              pointerEvents: open ? "auto" : "none",
-            }}
-          >
-            {/* Label pill */}
-            <span className="bg-slate-900/90 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap backdrop-blur-sm select-none">
-              {action.label}
-            </span>
-            {/* Action button */}
-            <button
-              tabIndex={open ? 0 : -1}
-              aria-label={action.label}
-              onClick={() => onAction(action.tab)}
-              className={`w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${action.color} ${action.ring}`}
+      {/* ── Speed dial items (absolutely positioned to not affect FAB layout) ── */}
+      <div className={dialClass} style={{ pointerEvents: "none" }}>
+        {FAB_ACTIONS.map((action, i) => {
+          const Icon = action.icon;
+          const delay = open
+            ? `${i * 35}ms`
+            : `${(FAB_ACTIONS.length - 1 - i) * 25}ms`;
+          return (
+            <div
+              key={action.id}
+              className="flex items-center gap-3 justify-end"
+              style={{
+                transitionDelay: delay,
+                opacity: open ? 1 : 0,
+                transform: open ? "scale(1) translateY(0)" : "scale(0.8) translateY(8px)",
+                transition: "opacity 180ms ease, transform 180ms ease",
+                pointerEvents: open ? "auto" : "none",
+              }}
             >
-              <Icon className="w-4.5 h-4.5" aria-hidden="true" />
-            </button>
-          </div>
-        );
-      })}
+              <span className="bg-slate-900/90 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap backdrop-blur-sm select-none">
+                {action.label}
+              </span>
+              <button
+                tabIndex={open ? 0 : -1}
+                aria-label={action.label}
+                onClick={() => onAction(action.tab)}
+                className={`w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${action.color} ${action.ring}`}
+              >
+                <Icon className="w-4.5 h-4.5" aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
 
-      {/* ── Main FAB trigger ── */}
+      {/* ── Main FAB button ── */}
       <button
-        onClick={() => setOpen(!open)}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         aria-expanded={open}
         aria-haspopup="true"
-        aria-label={open ? "Close quick actions" : "Open quick actions"}
-        className={`w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 active:scale-95 text-white shadow-[0_4px_20px_rgba(0,0,0,0.25)] flex items-center justify-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 ${open ? "rotate-45" : "rotate-0"}`}
-        style={{ transition: "transform 220ms ease, background-color 150ms ease, box-shadow 150ms ease" }}
+        aria-label={open ? "Close quick actions" : "Open quick actions (drag to move)"}
+        style={{
+          transform: open ? "rotate(45deg)" : "rotate(0deg)",
+          transition: drag.current.active
+            ? "none"
+            : "transform 220ms ease, background-color 150ms ease, box-shadow 150ms ease",
+        }}
+        className="w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 text-white shadow-[0_4px_20px_rgba(0,0,0,0.28)] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 touch-none select-none cursor-grab active:cursor-grabbing"
       >
-        <Plus className="w-6 h-6" aria-hidden="true" />
+        <Plus className="w-6 h-6 pointer-events-none" aria-hidden="true" />
       </button>
     </div>
   );

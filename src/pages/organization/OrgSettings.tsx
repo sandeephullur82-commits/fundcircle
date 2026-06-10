@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useOrganization, useUser } from "@clerk/clerk-react";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, deleteField, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { membershipIdFor } from "@/lib/services";
@@ -17,6 +17,8 @@ import {
   Eye,
   EyeOff,
   ChevronRight,
+  Sliders,
+  RotateCcw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -114,11 +116,31 @@ export default function OrgSettings() {
     }
   };
 
+  const [isResettingFAB, setIsResettingFAB] = useState(false);
+
+  const resetFABPosition = async () => {
+    if (!organization?.id) return;
+    setIsResettingFAB(true);
+    try {
+      await updateDoc(
+        doc(db, "organizations", organization.id, "settings", "ui"),
+        { fabPosition: deleteField(), updatedAt: serverTimestamp() }
+      );
+      toast.success("FAB position reset to default (bottom right).");
+    } catch {
+      // Document may not exist yet — that's fine, default position is already bottom-right
+      toast.success("FAB position is already at default (bottom right).");
+    } finally {
+      setIsResettingFAB(false);
+    }
+  };
+
   const sections = [
     { id: "organization", label: "Organization", icon: Building2 },
     { id: "profile", label: "Profile", icon: User },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "security", label: "Security", icon: Shield },
+    { id: "ui", label: "UI Preferences", icon: Sliders },
   ] as const;
 
   return (
@@ -315,6 +337,47 @@ export default function OrgSettings() {
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Save Preferences
                 </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === "ui" && (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Sliders className="h-5 w-5 text-slate-500" />
+                  UI Preferences
+                </CardTitle>
+                <CardDescription>Customize the dashboard layout and interface elements.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-5 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
+                      <RotateCcw className="w-5 h-5 text-sky-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">Floating Action Button Position</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        The FAB can be dragged anywhere on screen. Its position is saved per organization and syncs across all devices in real time.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 pt-1">
+                    <Button
+                      variant="outline"
+                      onClick={resetFABPosition}
+                      disabled={isResettingFAB}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      {isResettingFAB
+                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                        : <RotateCcw className="h-4 w-4" />}
+                      Reset FAB Position
+                    </Button>
+                    <p className="text-xs text-slate-400">Moves the button back to the bottom-right corner.</p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}
