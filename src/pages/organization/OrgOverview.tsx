@@ -337,25 +337,6 @@ export default function OrgOverview() {
           </CardContent>
         </Card>
 
-        <Card className="shadow-sm">
-          <CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {[
-              { label: "Add Customer", tab: "customers", color: "bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100" },
-              { label: "Add Agent", tab: "agents", color: "bg-sky-50 text-sky-700 border-sky-100 hover:bg-sky-100" },
-              { label: "Approve Loans", tab: "loans", color: "bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100" },
-              { label: "View Collections", tab: "collections", color: "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100" },
-              { label: "Generate Reports", tab: "reports", color: "bg-slate-50 text-slate-700 border-slate-100 hover:bg-slate-100" },
-              { label: "Audit Logs", tab: "auditLogs", color: "bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100" },
-            ].map((action) => (
-              <button key={action.tab}
-                onClick={() => window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: action.tab }))}
-                className={`w-full p-3 rounded-xl border text-sm font-semibold text-left transition-colors ${action.color}`}>
-                {action.label}
-              </button>
-            ))}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

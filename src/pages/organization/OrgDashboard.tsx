@@ -2,7 +2,8 @@ import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
   Bell, Menu, CalendarDays, ClipboardList, LayoutDashboard,
-  ArrowUpCircle, X,
+  ArrowUpCircle, X, Plus, UserPlus, UserCheck, PiggyBank,
+  Landmark, IndianRupee, CheckCircle2, BarChart2,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeClerkRole, isAgentRole, isCustomerRole, isOwnerRole } from "@/lib/auth/get-user-role";
@@ -52,6 +53,7 @@ export default function OrgDashboard() {
   const { isLoaded: isOrgLoaded, organization, membership: clerkOrgMembership } = useOrganization();
   const [activeTab, setActiveTab] = useState("overview");
   const [mode, setMode] = useState<"admin" | "collector">("admin");
+  const [fabOpen, setFabOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
@@ -378,6 +380,107 @@ export default function OrgDashboard() {
           );
         })}
       </nav>
+
+      {/* FAB Speed Dial — admin mode only */}
+      {mode === "admin" && (
+        <FABSpeedDial
+          open={fabOpen}
+          setOpen={setFabOpen}
+          onAction={(tab) => { setActiveTab(tab); setFabOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── FAB Speed Dial ────────────────────────────────────────────────────────────
+const FAB_ACTIONS = [
+  { id: "addCustomer",      label: "Add Customer",       icon: UserPlus,      tab: "customers",   color: "bg-blue-600 hover:bg-blue-700",    ring: "focus-visible:ring-blue-400" },
+  { id: "addAgent",         label: "Add Agent",          icon: UserCheck,     tab: "agents",      color: "bg-sky-600 hover:bg-sky-700",      ring: "focus-visible:ring-sky-400" },
+  { id: "newSavings",       label: "New Savings Account",icon: PiggyBank,     tab: "savings",     color: "bg-emerald-600 hover:bg-emerald-700", ring: "focus-visible:ring-emerald-400" },
+  { id: "newLoan",          label: "New Loan",           icon: Landmark,      tab: "loans",       color: "bg-indigo-600 hover:bg-indigo-700", ring: "focus-visible:ring-indigo-400" },
+  { id: "recordCollection", label: "Record Collection",  icon: IndianRupee,   tab: "collections", color: "bg-teal-600 hover:bg-teal-700",    ring: "focus-visible:ring-teal-400" },
+  { id: "approveLoan",      label: "Approve Loan",       icon: CheckCircle2,  tab: "loans",       color: "bg-orange-500 hover:bg-orange-600", ring: "focus-visible:ring-orange-400" },
+  { id: "generateReport",   label: "Generate Report",    icon: BarChart2,     tab: "reports",     color: "bg-purple-600 hover:bg-purple-700", ring: "focus-visible:ring-purple-400" },
+] as const;
+
+function FABSpeedDial({
+  open, setOpen, onAction,
+}: { open: boolean; setOpen: (v: boolean) => void; onAction: (tab: string) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close on ESC
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, setOpen]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, setOpen]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="fixed bottom-6 right-6 z-50 flex flex-col-reverse items-end gap-3"
+      role="group"
+      aria-label="Quick actions"
+    >
+      {/* ── Speed dial items ── */}
+      {FAB_ACTIONS.map((action, i) => {
+        const Icon = action.icon;
+        // Stagger: items fan upward, lowest index = closest to FAB button
+        const delay = open ? `${i * 35}ms` : `${(FAB_ACTIONS.length - 1 - i) * 25}ms`;
+        return (
+          <div
+            key={action.id}
+            className="flex items-center gap-3 justify-end"
+            style={{
+              transitionDelay: delay,
+              opacity: open ? 1 : 0,
+              transform: open ? "scale(1) translateY(0)" : "scale(0.7) translateY(12px)",
+              transition: "opacity 180ms ease, transform 180ms ease",
+              pointerEvents: open ? "auto" : "none",
+            }}
+          >
+            {/* Label pill */}
+            <span className="bg-slate-900/90 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap backdrop-blur-sm select-none">
+              {action.label}
+            </span>
+            {/* Action button */}
+            <button
+              tabIndex={open ? 0 : -1}
+              aria-label={action.label}
+              onClick={() => onAction(action.tab)}
+              className={`w-11 h-11 rounded-full text-white shadow-lg flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${action.color} ${action.ring}`}
+            >
+              <Icon className="w-4.5 h-4.5" aria-hidden="true" />
+            </button>
+          </div>
+        );
+      })}
+
+      {/* ── Main FAB trigger ── */}
+      <button
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label={open ? "Close quick actions" : "Open quick actions"}
+        className={`w-14 h-14 rounded-full bg-sky-600 hover:bg-sky-700 active:scale-95 text-white shadow-[0_4px_20px_rgba(0,0,0,0.25)] flex items-center justify-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 ${open ? "rotate-45" : "rotate-0"}`}
+        style={{ transition: "transform 220ms ease, background-color 150ms ease, box-shadow 150ms ease" }}
+      >
+        <Plus className="w-6 h-6" aria-hidden="true" />
+      </button>
     </div>
   );
 }
