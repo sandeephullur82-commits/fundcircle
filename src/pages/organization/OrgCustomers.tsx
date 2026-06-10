@@ -14,7 +14,7 @@ import { db } from "@/lib/firebase";
 import {
   Search, Plus, AlertTriangle, Crown, Users, ChevronDown, RefreshCw,
   Loader2, KeyRound, Copy, Check, ShieldCheck, Pencil, UserX, Eye, Phone,
-  MapPin, FileText, UserCheck,
+  MapPin, FileText, UserCheck, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import FieldError from "@/components/ui/FieldError";
@@ -141,6 +141,10 @@ export default function OrgCustomers() {
   const atLimit = activeCustomers >= maxCustomers;
 
   // ── Check if any customer has legacy membership-doc-ID format in assignedAgentId ──
+  // Real-time derived value: is the customer in the edit dialog loan-locked?
+  const custActiveLoansInEdit = editCustomer ? (activeLoansByCustomer[editCustomer.id] || 0) : 0;
+  const editTypeLocked = custActiveLoansInEdit > 0;
+
   const needsMigration = !migrationDone && customers.some((c: any) => {
     const aid: string = (c as any).assignedAgentId || "";
     return aid && !aid.startsWith("user_") && aid.includes("_");
@@ -341,25 +345,29 @@ export default function OrgCustomers() {
       if (!phoneRes.valid) { toast.error(phoneRes.error); return; }
     }
     if (editAddress.trim().length > 500) { toast.error("Address cannot exceed 500 characters."); return; }
-    const cleanPhone = editPhone ? editPhone.replace(/\D/g, "").slice(0, 10) : "";
-    const cleanAddress = sanitizeMultiline(editAddress, 500);
-    const cleanNomineeName = sanitizeName(editNominee.name);
-    const cleanNomineeRelation = (editNominee.relation || "").trim();
-    const cleanNomineePhone = editNominee.phone ? editNominee.phone.replace(/\D/g, "").slice(0, 10) : "";
-    const cleanNomineeAddress = sanitizeMultiline(editNominee.address || "", 300);
-    const cleanNominee = {
-      name: cleanNomineeName,
-      relation: cleanNomineeRelation,
-      phone: cleanNomineePhone,
-      address: cleanNomineeAddress,
-    };
-    const cleanNotes = sanitizeMultiline(editNotes, 500);
 
-    // Detect nominee change when customer has an active loan — require override reason
+    const cleanPhone          = editPhone ? editPhone.replace(/\D/g, "").slice(0, 10) : "";
+    const cleanAddress        = sanitizeMultiline(editAddress, 500);
+    const cleanNomineeName    = sanitizeName(editNominee.name);
+    const cleanNomineeRelation = (editNominee.relation || "").trim();
+    const cleanNomineePhone   = editNominee.phone ? editNominee.phone.replace(/\D/g, "").slice(0, 10) : "";
+    const cleanNomineeAddress = sanitizeMultiline(editNominee.address || "", 300);
+    const cleanNotes          = sanitizeMultiline(editNotes, 500);
+
+    const custActiveLoans = activeLoansByCustomer[editCustomer.id] || 0;
+    const originalType    = (editCustomer as any).customerType || "SAVINGS_LOAN";
+
+    // ── Client-side guard: block customerType change when loans are active ──
+    if (editCustomerType !== originalType && custActiveLoans > 0) {
+      toast.error("Customer type cannot be changed while an active loan exists.");
+      return;
+    }
+
+    // ── Detect nominee change — require override reason when loans active ──
     const prevNomineeName     = editCustomer.nomineeName     || editCustomer.nominee?.name     || "";
     const prevNomineeRelation = editCustomer.nomineeRelation || editCustomer.nominee?.relation || "";
     const nomineeChanged = cleanNomineeName !== prevNomineeName || cleanNomineeRelation !== prevNomineeRelation;
-    const custActiveLoans = activeLoansByCustomer[editCustomer.id] || 0;
+
     if (nomineeChanged && custActiveLoans > 0) {
       if (!showNomineeOverride) {
         setShowNomineeOverride(true);
@@ -374,48 +382,60 @@ export default function OrgCustomers() {
 
     setSavingEdit(true);
     const newCollector = collectorsForAssignment.find((c) => c.id === editCollectorId);
-    try {
-      const memberUpdate = {
-        phone: cleanPhone || editPhone,
-        address: cleanAddress,
-        // Top-level nominee fields (master source of truth for loan approval auto-load)
-        nomineeName: cleanNomineeName,
-        nomineeRelation: cleanNomineeRelation,
-        nomineePhone: cleanNomineePhone,
-        nomineeAddress: cleanNomineeAddress,
-        // Nested nominee (legacy compat — keep in sync)
-        nominee: cleanNominee,
-        customerType: editCustomerType,
-        notes: cleanNotes,
-        ...(newCollector ? {
-          assignedAgentId: (newCollector as any).clerkUserId || newCollector.id,
-          assignedAgentName: newCollector.fullName || (newCollector as any).name || "",
-        } : {}),
-        updatedAt: serverTimestamp(),
-      };
-      await updateDoc(doc(db, "organizationMembers", editCustomer.id), memberUpdate);
-      try {
-        await updateDoc(doc(db, "customers", editCustomer.id), memberUpdate);
-      } catch (_) {}
 
-      // Write audit log when nominee is overridden on an active loan
+    try {
+      const authToken = await getToken();
+
+      // ── Call server endpoint — validates customerType lock server-side ──
+      const body: Record<string, any> = {
+        organizationId:   organization?.id,
+        customerType:     editCustomerType,
+        phone:            cleanPhone || editPhone,
+        address:          cleanAddress,
+        nomineeName:      cleanNomineeName,
+        nomineeRelation:  cleanNomineeRelation,
+        nomineePhone:     cleanNomineePhone,
+        nomineeAddress:   cleanNomineeAddress,
+        notes:            cleanNotes,
+      };
+      if (newCollector) {
+        body.assignedAgentId   = (newCollector as any).clerkUserId || newCollector.id;
+        body.assignedAgentName = newCollector.fullName || (newCollector as any).name || "";
+      }
+
+      const resp = await fetch(`/api/update-customer/${editCustomer.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        toast.error((data as any).error || "Failed to update customer.");
+        return;
+      }
+
+      // ── Audit log when nominee is overridden on an active loan ──
       if (nomineeChanged && custActiveLoans > 0 && nomineeOverrideReason.trim()) {
         try {
           await createAuditLog({
             organizationId: organization?.id || "",
-            actorId: user?.id || "",
+            actorId:   user?.id || "",
             actorRole: "OWNER",
             actorName: user?.fullName || user?.primaryEmailAddress?.emailAddress || "Owner",
-            action: "NOMINEE_OVERRIDE",
+            action:    "NOMINEE_OVERRIDE",
             entityType: "Customer",
-            entityId: editCustomer.id,
+            entityId:  editCustomer.id,
             metadata: {
-              previousNomineeName: prevNomineeName,
+              previousNomineeName:     prevNomineeName,
               previousNomineeRelation: prevNomineeRelation,
-              newNomineeName: cleanNomineeName,
-              newNomineeRelation: cleanNomineeRelation,
-              reason: nomineeOverrideReason.trim(),
-              activeLoanCount: custActiveLoans,
+              newNomineeName:          cleanNomineeName,
+              newNomineeRelation:      cleanNomineeRelation,
+              reason:                  nomineeOverrideReason.trim(),
+              activeLoanCount:         custActiveLoans,
             },
           });
         } catch (_) {}
@@ -427,7 +447,9 @@ export default function OrgCustomers() {
       setShowNomineeOverride(false);
     } catch (err) {
       toast.error("Failed to update customer.");
-    } finally { setSavingEdit(false); }
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleDeactivate = async () => {
@@ -1031,23 +1053,42 @@ export default function OrgCustomers() {
               </div>
 
               <div className="space-y-1.5">
-                <Label>Customer Type</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["SAVINGS", "LOAN", "SAVINGS_LOAN"] as const).map((type) => {
-                    const labels: Record<string, string> = { SAVINGS: "Savings Only", LOAN: "Loan Only", SAVINGS_LOAN: "Savings + Loan" };
-                    const cls = {
-                      SAVINGS: editCustomerType === type ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200",
-                      LOAN: editCustomerType === type ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200",
-                      SAVINGS_LOAN: editCustomerType === type ? "bg-violet-600 text-white border-violet-600" : "bg-white text-slate-600 border-slate-200",
-                    }[type];
-                    return (
-                      <button key={type} type="button" onClick={() => setEditCustomerType(type)}
-                        className={`px-2 py-2 rounded-lg border text-xs font-semibold transition-colors ${cls}`}>
-                        {labels[type]}
-                      </button>
-                    );
-                  })}
-                </div>
+                <Label className="flex items-center gap-1.5">
+                  {editTypeLocked && <Lock className="w-3.5 h-3.5 text-slate-400" />}
+                  Customer Type
+                </Label>
+                {editTypeLocked ? (
+                  /* ── Locked: active loan exists ── */
+                  <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <Lock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {editCustomerType === "SAVINGS" ? "Savings Only" : editCustomerType === "LOAN" ? "Loan Only" : "Savings + Loan"}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Customer type cannot be changed while an active loan exists.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Unlocked: no active loans ── */
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["SAVINGS", "LOAN", "SAVINGS_LOAN"] as const).map((type) => {
+                      const labels: Record<string, string> = { SAVINGS: "Savings Only", LOAN: "Loan Only", SAVINGS_LOAN: "Savings + Loan" };
+                      const cls = {
+                        SAVINGS:      editCustomerType === type ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200",
+                        LOAN:         editCustomerType === type ? "bg-blue-600 text-white border-blue-600"       : "bg-white text-slate-600 border-slate-200",
+                        SAVINGS_LOAN: editCustomerType === type ? "bg-violet-600 text-white border-violet-600"   : "bg-white text-slate-600 border-slate-200",
+                      }[type];
+                      return (
+                        <button key={type} type="button" onClick={() => setEditCustomerType(type)}
+                          className={`px-2 py-2 rounded-lg border text-xs font-semibold transition-colors ${cls}`}>
+                          {labels[type]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">

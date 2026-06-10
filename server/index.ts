@@ -90,6 +90,60 @@ async function fsAdd(col: string, fields: Record<string, any>): Promise<string> 
   return (data.name as string).split("/").pop()!;
 }
 
+// Partial update — only touches the listed fields (Firestore updateMask)
+async function fsUpdate(col: string, docId: string, fields: Record<string, any>): Promise<void> {
+  if (!FIREBASE_API_KEY) throw new Error("VITE_FIREBASE_API_KEY env var not set");
+  const maskParams = Object.keys(fields)
+    .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+    .join("&");
+  const url = `${FS_BASE}/${col}/${encodeURIComponent(docId)}?key=${FIREBASE_API_KEY}&${maskParams}`;
+  const resp = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields }),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Firestore update failed [${col}/${docId}] HTTP ${resp.status}: ${txt.slice(0, 300)}`);
+  }
+}
+
+// Count active loans for a given customer (used for customerType lock validation)
+const ACTIVE_LOAN_STATUSES = new Set(["ACTIVE", "OVERDUE", "PARTIALLY_PAID"]);
+async function fsCountActiveLoans(customerId: string, organizationId: string): Promise<number> {
+  if (!FIREBASE_API_KEY) return 0;
+  try {
+    const url = `${FS_BASE}:runQuery?key=${FIREBASE_API_KEY}`;
+    const body = {
+      structuredQuery: {
+        from: [{ collectionId: "loans" }],
+        where: {
+          compositeFilter: {
+            op: "AND",
+            filters: [
+              { fieldFilter: { field: { fieldPath: "customerId" }, op: "EQUAL", value: sv(customerId) } },
+              { fieldFilter: { field: { fieldPath: "organizationId" }, op: "EQUAL", value: sv(organizationId) } },
+            ],
+          },
+        },
+        limit: 50,
+      },
+    };
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) return 0;
+    const docs: any[] = await resp.json();
+    return docs.filter((d: any) => {
+      if (!d.document?.fields) return false;
+      const status = (d.document.fields.status?.stringValue || "").toUpperCase();
+      return ACTIVE_LOAN_STATUSES.has(status);
+    }).length;
+  } catch { return 0; }
+}
+
 function membershipIdFor(orgId: string, userId: string): string {
   return `${orgId}_${userId}`;
 }
@@ -616,6 +670,104 @@ app.post("/api/agents/:userId/reactivate", async (req, res) => {
     const msg = err?.errors?.[0]?.longMessage || err?.message || "Failed to reactivate";
     return res.status(500).json({ error: msg });
   }
+});
+
+// ─── Update Customer ──────────────────────────────────────────────────────────
+app.put("/api/update-customer/:customerId", authMiddleware, async (req, res) => {
+  const { customerId } = req.params;
+  const {
+    organizationId,
+    customerType,
+    phone, address,
+    nomineeName, nomineeRelation, nomineePhone, nomineeAddress,
+    assignedAgentId, assignedAgentName,
+    notes,
+  } = req.body as {
+    organizationId?: string;
+    customerType?: string;
+    phone?: string; address?: string;
+    nomineeName?: string; nomineeRelation?: string;
+    nomineePhone?: string; nomineeAddress?: string;
+    assignedAgentId?: string; assignedAgentName?: string;
+    notes?: string;
+  };
+
+  if (!customerId || !organizationId) {
+    return res.status(400).json({ error: "customerId and organizationId are required." });
+  }
+
+  console.log("[FC UpdateCustomer] customerId:", customerId, "orgId:", organizationId, "newType:", customerType ?? "(unchanged)");
+
+  // ── 1. Fetch current doc to check existing customerType ──────────────────
+  if (!FIREBASE_API_KEY) return res.status(500).json({ error: "Server misconfigured: missing API key" });
+
+  const currentDocUrl = `${FS_BASE}/organizationMembers/${encodeURIComponent(customerId)}?key=${FIREBASE_API_KEY}`;
+  let currentDoc: any;
+  try {
+    const r = await fetch(currentDocUrl);
+    if (!r.ok) return res.status(404).json({ error: "Customer not found." });
+    currentDoc = await r.json();
+  } catch (e: any) {
+    return res.status(500).json({ error: "Failed to fetch customer: " + e.message });
+  }
+
+  const currentType: string = currentDoc.fields?.customerType?.stringValue || "SAVINGS_LOAN";
+  const typeChanging = customerType != null && customerType !== currentType;
+
+  // ── 2. Block customerType change if active loans exist ───────────────────
+  if (typeChanging) {
+    const activeLoanCount = await fsCountActiveLoans(customerId, organizationId);
+    console.log("[FC UpdateCustomer] typeChanging:", currentType, "→", customerType, "| activeLoans:", activeLoanCount);
+    if (activeLoanCount > 0) {
+      return res.status(409).json({
+        error: "Customer type cannot be changed while an active loan exists.",
+        activeLoanCount,
+      });
+    }
+  }
+
+  // ── 3. Build partial-update payload ─────────────────────────────────────
+  const now = new Date();
+  const fields: Record<string, any> = { updatedAt: tv(now) };
+
+  if (customerType     != null) fields.customerType     = sv(customerType);
+  if (phone            != null) fields.phone            = sv(phone);
+  if (address          != null) fields.address          = sv(address);
+  if (nomineeName      != null) fields.nomineeName      = sv(nomineeName);
+  if (nomineeRelation  != null) fields.nomineeRelation  = sv(nomineeRelation);
+  if (nomineePhone     != null) fields.nomineePhone     = sv(nomineePhone);
+  if (nomineeAddress   != null) fields.nomineeAddress   = sv(nomineeAddress);
+  // Keep nested nominee map in sync for legacy compat
+  if (nomineeName != null) {
+    fields.nominee = {
+      mapValue: {
+        fields: {
+          name:     sv(nomineeName),
+          relation: sv(nomineeRelation || ""),
+          phone:    sv(nomineePhone    || ""),
+          address:  sv(nomineeAddress  || ""),
+        },
+      },
+    };
+  }
+  if (notes            != null) fields.notes            = sv(notes);
+  if (assignedAgentId  != null) fields.assignedAgentId  = sv(assignedAgentId);
+  if (assignedAgentName != null) fields.assignedAgentName = sv(assignedAgentName);
+
+  // ── 4. Partial-update both collections ──────────────────────────────────
+  try {
+    await fsUpdate("organizationMembers", customerId, fields);
+    console.log("[FC UpdateCustomer] ✓ organizationMembers updated");
+  } catch (e: any) {
+    console.error("[FC UpdateCustomer] ✗ organizationMembers update failed:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+  try {
+    await fsUpdate("customers", customerId, fields);
+    console.log("[FC UpdateCustomer] ✓ customers mirror updated");
+  } catch (_) {}
+
+  return res.json({ success: true });
 });
 
 // ─── MFA diagnostics & reset ──────────────────────────────────────────────────
