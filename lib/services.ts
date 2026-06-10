@@ -293,6 +293,19 @@ export async function approveLoan(params: {
   actorId: string;
   actorRole: string;
   actorName: string;
+  approvedAmount?: number;
+  firstEmiDate?: Date;
+  disbursementDate?: Date;
+  loanAccountNumber?: string;
+  guarantorName?: string;
+  guarantorPhone?: string;
+  guarantorRelation?: string;
+  approvalChecklist?: string[];
+  riskLevel?: string;
+  approvalNotes?: string;
+  disbursementMethod?: string;
+  disbursementReference?: string;
+  verificationStatus?: string;
   loanAssignedCollectorId?: string;
   loanAssignedCollectorName?: string;
   loanAssignedCollectorRole?: string;
@@ -303,13 +316,25 @@ export async function approveLoan(params: {
   const loan = loanSnap.data() as Loan;
   if (loan.status !== "PENDING") throw new Error("Only pending loans can be approved.");
 
-  const principal = loan.principalAmount ?? loan.principal ?? 0;
+  const requestedPrincipal = loan.principalAmount ?? loan.principal ?? 0;
+  const effectivePrincipal = (params.approvedAmount && params.approvedAmount > 0)
+    ? params.approvedAmount
+    : requestedPrincipal;
   const rate = loan.interestRate ?? 2;
   const tenure = loan.tenureMonths ?? loan.durationMonths ?? 12;
-  const emiAmount = calculateEMI(principal, rate, tenure);
-  const totalInterest = emiAmount * tenure - principal;
-  const outstandingBalance = Math.round((principal + totalInterest) * 100) / 100;
-  const disbursedAt = Timestamp.now();
+  const emiAmount = calculateEMI(effectivePrincipal, rate, tenure);
+  const totalInterest = emiAmount * tenure - effectivePrincipal;
+  const outstandingBalance = Math.round((effectivePrincipal + totalInterest) * 100) / 100;
+
+  const disbursedAt = params.disbursementDate
+    ? Timestamp.fromDate(params.disbursementDate)
+    : Timestamp.now();
+
+  const firstEmiBase = params.firstEmiDate ?? (() => {
+    const d = params.disbursementDate ? new Date(params.disbursementDate) : new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d;
+  })();
 
   const collectorUpdate: Record<string, any> = {};
   if (params.loanAssignedCollectorId !== undefined) {
@@ -318,23 +343,37 @@ export async function approveLoan(params: {
     collectorUpdate.loanAssignedCollectorRole = params.loanAssignedCollectorRole || "";
   }
 
-  // Update loan document
+  const extraFields: Record<string, any> = {};
+  if (params.approvedAmount) extraFields.approvedAmount = params.approvedAmount;
+  if (params.loanAccountNumber) extraFields.loanAccountNumber = params.loanAccountNumber;
+  if (params.disbursementDate) extraFields.disbursementDate = Timestamp.fromDate(params.disbursementDate);
+  if (params.firstEmiDate) extraFields.firstEmiDate = Timestamp.fromDate(params.firstEmiDate);
+  if (params.guarantorName) extraFields.guarantorName = params.guarantorName;
+  if (params.guarantorPhone) extraFields.guarantorPhone = params.guarantorPhone;
+  if (params.guarantorRelation) extraFields.guarantorRelation = params.guarantorRelation;
+  if (params.approvalChecklist) extraFields.approvalChecklist = params.approvalChecklist;
+  if (params.riskLevel) extraFields.riskLevel = params.riskLevel;
+  if (params.approvalNotes !== undefined) extraFields.approvalNotes = params.approvalNotes;
+  if (params.disbursementMethod) extraFields.disbursementMethod = params.disbursementMethod;
+  if (params.disbursementReference !== undefined) extraFields.disbursementReference = params.disbursementReference;
+  if (params.verificationStatus) extraFields.verificationStatus = params.verificationStatus;
+
   await updateDoc(loanRef, {
     status: "ACTIVE",
     emiAmount: Math.round(emiAmount * 100) / 100,
     outstandingBalance,
     disbursedAt,
     updatedAt: serverTimestamp(),
-    // Legacy compat
     balanceRemaining: outstandingBalance,
     approvedAt: serverTimestamp(),
     ...collectorUpdate,
+    ...extraFields,
   });
 
-  // Generate loan_installments
+  // Generate loan_installments starting from firstEmiBase
   const installmentPromises: Promise<any>[] = [];
-  for (let i = 1; i <= tenure; i++) {
-    const dueDate = new Date(disbursedAt.toDate());
+  for (let i = 0; i < tenure; i++) {
+    const dueDate = new Date(firstEmiBase);
     dueDate.setMonth(dueDate.getMonth() + i);
     const instRef = doc(collection(db, "loan_installments"));
     installmentPromises.push(
@@ -343,7 +382,7 @@ export async function approveLoan(params: {
         loanId: params.loanId,
         organizationId: loan.organizationId,
         customerId: loan.customerId,
-        installmentNo: i,
+        installmentNo: i + 1,
         dueDate: Timestamp.fromDate(dueDate),
         emiAmount: Math.round(emiAmount * 100) / 100,
         paidAmount: 0,
@@ -368,7 +407,15 @@ export async function approveLoan(params: {
     action: "LOAN_APPROVED",
     entityType: "Loan",
     entityId: params.loanId,
-    metadata: { principal, emiAmount: Math.round(emiAmount * 100) / 100, tenure, outstandingBalance },
+    metadata: {
+      requestedPrincipal,
+      approvedAmount: effectivePrincipal,
+      emiAmount: Math.round(emiAmount * 100) / 100,
+      tenure,
+      outstandingBalance,
+      loanAccountNumber: params.loanAccountNumber || "",
+      disbursementMethod: params.disbursementMethod || "CASH",
+    },
   });
 }
 

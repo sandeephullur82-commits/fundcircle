@@ -204,10 +204,14 @@ export interface Loan {
   organizationId: string;
   customerId: string;
   principalAmount: number;
+  approvedAmount?: number;
   interestRate: number;
   tenureMonths: number;
   emiAmount: number;
   disbursedAt: FSTimestamp;
+  disbursementDate?: FSTimestamp;
+  firstEmiDate?: FSTimestamp;
+  loanAccountNumber?: string;
   status: "PENDING" | "ACTIVE" | "CLOSED" | "REJECTED";
   outstandingBalance: number;
   rejectionReason?: string;
@@ -215,11 +219,17 @@ export interface Loan {
   loanAssignedCollectorName?: string;
   loanAssignedCollectorRole?: string;
   riskLevel?: "LOW" | "MEDIUM" | "HIGH";
-  disbursementMethod?: "CASH" | "UPI" | "BANK_TRANSFER";
+  disbursementMethod?: "CASH" | "UPI" | "BANK_TRANSFER" | "CHEQUE";
   disbursementReference?: string;
   approvalNotes?: string;
+  verificationStatus?: "PENDING" | "VERIFIED" | "REJECTED";
+  approvalChecklist?: string[];
+  guarantorName?: string;
+  guarantorPhone?: string;
+  guarantorRelation?: string;
   createdAt: FSTimestamp;
   updatedAt?: FSTimestamp;
+  approvedAt?: FSTimestamp;
   // Legacy compat
   principal?: number;
   durationMonths?: number;

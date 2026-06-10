@@ -106,7 +106,7 @@ class OfflineSyncService {
           customerId: pay.customerId,
           customerName: pay.customerName,
           amount: pay.amount,
-          collectionType: pay.type === 'EMI' ? 'LOAN_EMI' : 'SAVINGS',
+          collectionType: (pay.type as string) === 'EMI' ? 'LOAN_EMI' : 'SAVINGS',
           collectedAt: serverTimestamp(),
           timestamp: serverTimestamp(),
           date: pay.date,

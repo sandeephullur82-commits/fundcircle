@@ -9,17 +9,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { format, isBefore, startOfDay } from "date-fns";
-import { Search, Plus, CheckCircle, XCircle, Eye, Loader2, AlertTriangle, CreditCard, Inbox, ChevronDown, Crown, ShieldCheck, TrendingUp, Banknote } from "lucide-react";
+import { Search, Plus, CheckCircle, XCircle, Eye, Loader2, CreditCard, Inbox, ChevronDown, Crown, AlertTriangle } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
-import { createLoan, approveLoan, rejectLoan, calculateEMI } from "@/lib/services";
+import { createLoan, rejectLoan, calculateEMI } from "@/lib/services";
 import FieldError from "@/components/ui/FieldError";
-import { validateAmount, validateRate, validateTenure } from "@/lib/validation";
 import { where, onSnapshot, query, collection, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import LoanApprovalDialog from "./LoanApprovalDialog";
 
-type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
-type DisbursementMethod = "CASH" | "UPI" | "BANK_TRANSFER";
-type VerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
+type LoanStatus = "ALL" | "PENDING" | "ACTIVE" | "CLOSED" | "REJECTED";
+type View = "loans" | "applications";
 
 function toDate(ts: any): Date {
   if (!ts) return new Date(0);
@@ -27,9 +26,6 @@ function toDate(ts: any): Date {
   if (ts instanceof Date) return ts;
   return new Date(ts);
 }
-
-type LoanStatus = "ALL" | "PENDING" | "ACTIVE" | "CLOSED" | "REJECTED";
-type View = "loans" | "applications";
 
 const STATUS_STYLES: Record<string, string> = {
   PENDING: "bg-amber-50 text-amber-700 border-amber-100",
@@ -71,31 +67,16 @@ export default function OrgLoans() {
   const [creating, setCreating] = useState(false);
   const [loanErrors, setLoanErrors] = useState<Record<string, string>>({});
 
-  // ── Approve PENDING loan dialog ──────────────────────────────────────────────
+  // ── Approve dialogs (handled by LoanApprovalDialog) ─────────────────────────
   const [approveDialogLoan, setApproveDialogLoan] = useState<Loan | null>(null);
-  const [approveDialogCollectorId, setApproveDialogCollectorId] = useState("");
-  const [approveRiskLevel, setApproveRiskLevel] = useState<RiskLevel>("LOW");
-  const [approveApprovalNotes, setApproveApprovalNotes] = useState("");
-  const [approveDisbursementMethod, setApproveDisbursementMethod] = useState<DisbursementMethod>("CASH");
-  const [approveDisbursementRef, setApproveDisbursementRef] = useState("");
-  const [approvingDialog, setApprovingDialog] = useState(false);
+  const [approveApp, setApproveApp] = useState<LoanApplication | null>(null);
 
   // ── Reject loan ──────────────────────────────────────────────────────────────
   const [rejectLoanId, setRejectLoanId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [rejecting, setRejecting] = useState(false);
 
-  // ── Application approval/rejection ──────────────────────────────────────────
-  const [approveApp, setApproveApp] = useState<LoanApplication | null>(null);
-  const [appInterestRate, setAppInterestRate] = useState("12");
-  const [appCollectorId, setAppCollectorId] = useState("");
-  const [appRiskLevel, setAppRiskLevel] = useState<RiskLevel>("LOW");
-  const [appVerificationStatus, setAppVerificationStatus] = useState<VerificationStatus>("PENDING");
-  const [appVerificationNotes, setAppVerificationNotes] = useState("");
-  const [appApprovalNotes, setAppApprovalNotes] = useState("");
-  const [appDisbursementMethod, setAppDisbursementMethod] = useState<DisbursementMethod>("CASH");
-  const [appDisbursementRef, setAppDisbursementRef] = useState("");
-  const [approvingAppId, setApprovingAppId] = useState<string | null>(null);
+  // ── Reject application ───────────────────────────────────────────────────────
   const [rejectAppId, setRejectAppId] = useState<string | null>(null);
   const [appRejectReason, setAppRejectReason] = useState("");
   const [rejectingApp, setRejectingApp] = useState(false);
@@ -131,30 +112,6 @@ export default function OrgLoans() {
     }
   }, [customerId]);
 
-  // Auto-set collector when approve dialog opens
-  useEffect(() => {
-    if (!approveDialogLoan) { setApproveDialogCollectorId(""); return; }
-    const existing = approveDialogLoan.loanAssignedCollectorId;
-    if (existing) { setApproveDialogCollectorId(existing); return; }
-    const cust = customers.find((c) => c.id === approveDialogLoan.customerId || c.clerkUserId === approveDialogLoan.customerId);
-    if (cust && (cust as any).assignedAgentId) {
-      setApproveDialogCollectorId((cust as any).assignedAgentId);
-    } else if (collectorsForAssignment.length === 1) {
-      setApproveDialogCollectorId(collectorsForAssignment[0].id);
-    }
-  }, [approveDialogLoan]);
-
-  // Auto-set collector when application approval dialog opens
-  useEffect(() => {
-    if (!approveApp) { setAppCollectorId(""); return; }
-    const cust = customers.find((c) => c.id === approveApp.customerId || c.clerkUserId === approveApp.customerId);
-    if (cust && (cust as any).assignedAgentId) {
-      setAppCollectorId((cust as any).assignedAgentId);
-    } else if (collectorsForAssignment.length === 1) {
-      setAppCollectorId(collectorsForAssignment[0].id);
-    }
-  }, [approveApp]);
-
   const filteredLoans = loans.filter((l) => {
     const st = (l.status || "").toUpperCase();
     if (statusFilter !== "ALL" && st !== statusFilter) return false;
@@ -168,10 +125,6 @@ export default function OrgLoans() {
 
   const previewEMI = principal && interestRate && tenureMonths
     ? calculateEMI(Number(principal), Number(interestRate), Number(tenureMonths))
-    : null;
-
-  const approvePreviewEMI = approveApp && appInterestRate
-    ? calculateEMI(approveApp.loanAmount, Number(appInterestRate), approveApp.tenureMonths)
     : null;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -217,43 +170,6 @@ export default function OrgLoans() {
     }
   };
 
-  const handleOpenApproveDialog = (loan: Loan) => {
-    setApproveDialogLoan(loan);
-    setApproveRiskLevel((loan.riskLevel as RiskLevel) || "LOW");
-    setApproveApprovalNotes(loan.approvalNotes || "");
-    setApproveDisbursementMethod((loan.disbursementMethod as DisbursementMethod) || "CASH");
-    setApproveDisbursementRef(loan.disbursementReference || "");
-  };
-
-  const handleConfirmApprove = async () => {
-    if (!approveDialogLoan || !user?.id) return;
-    const collector = getCollectorById(approveDialogCollectorId);
-    setApprovingDialog(true);
-    try {
-      await approveLoan({
-        loanId: approveDialogLoan.id,
-        actorId: user.id, actorRole: "OWNER", actorName,
-        loanAssignedCollectorId: collector?.id || approveDialogCollectorId || "",
-        loanAssignedCollectorName: collector ? (collector.fullName || (collector as any).name || "") : "",
-        loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
-      });
-      await updateDoc(doc(db, "loans", approveDialogLoan.id), {
-        riskLevel: approveRiskLevel,
-        approvalNotes: approveApprovalNotes,
-        disbursementMethod: approveDisbursementMethod,
-        disbursementReference: approveDisbursementRef,
-        updatedAt: serverTimestamp(),
-      });
-      toast.success("Loan approved and EMI schedule generated.");
-      setApproveDialogLoan(null);
-      setApproveApprovalNotes(""); setApproveDisbursementRef("");
-    } catch (err: any) {
-      toast.error(err?.message || "Approval failed");
-    } finally {
-      setApprovingDialog(false);
-    }
-  };
-
   const handleRejectSubmit = async () => {
     if (!rejectLoanId || !user?.id) return;
     setRejecting(true);
@@ -265,56 +181,6 @@ export default function OrgLoans() {
       toast.error(err?.message || "Rejection failed");
     } finally {
       setRejecting(false);
-    }
-  };
-
-  const handleApproveApplication = async () => {
-    if (!approveApp || !user?.id) return;
-    const collector = getCollectorById(appCollectorId);
-    setApprovingAppId(approveApp.id);
-    try {
-      const loanId = await createLoan({
-        organizationId: approveApp.organizationId,
-        customerId: approveApp.customerId,
-        principalAmount: approveApp.loanAmount,
-        interestRate: Number(appInterestRate),
-        tenureMonths: approveApp.tenureMonths,
-        createdByActorId: user.id, createdByActorRole: "OWNER", createdByActorName: actorName,
-        loanAssignedCollectorId: collector?.id || "",
-        loanAssignedCollectorName: collector ? (collector.fullName || (collector as any).name || "") : "",
-        loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
-      });
-      await approveLoan({
-        loanId, actorId: user.id, actorRole: "OWNER", actorName,
-        loanAssignedCollectorId: collector?.id || "",
-        loanAssignedCollectorName: collector ? (collector.fullName || (collector as any).name || "") : "",
-        loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
-      });
-      await updateDoc(doc(db, "loans", loanId), {
-        riskLevel: appRiskLevel,
-        approvalNotes: appApprovalNotes,
-        disbursementMethod: appDisbursementMethod,
-        disbursementReference: appDisbursementRef,
-        updatedAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "loanApplications", approveApp.id), {
-        status: "APPROVED", loanId,
-        reviewedByActorId: user.id, reviewedByActorName: actorName,
-        reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        verificationStatus: appVerificationStatus,
-        riskLevel: appRiskLevel,
-        verificationNotes: appVerificationNotes,
-        approvalNotes: appApprovalNotes,
-      });
-      toast.success("Application approved — loan created and EMI schedule generated.");
-      setApproveApp(null); setAppInterestRate("12"); setAppCollectorId("");
-      setAppRiskLevel("LOW"); setAppVerificationStatus("PENDING");
-      setAppVerificationNotes(""); setAppApprovalNotes("");
-      setAppDisbursementMethod("CASH"); setAppDisbursementRef("");
-    } catch (err: any) {
-      toast.error(err?.message || "Approval failed");
-    } finally {
-      setApprovingAppId(null);
     }
   };
 
@@ -552,7 +418,7 @@ export default function OrgLoans() {
                               <div className="flex justify-end gap-1">
                                 {st === "PENDING" && (
                                   <>
-                                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-7 px-2 text-xs gap-1" onClick={() => handleOpenApproveDialog(loan)}>
+                                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-7 px-2 text-xs gap-1" onClick={() => setApproveDialogLoan(loan)}>
                                       <CheckCircle className="w-3 h-3" /> Approve
                                     </Button>
                                     <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 h-7 px-2 text-xs gap-1" onClick={() => { setRejectLoanId(loan.id); setRejectReason(""); }}>
@@ -645,8 +511,7 @@ export default function OrgLoans() {
                               <div className="flex justify-end gap-1">
                                 <Button
                                   size="sm" className="bg-emerald-600 hover:bg-emerald-700 h-7 px-2 text-xs gap-1"
-                                  onClick={() => { setApproveApp(app); setAppInterestRate("12"); }}
-                                  disabled={!!approvingAppId}
+                                  onClick={() => setApproveApp(app)}
                                 >
                                   <CheckCircle className="w-3 h-3" /> Approve
                                 </Button>
@@ -737,411 +602,17 @@ export default function OrgLoans() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Approve Pending Loan Dialog ──────────────────────────────────────── */}
-      <Dialog open={!!approveDialogLoan} onOpenChange={(o) => !o && setApproveDialogLoan(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-emerald-700 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" /> Approve Loan
-            </DialogTitle>
-          </DialogHeader>
-          {approveDialogLoan && (
-            <div className="space-y-4 mt-2">
-              {/* Auto-loaded customer profile */}
-              {(() => {
-                const cust = members.find((m) => m.id === approveDialogLoan.customerId || m.clerkUserId === approveDialogLoan.customerId);
-                const custName = (cust as any)?.fullName || (cust as any)?.name || approveDialogLoan.customerId?.slice(-8);
-                const loanPrincipal = approveDialogLoan.principalAmount ?? (approveDialogLoan as any).principal ?? 0;
-                const tenure = approveDialogLoan.tenureMonths ?? (approveDialogLoan as any).durationMonths ?? 0;
-                const nomineeName = (cust as any)?.nomineeName || cust?.nominee?.name || "";
-                const nomineeRelation = (cust as any)?.nomineeRelation || cust?.nominee?.relation || "";
-                const nomineePhone = (cust as any)?.nomineePhone || cust?.nominee?.phone || "";
-                const nomineeAddress = (cust as any)?.nomineeAddress || cust?.nominee?.address || "";
-                const aadhaar = (cust as any)?.aadhaarLast4 || "";
-                const ct = (cust as any)?.customerType as string | undefined;
-                const ctLabel = ct === "SAVINGS" ? "Savings Only" : ct === "LOAN" ? "Loan Only" : ct === "SAVINGS_LOAN" ? "Savings + Loan" : "—";
-                const nomineeComplete = !!(nomineeName && nomineeRelation);
-                return (
-                  <>
-                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer Profile</p>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Name</span>
-                        <span className="font-semibold text-slate-900">{custName}</span>
-                      </div>
-                      {(cust as any)?.email && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Email</span>
-                          <span className="text-slate-700">{(cust as any).email}</span>
-                        </div>
-                      )}
-                      {(cust as any)?.phone && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Phone</span>
-                          <span className="text-slate-700">{(cust as any).phone}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Customer Type</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          ct === "SAVINGS" ? "bg-emerald-100 text-emerald-700" :
-                          ct === "LOAN" ? "bg-blue-100 text-blue-700" :
-                          "bg-violet-100 text-violet-700"
-                        }`}>{ctLabel}</span>
-                      </div>
-                      {aadhaar && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Aadhaar (last 4)</span>
-                          <span className="font-mono text-slate-700">XXXX XXXX XXXX {aadhaar}</span>
-                        </div>
-                      )}
-                      {(cust as any)?.address && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Address</span>
-                          <span className="text-slate-700 text-right max-w-[200px]">{(cust as any).address}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className={`rounded-xl p-4 space-y-2 border ${nomineeComplete ? "bg-purple-50 border-purple-100" : "bg-amber-50 border-amber-200"}`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex-1">Nominee Details</p>
-                        {!nomineeComplete && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">Incomplete</span>
-                        )}
-                      </div>
-                      {nomineeName ? (
-                        <>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-500">Name</span>
-                            <span className="font-semibold text-slate-900">{nomineeName}</span>
-                          </div>
-                          {nomineeRelation && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Relation</span>
-                              <span className="text-slate-700">{nomineeRelation}</span>
-                            </div>
-                          )}
-                          {nomineePhone && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Phone</span>
-                              <span className="text-slate-700">{nomineePhone}</span>
-                            </div>
-                          )}
-                          {nomineeAddress && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Address</span>
-                              <span className="text-slate-700 text-right max-w-[200px]">{nomineeAddress}</span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-xs text-amber-700">No nominee on file. Ask customer to update their profile.</p>
-                      )}
-                    </div>
-                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Loan Details</p>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Principal</span>
-                        <span className="font-bold text-slate-900">₹{Number(loanPrincipal).toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Tenure</span>
-                        <span className="font-semibold text-slate-900">{tenure} months</span>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
+      {/* ── Unified Loan Approval Dialog ─────────────────────────────────────── */}
+      <LoanApprovalDialog
+        loan={approveDialogLoan}
+        application={approveApp}
+        members={members}
+        collectors={collectorsForAssignment}
+        actorId={user?.id || ""}
+        actorName={actorName}
+        onClose={() => { setApproveDialogLoan(null); setApproveApp(null); }}
+      />
 
-              {/* Risk Level */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-slate-400" /> Risk Level</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["LOW", "MEDIUM", "HIGH"] as RiskLevel[]).map((r) => {
-                    const colors: Record<RiskLevel, string> = {
-                      LOW: approveRiskLevel === r ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-emerald-50",
-                      MEDIUM: approveRiskLevel === r ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50",
-                      HIGH: approveRiskLevel === r ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-600 border-slate-200 hover:bg-red-50",
-                    };
-                    return (
-                      <button key={r} type="button" onClick={() => setApproveRiskLevel(r)}
-                        className={`py-1.5 rounded-lg border text-xs font-bold transition-colors ${colors[r]}`}>
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Disbursement Method */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5"><Banknote className="w-3.5 h-3.5 text-slate-400" /> Disbursement Method</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["CASH", "UPI", "BANK_TRANSFER"] as DisbursementMethod[]).map((m) => (
-                    <button key={m} type="button" onClick={() => setApproveDisbursementMethod(m)}
-                      className={`py-1.5 rounded-lg border text-xs font-semibold transition-colors ${approveDisbursementMethod === m ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50"}`}>
-                      {m === "BANK_TRANSFER" ? "Bank" : m}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {(approveDisbursementMethod === "UPI" || approveDisbursementMethod === "BANK_TRANSFER") && (
-                <div className="space-y-1.5">
-                  <Label>Reference / UTR Number</Label>
-                  <Input value={approveDisbursementRef} onChange={(e) => setApproveDisbursementRef(e.target.value)} placeholder="e.g. UTR123456789" />
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <Label>Approval Notes</Label>
-                <textarea value={approveApprovalNotes} onChange={(e) => setApproveApprovalNotes(e.target.value)}
-                  rows={2} placeholder="Internal approval notes…"
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none" />
-              </div>
-
-              <CollectorSelect value={approveDialogCollectorId} onChange={setApproveDialogCollectorId} />
-              <div className="flex gap-3 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setApproveDialogLoan(null)}>Cancel</Button>
-                <Button
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                  onClick={handleConfirmApprove}
-                  disabled={approvingDialog}
-                >
-                  {approvingDialog ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing…</> : "Approve & Activate"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Approve Application Dialog ───────────────────────────────────────── */}
-      <Dialog open={!!approveApp} onOpenChange={(o) => !o && setApproveApp(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-emerald-700 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" /> Approve Loan Application
-            </DialogTitle>
-          </DialogHeader>
-          {approveApp && (
-            <div className="space-y-4 mt-2">
-              {/* Auto-loaded customer profile */}
-              {(() => {
-                const cust = members.find((m) => m.id === approveApp.customerId || m.clerkUserId === approveApp.customerId);
-                const nomineeName = (cust as any)?.nomineeName || cust?.nominee?.name || "";
-                const nomineeRelation = (cust as any)?.nomineeRelation || cust?.nominee?.relation || "";
-                const nomineePhone = (cust as any)?.nomineePhone || cust?.nominee?.phone || "";
-                const nomineeAddress = (cust as any)?.nomineeAddress || cust?.nominee?.address || "";
-                const aadhaar = (cust as any)?.aadhaarLast4 || "";
-                const ct = (cust as any)?.customerType as string | undefined;
-                const ctLabel = ct === "SAVINGS" ? "Savings Only" : ct === "LOAN" ? "Loan Only" : ct === "SAVINGS_LOAN" ? "Savings + Loan" : "—";
-                const nomineeComplete = !!(nomineeName && nomineeRelation);
-                return (
-                  <>
-                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Customer Profile</p>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Name</span>
-                        <span className="font-semibold text-slate-900">{approveApp.customerName}</span>
-                      </div>
-                      {(cust as any)?.email && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Email</span>
-                          <span className="text-slate-700">{(cust as any).email}</span>
-                        </div>
-                      )}
-                      {(cust as any)?.phone && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Phone</span>
-                          <span className="text-slate-700">{(cust as any).phone}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Customer Type</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          ct === "SAVINGS" ? "bg-emerald-100 text-emerald-700" :
-                          ct === "LOAN" ? "bg-blue-100 text-blue-700" :
-                          "bg-violet-100 text-violet-700"
-                        }`}>{ctLabel}</span>
-                      </div>
-                      {aadhaar && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Aadhaar (last 4)</span>
-                          <span className="font-mono text-slate-700">XXXX XXXX XXXX {aadhaar}</span>
-                        </div>
-                      )}
-                      {(cust as any)?.address && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-500">Address</span>
-                          <span className="text-slate-700 text-right max-w-[200px]">{(cust as any).address}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className={`rounded-xl p-4 space-y-2 border ${nomineeComplete ? "bg-purple-50 border-purple-100" : "bg-amber-50 border-amber-200"}`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex-1">Nominee Details</p>
-                        {!nomineeComplete && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-800">Incomplete</span>
-                        )}
-                      </div>
-                      {nomineeName ? (
-                        <>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-slate-500">Name</span>
-                            <span className="font-semibold text-slate-900">{nomineeName}</span>
-                          </div>
-                          {nomineeRelation && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Relation</span>
-                              <span className="text-slate-700">{nomineeRelation}</span>
-                            </div>
-                          )}
-                          {nomineePhone && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Phone</span>
-                              <span className="text-slate-700">{nomineePhone}</span>
-                            </div>
-                          )}
-                          {nomineeAddress && (
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-slate-500">Address</span>
-                              <span className="text-slate-700 text-right max-w-[200px]">{nomineeAddress}</span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-xs text-amber-700">No nominee on file. Ask customer to update their profile.</p>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-
-              {/* Application details */}
-              <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Application Details</p>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Requested Amount</span>
-                  <span className="font-bold text-slate-900">₹{Number(approveApp.loanAmount).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Tenure</span>
-                  <span className="font-semibold text-slate-900">{approveApp.tenureMonths} months</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Purpose</span>
-                  <span className="font-semibold text-slate-900">{approveApp.loanPurpose}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Monthly Income</span>
-                  <span className="font-semibold text-slate-900">₹{Number(approveApp.monthlyIncome).toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Agent Verification Status */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-slate-400" /> Verification Status</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["PENDING", "VERIFIED", "REJECTED"] as VerificationStatus[]).map((v) => {
-                    const colors: Record<VerificationStatus, string> = {
-                      PENDING: appVerificationStatus === v ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50",
-                      VERIFIED: appVerificationStatus === v ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-emerald-50",
-                      REJECTED: appVerificationStatus === v ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-600 border-slate-200 hover:bg-red-50",
-                    };
-                    return (
-                      <button key={v} type="button" onClick={() => setAppVerificationStatus(v)}
-                        className={`py-1.5 rounded-lg border text-xs font-bold transition-colors ${colors[v]}`}>
-                        {v}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Risk Level */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-slate-400" /> Risk Level</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["LOW", "MEDIUM", "HIGH"] as RiskLevel[]).map((r) => {
-                    const colors: Record<RiskLevel, string> = {
-                      LOW: appRiskLevel === r ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-emerald-50",
-                      MEDIUM: appRiskLevel === r ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50",
-                      HIGH: appRiskLevel === r ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-600 border-slate-200 hover:bg-red-50",
-                    };
-                    return (
-                      <button key={r} type="button" onClick={() => setAppRiskLevel(r)}
-                        className={`py-1.5 rounded-lg border text-xs font-bold transition-colors ${colors[r]}`}>
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Loan terms */}
-              <div className="space-y-1.5">
-                <Label>Interest Rate (% per annum)</Label>
-                <Input
-                  type="number" min="0" step="0.1" value={appInterestRate}
-                  onChange={(e) => setAppInterestRate(e.target.value)}
-                />
-              </div>
-              {approvePreviewEMI && (
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                  <p className="text-xs text-emerald-600 font-semibold uppercase tracking-widest mb-1">Monthly EMI</p>
-                  <p className="text-2xl font-black text-emerald-700">₹{approvePreviewEMI.toFixed(2)}</p>
-                  <p className="text-xs text-emerald-500 mt-0.5">Total repayment: ₹{(approvePreviewEMI * approveApp.tenureMonths).toFixed(2)}</p>
-                </div>
-              )}
-
-              {/* Disbursement */}
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-1.5"><Banknote className="w-3.5 h-3.5 text-slate-400" /> Disbursement Method</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["CASH", "UPI", "BANK_TRANSFER"] as DisbursementMethod[]).map((m) => (
-                    <button key={m} type="button" onClick={() => setAppDisbursementMethod(m)}
-                      className={`py-1.5 rounded-lg border text-xs font-semibold transition-colors ${appDisbursementMethod === m ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50"}`}>
-                      {m === "BANK_TRANSFER" ? "Bank" : m}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {(appDisbursementMethod === "UPI" || appDisbursementMethod === "BANK_TRANSFER") && (
-                <div className="space-y-1.5">
-                  <Label>Reference / UTR Number</Label>
-                  <Input value={appDisbursementRef} onChange={(e) => setAppDisbursementRef(e.target.value)} placeholder="e.g. UTR123456789" />
-                </div>
-              )}
-
-              {/* Notes */}
-              <div className="space-y-1.5">
-                <Label>Verification Notes</Label>
-                <textarea value={appVerificationNotes} onChange={(e) => setAppVerificationNotes(e.target.value)}
-                  rows={2} placeholder="Residence verified, identity check passed…"
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Approval Notes</Label>
-                <textarea value={appApprovalNotes} onChange={(e) => setAppApprovalNotes(e.target.value)}
-                  rows={2} placeholder="Internal approval notes…"
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none" />
-              </div>
-
-              <CollectorSelect value={appCollectorId} onChange={setAppCollectorId} />
-              <div className="flex gap-3 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setApproveApp(null)}>Cancel</Button>
-                <Button
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                  onClick={handleApproveApplication}
-                  disabled={!!approvingAppId}
-                >
-                  {approvingAppId ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing…</> : "Approve & Create Loan"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* ── Reject Application Dialog ────────────────────────────────────────── */}
       <Dialog open={!!rejectAppId} onOpenChange={(o) => !o && setRejectAppId(null)}>
