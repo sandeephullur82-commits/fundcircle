@@ -56,6 +56,7 @@ export default function OrgAgents() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [employeeCode, setEmployeeCode] = useState("");
   const [address, setAddress] = useState("");
   const [createNotes, setCreateNotes] = useState("");
   const [isValidating, setIsValidating] = useState(false);
@@ -118,7 +119,7 @@ export default function OrgAgents() {
 
   const resetForm = () => {
     setFirstName(""); setLastName(""); setEmail(""); setPhone("");
-    setAddress(""); setCreateNotes("");
+    setEmployeeCode(""); setAddress(""); setCreateNotes("");
     setCredentials(null); setCopiedField(null); setFormErrors({});
   };
 
@@ -155,15 +156,26 @@ export default function OrgAgents() {
   const handleAddAgent = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    console.log("[FC OrgAgents] ▶ Add Agent clicked");
-    console.log("[FC OrgAgents]   Org ID :", organization?.id ?? "MISSING");
-    console.log("[FC OrgAgents]   User ID:", user?.id ?? "MISSING");
-    console.log("[FC OrgAgents]   Role   : OWNER (org dashboard)");
+    // STEP 1 — Frontend Submit
+    console.log("[FC CreateAgent] STEP 1 — Frontend Submit");
+    console.log("[FC CreateAgent]   Org ID :", organization?.id ?? "MISSING");
+    console.log("[FC CreateAgent]   User ID:", user?.id ?? "MISSING");
+    console.log("[FC CreateAgent]   Email  :", email.trim() || "MISSING");
 
-    if (!organization?.id) { toast.error("No active organization selected."); return; }
-    if (!user?.id) { toast.error("No authenticated owner."); return; }
-    if (atLimit) { toast.error(`Collector limit of ${maxCollectors} reached.`); return; }
+    if (!organization?.id) {
+      toast.error("❌ Missing Organization ID — No active organization. Please refresh.");
+      return;
+    }
+    if (!user?.id) {
+      toast.error("❌ Authentication Failed — No authenticated user found.");
+      return;
+    }
+    if (atLimit) {
+      toast.error(`Collector limit of ${maxCollectors} reached. Upgrade your plan to add more agents.`);
+      return;
+    }
 
+    // Validate fields
     const submitErrors: Record<string, string> = {};
     const fnRes = validateLettersOnlyName(firstName, { label: "First name" });
     if (!fnRes.valid) submitErrors.firstName = fnRes.error!;
@@ -183,31 +195,81 @@ export default function OrgAgents() {
     setFormErrors({});
 
     const emailKey = email.trim().toLowerCase();
+
+    // STEP 1b — Email uniqueness check
+    console.log("[FC CreateAgent] STEP 1b — Validating email uniqueness");
     setIsValidating(true);
     try {
       await validateAgentEmail(organization.id, emailKey);
+      console.log("[FC CreateAgent] STEP 1b — Email OK");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Validation failed");
-      setIsValidating(false); return;
+      const msg = err instanceof Error ? err.message : "Email validation failed";
+      console.error("[FC CreateAgent] STEP 1b — Email validation failed:", msg);
+      if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("exist")) {
+        toast.error("❌ Duplicate Email — " + msg);
+      } else {
+        toast.error("❌ " + msg);
+      }
+      setIsValidating(false);
+      return;
     } finally { setIsValidating(false); }
 
+    // STEP 2 — Get auth token and call API
+    console.log("[FC CreateAgent] STEP 2 — Obtaining auth token");
     setIsSubmitting(true);
     try {
       let authToken = await getToken();
       if (!authToken) authToken = await getToken({ skipCache: true });
+      if (!authToken) {
+        toast.error("❌ Authentication Failed — Could not obtain auth token. Please sign in again.");
+        return;
+      }
+      console.log("[FC CreateAgent] STEP 2 — Auth token obtained, calling API");
+
       const { generatedPassword, employeeCode: generatedEmpCode } = await createDirectMember({
-        firstName: sanitizeName(firstName), lastName: sanitizeName(lastName),
-        email: emailKey, phone: phone.replace(/\D/g, "").slice(0, 10),
-        role: "AGENT",
-        organizationId: organization.id, organizationName: organization.name || "",
-        createdBy: user.id, actorName: user.fullName || user.firstName || "",
-        address: sanitizeMultiline(address, 500), notes: sanitizeMultiline(createNotes, 500),
-        authToken: authToken || undefined,
+        firstName: sanitizeName(firstName),
+        lastName:  sanitizeName(lastName),
+        email:     emailKey,
+        phone:     phone.replace(/\D/g, "").slice(0, 10),
+        role:      "AGENT",
+        organizationId:   organization.id,
+        organizationName: organization.name || "",
+        createdBy:  user.id,
+        actorName:  user.fullName || user.firstName || "",
+        address:    sanitizeMultiline(address, 500),
+        notes:      sanitizeMultiline(createNotes, 500),
+        employeeCode: employeeCode.trim() || undefined,
+        authToken:  authToken,
       });
-      setCredentials({ name: `${firstName.trim()} ${lastName.trim()}`.trim(), email: emailKey, password: generatedPassword, employeeCode: generatedEmpCode });
+
+      // STEP 6 — Success
+      console.log("[FC CreateAgent] STEP 6 — Success. Employee code:", generatedEmpCode);
+      setCredentials({
+        name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        email: emailKey,
+        password: generatedPassword,
+        employeeCode: generatedEmpCode,
+      });
       toast.success("Agent account created successfully.");
+
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create agent");
+      const msg = error instanceof Error ? error.message : "Failed to create agent";
+      console.error("[FC CreateAgent] ✗ Creation failed:", msg);
+
+      // Map server error context to specific user-facing label
+      if (msg.includes("Clerk user") || msg.toLowerCase().includes("create user")) {
+        toast.error("❌ Clerk User Creation Failed — " + msg);
+      } else if (msg.includes("membership") || msg.includes("organization")) {
+        toast.error("❌ Organization Membership Failed — " + msg);
+      } else if (msg.includes("Firestore") || msg.includes("records") || msg.includes("database")) {
+        toast.error("❌ Firestore Write Failed — " + msg);
+      } else if (msg.includes("token") || msg.includes("Token") || msg.includes("401")) {
+        toast.error("❌ Authentication Failed — " + msg);
+      } else if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("already exist") || msg.toLowerCase().includes("already in use")) {
+        toast.error("❌ Duplicate Email — " + msg);
+      } else {
+        toast.error("❌ " + msg);
+      }
     } finally { setIsSubmitting(false); }
   };
 
@@ -392,6 +454,22 @@ export default function OrgAgents() {
                       maxLength={10}
                       className={formErrors.phone ? "border-red-400 focus-visible:ring-red-300" : ""} />
                     <FieldError error={formErrors.phone} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Employee Code <span className="text-slate-400 font-normal text-xs">(optional — auto-generated if blank)</span></Label>
+                    <Input
+                      placeholder="e.g. EMP001"
+                      value={employeeCode}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, "");
+                        setEmployeeCode(val);
+                        setFormErrors((prev) => ({ ...prev, employeeCode: val.length > 20 ? "Maximum 20 characters" : "" }));
+                      }}
+                      maxLength={20}
+                      autoComplete="off"
+                      className={`font-mono ${formErrors.employeeCode ? "border-red-400 focus-visible:ring-red-300" : ""}`}
+                    />
+                    <FieldError error={formErrors.employeeCode} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Address</Label>

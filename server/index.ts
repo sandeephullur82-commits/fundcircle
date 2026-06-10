@@ -154,17 +154,21 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
     organizationId, organizationName,
     createdBy, actorName,
     address, notes,
+    employeeCode: requestedEmployeeCode,
   } = req.body as {
     firstName: string; lastName: string; email: string;
     phone?: string; organizationId: string; organizationName?: string;
     createdBy?: string; actorName?: string;
     address?: string; notes?: string;
+    employeeCode?: string;
   };
 
-  console.log("[FC CreateAgent] ▶ Request received");
-  console.log("[FC CreateAgent]   Org ID   :", organizationId ?? "MISSING");
-  console.log("[FC CreateAgent]   createdBy:", createdBy ?? "MISSING");
-  console.log("[FC CreateAgent]   email    :", email ?? "MISSING");
+  // STEP 2 — API Received
+  console.log("[FC CreateAgent] STEP 2 — API Received");
+  console.log("[FC CreateAgent]   Org ID      :", organizationId ?? "MISSING");
+  console.log("[FC CreateAgent]   createdBy   :", createdBy ?? "MISSING");
+  console.log("[FC CreateAgent]   email       :", email ?? "MISSING");
+  console.log("[FC CreateAgent]   empCode hint:", requestedEmployeeCode || "(auto-generate)");
 
   if (!firstName || !email || !organizationId) {
     console.warn("[FC CreateAgent] ✗ Missing required fields");
@@ -178,14 +182,16 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
   let userId: string;
   let isNewUser = false;
 
-  // ── 1. Clerk user ────────────────────────────────────────────────────────
+  // STEP 3 — Clerk User Creation
+  console.log("[FC CreateAgent] STEP 3 — Clerk User Creation");
   try {
     const existing = await clerkClient.users.getUserList({ emailAddress: [emailKey] });
 
     if (existing.data.length > 0) {
       userId = existing.data[0].id;
-      console.log("[FC CreateAgent] Existing Clerk user found:", userId);
+      console.log("[FC CreateAgent] STEP 3 — Existing Clerk user found:", userId);
       await clerkClient.users.updateUser(userId, { password: generatedPassword });
+      console.log("[FC CreateAgent] STEP 3 — ✓ Password updated for existing user");
     } else {
       const created = await clerkClient.users.createUser({
         emailAddress: [emailKey],
@@ -196,120 +202,129 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
       });
       userId = created.id;
       isNewUser = true;
-      console.log("[FC CreateAgent] ✓ Clerk user created:", userId);
+      console.log("[FC CreateAgent] STEP 3 — ✓ Clerk user created:", userId);
     }
   } catch (err: any) {
     const msg = err?.errors?.[0]?.longMessage || err?.message || "Failed to create Clerk user";
-    console.error("[FC CreateAgent] ✗ Clerk user error:", msg);
-    return res.status(500).json({ error: msg });
+    console.error("[FC CreateAgent] STEP 3 — ✗ Clerk user creation failed:", msg);
+    return res.status(500).json({ error: `Clerk User Creation Failed: ${msg}` });
   }
 
-  // ── 2. Clerk org membership ──────────────────────────────────────────────
+  // STEP 4 — Organization Membership
+  console.log("[FC CreateAgent] STEP 4 — Organization Membership. userId:", userId, "orgId:", organizationId);
   try {
     const list = await clerkClient.organizations.getOrganizationMembershipList({
       organizationId, limit: 500,
     });
     const alreadyMember = list.data.some((m: any) => m.publicUserData?.userId === userId);
     if (!alreadyMember) {
-      const agentRole = "org:member";
-      console.log("[FC CreateAgent] Assigning role:", agentRole, "to userId:", userId, "in org:", organizationId);
       await clerkClient.organizations.createOrganizationMembership({
-        organizationId, userId, role: agentRole,
+        organizationId, userId, role: "org:member",
       });
-      console.log("[FC CreateAgent] ✓ Clerk membership created");
+      console.log("[FC CreateAgent] STEP 4 — ✓ Clerk membership created");
     } else {
-      console.log("[FC CreateAgent] User already a member of org — skipping membership");
+      console.log("[FC CreateAgent] STEP 4 — User already a member — skipping");
     }
   } catch (err: any) {
     const msg = err?.errors?.[0]?.longMessage || err?.message || "Failed to add to organization";
-    console.error("[FC CreateAgent] ✗ Clerk membership error:", msg);
+    console.error("[FC CreateAgent] STEP 4 — ✗ Clerk membership failed:", msg);
     if (isNewUser) {
-      try { await clerkClient.users.deleteUser(userId); console.log("[FC CreateAgent] ↩ Rolled back Clerk user:", userId); }
-      catch (rb: any) { console.error("[FC CreateAgent] ✗ Rollback failed:", rb?.message); }
+      try { await clerkClient.users.deleteUser(userId); console.log("[FC CreateAgent] STEP 4 — ↩ Clerk user rolled back"); }
+      catch (rb: any) { console.error("[FC CreateAgent] STEP 4 — ✗ Rollback failed:", rb?.message); }
     }
-    return res.status(500).json({ error: msg });
+    return res.status(500).json({ error: `Organization Membership Failed: ${msg}` });
   }
 
-  // ── 3. Auto-generate employee code ──────────────────────────────────────
+  // Employee code: use the one provided by the frontend (if any), else auto-generate
   const membershipDocId = membershipIdFor(organizationId, userId);
   const now = new Date();
 
   let employeeCode: string;
-  try {
-    employeeCode = await generateEmployeeCode(organizationId, organizationName || "");
-    console.log("[FC CreateAgent] ✓ Employee code generated:", employeeCode);
-  } catch (codeErr: any) {
-    console.error("[FC CreateAgent] ✗ Employee code generation failed:", codeErr.message);
-    employeeCode = `EMP-${userId.slice(-6).toUpperCase()}`;
+  if (requestedEmployeeCode && requestedEmployeeCode.trim().length > 0) {
+    employeeCode = requestedEmployeeCode.trim().toUpperCase();
+    console.log("[FC CreateAgent]   Using requested employee code:", employeeCode);
+  } else {
+    try {
+      employeeCode = await generateEmployeeCode(organizationId, organizationName || "");
+      console.log("[FC CreateAgent]   ✓ Employee code auto-generated:", employeeCode);
+    } catch (codeErr: any) {
+      console.error("[FC CreateAgent]   ✗ Employee code generation failed:", codeErr.message);
+      employeeCode = `EMP-${userId.slice(-6).toUpperCase()}`;
+    }
   }
 
-  // ── 4. Firestore documents ───────────────────────────────────────────────
+  // STEP 5 — Firestore Agent Created
+  console.log("[FC CreateAgent] STEP 5 — Firestore Agent Creation. membershipDocId:", membershipDocId);
   try {
-    console.log("[FC CreateAgent] Writing Firestore docs — membershipDocId:", membershipDocId);
-
     const membershipFields: Record<string, any> = {
-      id:           sv(membershipDocId),
-      clerkUserId:  sv(userId),
-      email:        sv(emailKey),
-      fullName:     sv(fullName),
-      name:         sv(fullName),
-      firstName:    sv(firstName.trim()),
-      lastName:     sv((lastName || "").trim()),
-      role:         sv("AGENT"),
-      clerkRole:    sv("org:pigmy_collector"),
-      organizationId:   sv(organizationId),
-      organizationName: sv(organizationName || ""),
-      phone:        sv(phone || ""),
-      address:      sv(address || ""),
-      notes:        sv(notes || ""),
-      assignedArea: sv(""),
-      employeeCode: sv(employeeCode),
-      profileCompleted: bv(false),
-      status:       sv("ACTIVE"),
-      createdBy:    sv(createdBy || ""),
-      createdAt:    tv(now),
-      updatedAt:    tv(now),
-    };
-
-    // 4a. organizationMembers
-    await fsSet("organizationMembers", membershipDocId, membershipFields);
-    console.log("[FC CreateAgent] ✓ organizationMembers written");
-
-    // 4b. agents (dedicated collection per spec)
-    await fsSet("agents", membershipDocId, {
       id:               sv(membershipDocId),
-      organizationId:   sv(organizationId),
       clerkUserId:      sv(userId),
-      employeeCode:     sv(employeeCode),
+      email:            sv(emailKey),
+      fullName:         sv(fullName),
+      name:             sv(fullName),
       firstName:        sv(firstName.trim()),
       lastName:         sv((lastName || "").trim()),
+      role:             sv("AGENT"),
+      clerkRole:        sv("org:pigmy_collector"),
+      organizationId:   sv(organizationId),
+      organizationName: sv(organizationName || ""),
+      phone:            sv(phone || ""),
+      address:          sv(address || ""),
+      notes:            sv(notes || ""),
+      assignedArea:     sv(""),
+      employeeCode:     sv(employeeCode),
+      profileCompleted: bv(false),
+      status:           sv("ACTIVE"),
+      createdBy:        sv(createdBy || ""),
+      createdAt:        tv(now),
+      updatedAt:        tv(now),
+    };
+
+    // 5a. organizationMembers (primary lookup collection)
+    await fsSet("organizationMembers", membershipDocId, membershipFields);
+    console.log("[FC CreateAgent] STEP 5a — ✓ organizationMembers written");
+
+    // 5b. agents (flat collection — legacy + cross-org queries)
+    const agentFields: Record<string, any> = {
+      id:               sv(membershipDocId),
+      clerkUserId:      sv(userId),
+      organizationId:   sv(organizationId),
+      firstName:        sv(firstName.trim()),
+      lastName:         sv((lastName || "").trim()),
+      fullName:         sv(fullName),
       email:            sv(emailKey),
       phone:            sv(phone || ""),
       address:          sv(address || ""),
+      employeeCode:     sv(employeeCode),
       role:             sv("agent"),
       status:           sv("active"),
       assignedCustomers: iv(0),
       createdAt:        tv(now),
       updatedAt:        tv(now),
-    });
-    console.log("[FC CreateAgent] ✓ agents written");
+    };
+    await fsSet("agents", membershipDocId, agentFields);
+    console.log("[FC CreateAgent] STEP 5b — ✓ agents (flat) written");
 
-    // 4c. users
+    // 5c. organizations/{orgId}/agents/{agentId} subcollection
+    await fsSet(`organizations/${organizationId}/agents`, membershipDocId, agentFields);
+    console.log("[FC CreateAgent] STEP 5c — ✓ organizations subcollection agents written");
+
+    // 5d. users
     await fsSet("users", userId, {
-      clerkUserId: sv(userId),
-      id:          sv(userId),
-      email:       sv(emailKey),
-      name:        sv(fullName),
-      firstName:   sv(firstName.trim()),
-      lastName:    sv((lastName || "").trim()),
-      status:      sv("ACTIVE"),
+      clerkUserId:      sv(userId),
+      id:               sv(userId),
+      email:            sv(emailKey),
+      name:             sv(fullName),
+      firstName:        sv(firstName.trim()),
+      lastName:         sv((lastName || "").trim()),
+      status:           sv("ACTIVE"),
       profileCompleted: bv(false),
-      createdAt:   tv(now),
-      updatedAt:   tv(now),
+      createdAt:        tv(now),
+      updatedAt:        tv(now),
     });
-    console.log("[FC CreateAgent] ✓ users written");
+    console.log("[FC CreateAgent] STEP 5d — ✓ users written");
 
-    // 4d. audit_logs
+    // 5e. audit_logs
     await fsAdd("audit_logs", {
       organizationId: sv(organizationId),
       actorId:        sv(createdBy || ""),
@@ -330,20 +345,24 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
       },
       createdAt: tv(now),
     });
-    console.log("[FC CreateAgent] ✓ audit_logs written");
+    console.log("[FC CreateAgent] STEP 5e — ✓ audit_logs written");
 
   } catch (fsErr: any) {
-    console.error("[FC CreateAgent] ✗ Firestore write failed:", fsErr.message);
+    console.error("[FC CreateAgent] STEP 5 — ✗ Firestore write failed:", fsErr.message);
     if (isNewUser) {
-      console.log("[FC CreateAgent] ↩ Rolling back Clerk user:", userId);
+      console.log("[FC CreateAgent] STEP 5 — ↩ Rolling back Clerk user:", userId);
       try { await clerkClient.users.deleteUser(userId); console.log("[FC CreateAgent] ↩ Rollback complete"); }
       catch (rb: any) { console.error("[FC CreateAgent] ✗ Rollback failed:", rb?.message); }
     }
-    return res.status(500).json({ error: `Failed to create agent records: ${fsErr.message}` });
+    return res.status(500).json({ error: `Firestore Write Failed: ${fsErr.message}` });
   }
 
-  console.log("[FC CreateAgent] ✓ Agent fully created — userId:", userId, "membershipDocId:", membershipDocId, "employeeCode:", employeeCode);
-  return res.json({ userId, email: emailKey, generatedPassword, membershipDocId, employeeCode });
+  // STEP 6 — Success
+  console.log("[FC CreateAgent] STEP 6 — ✓ Agent fully created");
+  console.log("[FC CreateAgent]   userId       :", userId);
+  console.log("[FC CreateAgent]   membershipId :", membershipDocId);
+  console.log("[FC CreateAgent]   employeeCode :", employeeCode);
+  return res.json({ userId, email: emailKey, generatedPassword, membershipDocId, employeeCode, fullName });
 });
 
 // ─── Create Customer (direct creation, no invitation) ────────────────────────
