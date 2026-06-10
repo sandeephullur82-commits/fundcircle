@@ -93,6 +93,21 @@ export default function OrgCustomers() {
   const collectorsForAssignment = [...activeOwners, ...activeAgents];
   const collectorsLoading = ownersLoading || agentsLoading;
 
+  // ── Active tab filter + pagination ─────────────────────────────────────────
+  const [activeTypeTab, setActiveTypeTab] = useState<"ALL" | "SAVINGS" | "LOAN" | "SAVINGS_LOAN">("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 15;
+
+  // ── Current user's membership (for agent visibility scoping) ───────────────
+  const myMembershipId = organization?.id && user?.id ? `${organization.id}_${user.id}` : null;
+  const { data: myMembership } = useDocumentRealtime<Membership>("organizationMembers", myMembershipId);
+  const isAgent = (myMembership?.role || "").toUpperCase() === "AGENT";
+
+  // ── Visibility scope: agents see only their assigned customers ─────────────
+  const visibleCustomers = isAgent
+    ? customers.filter((c: any) => (c as any).assignedAgentId === user?.id)
+    : customers;
+
   const isOwnerMember = (m: any) => (m?.role || "").toUpperCase() === "OWNER";
 
   const customerCountByCollector: Record<string, number> = {};
@@ -168,11 +183,35 @@ export default function OrgCustomers() {
     }
   };
 
-  const filteredCustomers = customers.filter((u) =>
+  // ── Type filter → search filter → pagination ──────────────────────────────
+  const getCustomerType = (c: any) =>
+    ((c.customerType || "SAVINGS_LOAN") as string).toUpperCase() as "SAVINGS" | "LOAN" | "SAVINGS_LOAN";
+
+  const typeFilteredCustomers = activeTypeTab === "ALL"
+    ? visibleCustomers
+    : visibleCustomers.filter((c) => getCustomerType(c) === activeTypeTab);
+
+  const filteredCustomers = typeFilteredCustomers.filter((u) =>
     ((u?.fullName || (u as any)?.name || "").toLowerCase().includes(searchTerm.toLowerCase())) ||
     ((u?.phone || "").includes(searchTerm)) ||
     ((u?.email || "").toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // ── Type counts (from visible, not tab-filtered) ───────────────────────────
+  const countAll = visibleCustomers.length;
+  const countSavings = visibleCustomers.filter((c) => getCustomerType(c) === "SAVINGS").length;
+  const countLoan = visibleCustomers.filter((c) => getCustomerType(c) === "LOAN").length;
+  const countSavingsLoan = visibleCustomers.filter((c) => getCustomerType(c) === "SAVINGS_LOAN").length;
+
+  // ── Pagination ─────────────────────────────────────────────────────────────
+  const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE);
+  const paginatedCustomers = filteredCustomers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // Reset to page 1 when tab or search changes
+  useEffect(() => { setCurrentPage(1); }, [activeTypeTab, searchTerm]);
 
   const statusClass = (status?: string) => {
     if (status === "ACTIVE")          return "bg-emerald-50 text-emerald-700 border-emerald-100";
@@ -810,6 +849,72 @@ export default function OrgCustomers() {
         </div>
       )}
 
+      {/* ── Count Stat Cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div
+          onClick={() => setActiveTypeTab("ALL")}
+          className={`rounded-xl border p-3 cursor-pointer transition-all ${activeTypeTab === "ALL" ? "border-slate-400 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-white hover:border-slate-300"}`}
+        >
+          <p className={`text-xs font-semibold uppercase tracking-wide ${activeTypeTab === "ALL" ? "text-slate-300" : "text-slate-500"}`}>Total Customers</p>
+          <p className={`text-2xl font-bold mt-1 ${activeTypeTab === "ALL" ? "text-white" : "text-slate-900"}`}>{countAll}</p>
+        </div>
+        <div
+          onClick={() => setActiveTypeTab("SAVINGS")}
+          className={`rounded-xl border p-3 cursor-pointer transition-all ${activeTypeTab === "SAVINGS" ? "border-emerald-400 bg-emerald-600 text-white shadow-sm" : "border-emerald-100 bg-emerald-50 hover:border-emerald-200"}`}
+        >
+          <p className={`text-xs font-semibold uppercase tracking-wide ${activeTypeTab === "SAVINGS" ? "text-emerald-100" : "text-emerald-600"}`}>Savings Only</p>
+          <p className={`text-2xl font-bold mt-1 ${activeTypeTab === "SAVINGS" ? "text-white" : "text-emerald-700"}`}>{countSavings}</p>
+        </div>
+        <div
+          onClick={() => setActiveTypeTab("LOAN")}
+          className={`rounded-xl border p-3 cursor-pointer transition-all ${activeTypeTab === "LOAN" ? "border-orange-400 bg-orange-500 text-white shadow-sm" : "border-orange-100 bg-orange-50 hover:border-orange-200"}`}
+        >
+          <p className={`text-xs font-semibold uppercase tracking-wide ${activeTypeTab === "LOAN" ? "text-orange-100" : "text-orange-600"}`}>Loan Only</p>
+          <p className={`text-2xl font-bold mt-1 ${activeTypeTab === "LOAN" ? "text-white" : "text-orange-700"}`}>{countLoan}</p>
+        </div>
+        <div
+          onClick={() => setActiveTypeTab("SAVINGS_LOAN")}
+          className={`rounded-xl border p-3 cursor-pointer transition-all ${activeTypeTab === "SAVINGS_LOAN" ? "border-violet-400 bg-violet-600 text-white shadow-sm" : "border-violet-100 bg-violet-50 hover:border-violet-200"}`}
+        >
+          <p className={`text-xs font-semibold uppercase tracking-wide ${activeTypeTab === "SAVINGS_LOAN" ? "text-violet-100" : "text-violet-600"}`}>Savings + Loan</p>
+          <p className={`text-2xl font-bold mt-1 ${activeTypeTab === "SAVINGS_LOAN" ? "text-white" : "text-violet-700"}`}>{countSavingsLoan}</p>
+        </div>
+      </div>
+
+      {/* ── Filter Tabs ── */}
+      <div className="overflow-x-auto -mx-1 px-1 pb-0.5">
+        <div className="flex gap-1.5 min-w-max">
+          {(
+            [
+              { key: "ALL", label: "All Customers", count: countAll, activeClass: "bg-slate-900 text-white border-slate-900", dotClass: "" },
+              { key: "SAVINGS", label: "Savings Only", count: countSavings, activeClass: "bg-emerald-600 text-white border-emerald-600", dotClass: "bg-emerald-400" },
+              { key: "LOAN", label: "Loan Only", count: countLoan, activeClass: "bg-orange-500 text-white border-orange-500", dotClass: "bg-orange-400" },
+              { key: "SAVINGS_LOAN", label: "Savings + Loan", count: countSavingsLoan, activeClass: "bg-violet-600 text-white border-violet-600", dotClass: "bg-violet-400" },
+            ] as const
+          ).map(({ key, label, count, activeClass, dotClass }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTypeTab(key)}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full border text-sm font-semibold transition-all whitespace-nowrap ${
+                activeTypeTab === key
+                  ? activeClass
+                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              {key !== "ALL" && (
+                <span className={`w-2 h-2 rounded-full ${activeTypeTab === key ? "bg-white/70" : dotClass}`} />
+              )}
+              {label}
+              <span className={`ml-0.5 text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                activeTypeTab === key ? "bg-white/20" : "bg-slate-100 text-slate-500"
+              }`}>
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <Card>
         <CardHeader className="pb-4 border-b border-slate-100">
           <div className="relative">
@@ -853,13 +958,17 @@ export default function OrgCustomers() {
                     <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center gap-2">
                         <Users className="w-8 h-8 text-slate-300" />
-                        <p className="text-slate-500 text-sm font-medium">No customers yet.</p>
-                        <p className="text-slate-400 text-xs">Click "Add Customer" to add your first savings member.</p>
+                        <p className="text-slate-500 text-sm font-medium">
+                          {searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
+                        </p>
+                        {!searchTerm && activeTypeTab === "ALL" && (
+                          <p className="text-slate-400 text-xs">Click "Add Customer" to add your first savings member.</p>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredCustomers.map((customer) => {
+                  paginatedCustomers.map((customer) => {
                     const _aid = (customer as any).assignedAgentId || customer.agentId || "";
                     const assignedCollector = allCollectors.find(
                       (c: any) => c.id === _aid || c.clerkUserId === _aid
@@ -882,7 +991,7 @@ export default function OrgCustomers() {
                           {(() => {
                             const ct = (customer as any).customerType as string | undefined;
                             if (ct === "SAVINGS") return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">Savings</span>;
-                            if (ct === "LOAN") return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-100">Loan</span>;
+                            if (ct === "LOAN") return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Loan</span>;
                             return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100">S+L</span>;
                           })()}
                         </TableCell>
@@ -961,12 +1070,16 @@ export default function OrgCustomers() {
             ) : filteredCustomers.length === 0 ? (
               <div className="py-12 text-center">
                 <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-slate-500 text-sm font-medium">No customers yet.</p>
-                <p className="text-slate-400 text-xs mt-1">Click "Add Customer" to add your first savings member.</p>
+                <p className="text-slate-500 text-sm font-medium">
+                  {searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
+                </p>
+                {!searchTerm && activeTypeTab === "ALL" && (
+                  <p className="text-slate-400 text-xs mt-1">Click "Add Customer" to add your first savings member.</p>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-slate-100">
-                {filteredCustomers.map((customer) => {
+                {paginatedCustomers.map((customer) => {
                   const _aidM = (customer as any).assignedAgentId || customer.agentId || "";
                   const assignedCollector = allCollectors.find(
                     (c: any) => c.id === _aidM || c.clerkUserId === _aidM
@@ -1003,6 +1116,12 @@ export default function OrgCustomers() {
                           <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${statusClass(customer.status as string)}`}>
                             {statusLabel(customer.status as string)}
                           </span>
+                          {(() => {
+                            const ct = ((customer as any).customerType || "SAVINGS_LOAN") as string;
+                            if (ct === "SAVINGS") return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">Savings</span>;
+                            if (ct === "LOAN") return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Loan</span>;
+                            return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100">S+L</span>;
+                          })()}
                           <div className="flex gap-1">
                             <button onClick={() => handleOpenEdit(customer)} className="p-1 rounded text-slate-400 hover:text-emerald-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                             {collectorsForAssignment.length > 1 && (
@@ -1026,6 +1145,62 @@ export default function OrgCustomers() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Pagination ── */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 px-1">
+          <p className="text-sm text-slate-500">
+            Showing{" "}
+            <span className="font-semibold text-slate-700">
+              {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredCustomers.length)}
+            </span>{" "}
+            of <span className="font-semibold text-slate-700">{filteredCustomers.length}</span> customers
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                let page: number;
+                if (totalPages <= 5) {
+                  page = i + 1;
+                } else if (currentPage <= 3) {
+                  page = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  page = totalPages - 4 + i;
+                } else {
+                  page = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-lg text-sm font-semibold transition-colors ${
+                      currentPage === page
+                        ? "bg-slate-900 text-white"
+                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Edit Customer Dialog */}
       <Dialog open={!!editCustomer} onOpenChange={(o) => !o && setEditCustomer(null)}>
