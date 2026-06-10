@@ -249,7 +249,8 @@ export default function OrgCustomers() {
 
     setIsSubmitting(true);
     try {
-      const authToken = await getToken();
+      let authToken = await getToken();
+      if (!authToken) authToken = await getToken({ skipCache: true });
       const { generatedPassword } = await createDirectMember({
         firstName: sanitizeName(firstName),
         lastName: sanitizeName(lastName),
