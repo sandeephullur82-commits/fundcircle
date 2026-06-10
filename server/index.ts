@@ -99,6 +99,37 @@ function generateAccountNumber(): string {
   return `FC${n}`;
 }
 
+async function generateEmployeeCode(orgId: string, orgName: string): Promise<string> {
+  const prefix = (orgName || "ORG")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 4)
+    .toUpperCase()
+    .padEnd(3, "X");
+
+  let seq = 1;
+  if (FIREBASE_API_KEY) {
+    const counterUrl = `${FS_BASE}/orgCounters/${encodeURIComponent(orgId)}?key=${FIREBASE_API_KEY}`;
+    try {
+      const resp = await fetch(counterUrl);
+      if (resp.ok) {
+        const data: any = await resp.json();
+        const current = parseInt(data.fields?.agentCodeSeq?.integerValue ?? "0", 10);
+        if (!isNaN(current)) seq = current + 1;
+      }
+    } catch (_) {}
+
+    try {
+      await fsSet("orgCounters", orgId, {
+        agentCodeSeq:   iv(seq),
+        organizationId: sv(orgId),
+        updatedAt:      tv(),
+      });
+    } catch (_) {}
+  }
+
+  return `${prefix}-EMP${String(seq).padStart(4, "0")}`;
+}
+
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -122,12 +153,12 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
     firstName, lastName, email, phone,
     organizationId, organizationName,
     createdBy, actorName,
-    address, notes, employeeCode,
+    address, notes,
   } = req.body as {
     firstName: string; lastName: string; email: string;
     phone?: string; organizationId: string; organizationName?: string;
     createdBy?: string; actorName?: string;
-    address?: string; notes?: string; employeeCode?: string;
+    address?: string; notes?: string;
   };
 
   console.log("[FC CreateAgent] ▶ Request received");
@@ -199,10 +230,20 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: msg });
   }
 
-  // ── 3. Firestore documents ───────────────────────────────────────────────
+  // ── 3. Auto-generate employee code ──────────────────────────────────────
   const membershipDocId = membershipIdFor(organizationId, userId);
   const now = new Date();
 
+  let employeeCode: string;
+  try {
+    employeeCode = await generateEmployeeCode(organizationId, organizationName || "");
+    console.log("[FC CreateAgent] ✓ Employee code generated:", employeeCode);
+  } catch (codeErr: any) {
+    console.error("[FC CreateAgent] ✗ Employee code generation failed:", codeErr.message);
+    employeeCode = `EMP-${userId.slice(-6).toUpperCase()}`;
+  }
+
+  // ── 4. Firestore documents ───────────────────────────────────────────────
   try {
     console.log("[FC CreateAgent] Writing Firestore docs — membershipDocId:", membershipDocId);
 
@@ -222,21 +263,38 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
       address:      sv(address || ""),
       notes:        sv(notes || ""),
       assignedArea: sv(""),
+      employeeCode: sv(employeeCode),
       profileCompleted: bv(false),
-      status:       sv("PENDING_SETUP"),
+      status:       sv("ACTIVE"),
       createdBy:    sv(createdBy || ""),
       createdAt:    tv(now),
       updatedAt:    tv(now),
     };
-    if (employeeCode?.trim()) {
-      membershipFields.employeeCode = sv(employeeCode.trim());
-    }
 
-    // 3a. organizationMembers
+    // 4a. organizationMembers
     await fsSet("organizationMembers", membershipDocId, membershipFields);
     console.log("[FC CreateAgent] ✓ organizationMembers written");
 
-    // 3b. users
+    // 4b. agents (dedicated collection per spec)
+    await fsSet("agents", membershipDocId, {
+      id:               sv(membershipDocId),
+      organizationId:   sv(organizationId),
+      clerkUserId:      sv(userId),
+      employeeCode:     sv(employeeCode),
+      firstName:        sv(firstName.trim()),
+      lastName:         sv((lastName || "").trim()),
+      email:            sv(emailKey),
+      phone:            sv(phone || ""),
+      address:          sv(address || ""),
+      role:             sv("agent"),
+      status:           sv("active"),
+      assignedCustomers: iv(0),
+      createdAt:        tv(now),
+      updatedAt:        tv(now),
+    });
+    console.log("[FC CreateAgent] ✓ agents written");
+
+    // 4c. users
     await fsSet("users", userId, {
       clerkUserId: sv(userId),
       id:          sv(userId),
@@ -244,14 +302,14 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
       name:        sv(fullName),
       firstName:   sv(firstName.trim()),
       lastName:    sv((lastName || "").trim()),
-      status:      sv("PENDING_SETUP"),
+      status:      sv("ACTIVE"),
       profileCompleted: bv(false),
       createdAt:   tv(now),
       updatedAt:   tv(now),
     });
     console.log("[FC CreateAgent] ✓ users written");
 
-    // 3c. audit_logs
+    // 4d. audit_logs
     await fsAdd("audit_logs", {
       organizationId: sv(organizationId),
       actorId:        sv(createdBy || ""),
@@ -263,9 +321,10 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
       metadata: {
         mapValue: {
           fields: {
-            email:    sv(emailKey),
-            fullName: sv(fullName),
-            role:     sv("AGENT"),
+            email:        sv(emailKey),
+            fullName:     sv(fullName),
+            role:         sv("AGENT"),
+            employeeCode: sv(employeeCode),
           },
         },
       },
@@ -283,8 +342,8 @@ app.post("/api/create-agent", authMiddleware, async (req, res) => {
     return res.status(500).json({ error: `Failed to create agent records: ${fsErr.message}` });
   }
 
-  console.log("[FC CreateAgent] ✓ Agent fully created — userId:", userId, "membershipDocId:", membershipDocId);
-  return res.json({ userId, email: emailKey, generatedPassword, membershipDocId });
+  console.log("[FC CreateAgent] ✓ Agent fully created — userId:", userId, "membershipDocId:", membershipDocId, "employeeCode:", employeeCode);
+  return res.json({ userId, email: emailKey, generatedPassword, membershipDocId, employeeCode });
 });
 
 // ─── Create Customer (direct creation, no invitation) ────────────────────────

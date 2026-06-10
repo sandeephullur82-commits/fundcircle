@@ -535,7 +535,7 @@ export async function createDirectMember(params: {
   createdBy: string;
   actorName?: string;
   authToken?: string;
-}): Promise<{ clerkUserId: string; generatedPassword: string }> {
+}): Promise<{ clerkUserId: string; generatedPassword: string; employeeCode?: string }> {
   const emailKey = params.email.trim().toLowerCase();
   const endpoint = params.role === "AGENT" ? "/api/create-agent" : "/api/create-customer";
 
@@ -607,9 +607,9 @@ export async function createDirectMember(params: {
     throw new Error(errorMsg);
   }
 
-  const { userId: clerkUserId, generatedPassword } = await res.json();
+  const { userId: clerkUserId, generatedPassword, employeeCode } = await res.json();
   console.log("[FC createDirectMember] ✓ Server completed all writes. Clerk user:", clerkUserId);
-  return { clerkUserId, generatedPassword };
+  return { clerkUserId, generatedPassword, employeeCode };
 }
 
 export async function provisionUser(params: {

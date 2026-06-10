@@ -24,7 +24,7 @@ import {
   validateEmail, validatePhone10, validateLettersOnlyName,
 } from "@/lib/validation";
 
-type CreatedCredentials = { name: string; email: string; password: string };
+type CreatedCredentials = { name: string; email: string; password: string; employeeCode?: string };
 type AgentStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
 
 function toDate(ts: any): Date {
@@ -56,7 +56,6 @@ export default function OrgAgents() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [employeeCode, setEmployeeCode] = useState("");
   const [address, setAddress] = useState("");
   const [createNotes, setCreateNotes] = useState("");
   const [isValidating, setIsValidating] = useState(false);
@@ -119,7 +118,7 @@ export default function OrgAgents() {
 
   const resetForm = () => {
     setFirstName(""); setLastName(""); setEmail(""); setPhone("");
-    setEmployeeCode(""); setAddress(""); setCreateNotes("");
+    setAddress(""); setCreateNotes("");
     setCredentials(null); setCopiedField(null); setFormErrors({});
   };
 
@@ -141,9 +140,6 @@ export default function OrgAgents() {
       }
     } else if (field === "address") {
       if (value.trim().length > 500) error = "Maximum 500 characters";
-    } else if (field === "employeeCode") {
-      if (value.trim().length > 20) error = "Maximum 20 characters";
-      else if (value.trim() && /[<>"'\/\\;{}()\[\]]/.test(value)) error = "Contains invalid characters";
     }
     setFormErrors((prev) => ({ ...prev, [field]: error }));
   };
@@ -199,17 +195,16 @@ export default function OrgAgents() {
     try {
       let authToken = await getToken();
       if (!authToken) authToken = await getToken({ skipCache: true });
-      const { generatedPassword } = await createDirectMember({
+      const { generatedPassword, employeeCode: generatedEmpCode } = await createDirectMember({
         firstName: sanitizeName(firstName), lastName: sanitizeName(lastName),
         email: emailKey, phone: phone.replace(/\D/g, "").slice(0, 10),
         role: "AGENT",
         organizationId: organization.id, organizationName: organization.name || "",
         createdBy: user.id, actorName: user.fullName || user.firstName || "",
         address: sanitizeMultiline(address, 500), notes: sanitizeMultiline(createNotes, 500),
-        employeeCode: employeeCode.trim().slice(0, 20) || undefined,
         authToken: authToken || undefined,
       });
-      setCredentials({ name: `${firstName.trim()} ${lastName.trim()}`.trim(), email: emailKey, password: generatedPassword });
+      setCredentials({ name: `${firstName.trim()} ${lastName.trim()}`.trim(), email: emailKey, password: generatedPassword, employeeCode: generatedEmpCode });
       toast.success("Agent account created successfully.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create agent");
@@ -331,6 +326,15 @@ export default function OrgAgents() {
                     </div>
                     <p className="text-xs text-emerald-600 ml-7">Share these credentials with the agent.</p>
                   </div>
+                  {credentials.employeeCode && (
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 flex items-center gap-3">
+                      <Hash className="w-4 h-4 text-violet-600 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Employee Code</p>
+                        <p className="text-base font-mono font-bold text-violet-900 tracking-widest">{credentials.employeeCode}</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="rounded-xl border border-slate-200 bg-slate-50 divide-y divide-slate-200">
                     {[{ label: "Email", value: credentials.email, field: "email" as const },
                       { label: "Temporary Password", value: credentials.password, field: "password" as const }].map(({ label, value, field }) => (
@@ -381,23 +385,13 @@ export default function OrgAgents() {
                       className={formErrors.email ? "border-red-400 focus-visible:ring-red-300" : ""} />
                     <FieldError error={formErrors.email} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>Phone Number</Label>
-                      <Input type="tel" placeholder="10-digit mobile" value={phone}
-                        onChange={(e) => { setPhone(e.target.value); validateAgentField("phone", e.target.value); }}
-                        maxLength={10}
-                        className={formErrors.phone ? "border-red-400 focus-visible:ring-red-300" : ""} />
-                      <FieldError error={formErrors.phone} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Employee Code</Label>
-                      <Input placeholder="EMP001" value={employeeCode}
-                        onChange={(e) => { setEmployeeCode(e.target.value); validateAgentField("employeeCode", e.target.value); }}
-                        maxLength={20}
-                        className={formErrors.employeeCode ? "border-red-400 focus-visible:ring-red-300" : ""} />
-                      <FieldError error={formErrors.employeeCode} />
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label>Phone Number</Label>
+                    <Input type="tel" placeholder="10-digit mobile" value={phone}
+                      onChange={(e) => { setPhone(e.target.value); validateAgentField("phone", e.target.value); }}
+                      maxLength={10}
+                      className={formErrors.phone ? "border-red-400 focus-visible:ring-red-300" : ""} />
+                    <FieldError error={formErrors.phone} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Address</Label>
