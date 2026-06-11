@@ -1,0 +1,372 @@
+You are a Principal FinTech Architect and Senior Full Stack Engineer.
+
+Modify the EXISTING FundCircle application. Do NOT rebuild from scratch. Preserve all existing UI, Firebase/Firestore data, Clerk authentication, collections, reports, loans, savings, dashboards, and customer management.
+
+========================================
+CUSTOMER ACCOUNT TYPE ENGINE
+========================================
+
+Customer Type must support:
+
+1. SAVINGS
+2. LOAN
+3. SAVINGS_LOAN
+
+Store in customer document:
+
+customerType
+
+========================================
+SAVINGS CUSTOMER FLOW
+========================================
+
+When customerType = SAVINGS
+
+Allowed:
+✓ Savings deposits
+✓ Savings ledger
+✓ Savings reports
+✓ Savings dashboard
+
+Blocked:
+✗ Loan applications
+✗ Loan approval
+✗ EMI collections
+
+Dashboard shows:
+
+- Savings Balance
+- Total Deposits
+- Deposit History
+- Last Deposit
+- Nominee Information
+- Passbook
+
+Hide all loan widgets.
+
+========================================
+LOAN CUSTOMER FLOW
+========================================
+
+When customerType = LOAN
+
+Allowed:
+✓ Loan applications
+✓ Loan approval
+✓ EMI collections
+✓ Loan ledger
+
+Blocked:
+✗ Savings deposits
+✗ Savings account operations
+
+Dashboard shows:
+
+- Loan Amount
+- Outstanding Balance
+- Next EMI
+- EMI History
+- Loan Status
+- Guarantor
+- Nominee
+
+Hide all savings widgets.
+
+========================================
+SAVINGS + LOAN FLOW
+========================================
+
+When customerType = SAVINGS_LOAN
+
+Allowed:
+
+✓ Savings deposits
+✓ Loan applications
+✓ EMI collections
+
+Dashboard contains:
+
+Savings Section
+
+- Savings Balance
+- Deposit History
+- Last Deposit
+
+Loan Section
+
+- Loan Amount
+- Outstanding
+- EMI Schedule
+- Payment History
+
+========================================
+COLLECTION ENTRY LOGIC
+========================================
+
+When customerType = SAVINGS
+
+Collection screen must show:
+
+Savings Deposit Amount
+
+Transaction Type:
+
+SAVINGS
+
+Update:
+
+savingsBalance += amount
+
+----------------------------------------
+
+When customerType = LOAN
+
+Collection screen must show:
+
+EMI Amount
+
+Transaction Type:
+
+LOAN
+
+Update:
+
+loanOutstanding -= amount
+
+----------------------------------------
+
+When customerType = SAVINGS_LOAN
+
+Collection screen must show:
+
+Savings Deposit
+Loan EMI
+
+Both may be collected simultaneously.
+
+Example:
+
+Savings Deposit = ₹500
+Loan EMI = ₹2000
+
+Generate ONE receipt.
+
+Receipt:
+
+Savings : ₹500
+Loan EMI : ₹2000
+
+Total : ₹2500
+
+Create separate ledger entries.
+
+========================================
+LOAN RESTRICTIONS
+========================================
+
+When active loan exists:
+
+Lock customerType field.
+
+Disable changing:
+
+SAVINGS
+LOAN
+SAVINGS_LOAN
+
+Show:
+
+"Customer type cannot be changed while an active loan exists."
+
+========================================
+NOMINEE RULES
+========================================
+
+Savings Account:
+
+Nominee Required
+
+----------------------------------------
+
+Loan Above ₹25,000
+
+Nominee Required
+
+----------------------------------------
+
+Savings + Loan
+
+Nominee Mandatory
+
+----------------------------------------
+
+If nominee missing during approval:
+
+Show warning.
+
+Allow Owner/Admin to add nominee directly from approval screen.
+
+After nominee saved:
+
+Continue approval.
+
+========================================
+NOMINEE LOCKING
+========================================
+
+When active loan exists:
+
+Nominee fields become read-only.
+
+Block:
+
+- Edit nominee
+- Delete nominee
+- Replace nominee
+
+Show:
+
+"Nominee details are locked until all loans are fully cleared."
+
+After loan closure:
+
+Unlock nominee editing.
+
+========================================
+CUSTOMER EDIT SCREEN
+========================================
+
+When editing customer:
+
+If nominee exists:
+
+Auto populate:
+
+- Nominee Name
+- Relationship
+- Phone
+- Address
+
+If nominee missing:
+
+Show empty fields.
+
+========================================
+AGENT VISIBILITY
+========================================
+
+Agents must only see customers assigned to them.
+
+Owner/Admin:
+
+Can see all customers.
+
+Agent:
+
+Can see only:
+
+assignedCollectorId == currentAgentId
+
+Apply to:
+
+- Customer List
+- Collections
+- EMI Collections
+- Savings Collections
+- Customer Search
+- Dashboard Counts
+
+========================================
+AGENT COLLECTIONS
+========================================
+
+Agent dashboard must display:
+
+Assigned Customers
+Today's Collections
+Savings Collected
+Loan EMI Collected
+Overdue Accounts
+
+Only for assigned customers.
+
+========================================
+COLLECTION DATABASE
+========================================
+
+collections
+
+id
+receiptNo
+customerId
+customerType
+
+collectionType
+
+SAVINGS
+LOAN
+BOTH
+
+savingsAmount
+loanAmount
+totalAmount
+
+agentId
+
+createdAt
+
+========================================
+SAVINGS LEDGER
+========================================
+
+savings_transactions
+
+id
+customerId
+amount
+receiptNo
+agentId
+createdAt
+
+========================================
+LOAN LEDGER
+========================================
+
+loan_transactions
+
+id
+loanId
+customerId
+emiAmount
+principalAmount
+interestAmount
+remainingBalance
+receiptNo
+agentId
+createdAt
+
+========================================
+CUSTOMER DASHBOARD AUTO SWITCHING
+========================================
+
+SAVINGS
+→ Savings Dashboard
+
+LOAN
+→ Loan Dashboard
+
+SAVINGS_LOAN
+→ Combined Dashboard
+
+========================================
+VALIDATION
+========================================
+
+Prevent:
+
+- Savings deposit for Loan customer
+- EMI collection for Savings customer
+- Customer type changes during active loan
+- Nominee modifications during active loan
+
+Ensure all dashboards, reports, ledgers, exports, and analytics automatically respect customerType and assigned agent visibility.
