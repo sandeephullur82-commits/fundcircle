@@ -4,11 +4,14 @@ import { Collection, Loan, LoanInstallment, Membership } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 import { format, startOfMonth, subMonths, isBefore, startOfDay, differenceInDays } from "date-fns";
-import { Download, TrendingUp, PieChart as PieIcon, AlertTriangle } from "lucide-react";
+import { Download, TrendingUp, PieChart as PieIcon, AlertTriangle, Loader2 } from "lucide-react";
+import { exportCollectionsReport } from "@/lib/exportExcel";
+import { toast } from "sonner";
+import { useOrganization } from "@clerk/clerk-react";
 
 function toDate(ts: any): Date {
   if (!ts) return new Date(0);
@@ -25,8 +28,10 @@ export default function OrgReports() {
   const { data: installments } = useCollectionRealtime<LoanInstallment>("loan_installments");
   const { data: members } = useCollectionRealtime<Membership>("organizationMembers");
   const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
+  const { organization } = useOrganization();
 
   const [activeTab, setActiveTab] = useState<"overview" | "emi_aging" | "savings" | "portfolio">("overview");
+  const [exporting, setExporting] = useState(false);
 
   const now = new Date();
   const today = startOfDay(now);
@@ -99,14 +104,25 @@ export default function OrgReports() {
     }).sort((a, b) => b.amount - a.amount).slice(0, 10);
   }, [collections, members]);
 
-  // ── Export CSV ────────────────────────────────────────────────────────────
-  const exportCollectionsCSV = () => {
-    const header = "Month,Savings,EMI,Total\n";
-    const rows = monthlyCollections.map((m) => `${m.month},${m.savings},${m.emi},${m.total}`).join("\n");
-    const blob = new Blob([header + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "monthly_report.csv"; a.click();
-    URL.revokeObjectURL(url);
+  // ── Export Excel ──────────────────────────────────────────────────────────
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      await exportCollectionsReport({
+        orgName: organization?.name || "FundCircle Organization",
+        collections,
+        members,
+        loans,
+        installments,
+        savingsAccounts,
+      });
+      toast.success("Excel report downloaded successfully!");
+    } catch (err) {
+      console.error("Export failed:", err);
+      toast.error("Failed to export report. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const TABS = [
@@ -123,8 +139,16 @@ export default function OrgReports() {
           <h2 className="text-2xl font-bold text-slate-900">Reports & Analytics</h2>
           <p className="text-slate-500 text-sm">Financial intelligence — collections, loans, EMI aging, agent performance.</p>
         </div>
-        <Button onClick={exportCollectionsCSV} variant="outline" className="gap-2 shrink-0">
-          <Download className="w-4 h-4" /> Export CSV
+        <Button
+          onClick={handleExportExcel}
+          disabled={exporting}
+          variant="outline"
+          className="gap-2 shrink-0 border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300"
+        >
+          {exporting
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
+            : <><Download className="w-4 h-4" /> Export Excel</>
+          }
         </Button>
       </div>
 

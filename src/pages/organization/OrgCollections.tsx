@@ -5,8 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { format, startOfDay, subDays, isAfter } from "date-fns";
-import { Search, Download, IndianRupee, ChevronDown } from "lucide-react";
+import { Search, Download, IndianRupee, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { exportCollectionsReport } from "@/lib/exportExcel";
+import { toast } from "sonner";
+import { useOrganization } from "@clerk/clerk-react";
 
 const PAGE_SIZE = 50;
 
@@ -23,12 +26,17 @@ type DateRangeFilter = "ALL" | "TODAY" | "WEEK" | "MONTH";
 export default function OrgCollections() {
   const { data: collections, loading } = useCollectionRealtime<Collection>("collections");
   const { data: members } = useCollectionRealtime<Membership>("organizationMembers");
+  const { data: loans } = useCollectionRealtime<any>("loans");
+  const { data: installments } = useCollectionRealtime<any>("loan_installments");
+  const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
+  const { organization } = useOrganization();
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<CollectionTypeFilter>("ALL");
   const [dateFilter, setDateFilter] = useState<DateRangeFilter>("ALL");
   const [agentFilter, setAgentFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
   const handleFilterChange = (fn: () => void) => { fn(); setPage(1); };
 
@@ -69,25 +77,24 @@ export default function OrgCollections() {
   const paginated = filtered.slice(0, page * PAGE_SIZE);
   const hasMore = page * PAGE_SIZE < filtered.length;
 
-  const exportCSV = () => {
-    const header = "Receipt No,Customer,Type,Agent,Amount,Date\n";
-    const rows = filtered.map((col) => {
-      const cust = members.find((m) => m.id === col.customerId || m.clerkUserId === col.customerId);
-      const agent = members.find((m) => m.id === col.agentId || m.clerkUserId === col.agentId);
-      const d = toDate(col.collectedAt || col.timestamp);
-      return [
-        col.receiptNo || "",
-        (cust as any)?.fullName || (cust as any)?.name || col.customerId?.slice(-6),
-        col.collectionType || "SAVINGS",
-        (agent as any)?.fullName || (agent as any)?.name || col.collectedByName || "",
-        col.amount,
-        d.getTime() > 0 ? format(d, "yyyy-MM-dd HH:mm") : "",
-      ].join(",");
-    }).join("\n");
-    const blob = new Blob([header + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "collections.csv"; a.click();
-    URL.revokeObjectURL(url);
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      await exportCollectionsReport({
+        orgName: organization?.name || "FundCircle Organization",
+        collections,
+        members,
+        loans,
+        installments,
+        savingsAccounts,
+      });
+      toast.success("Excel report downloaded successfully!");
+    } catch (err) {
+      console.error("Export failed:", err);
+      toast.error("Failed to export report. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -97,8 +104,16 @@ export default function OrgCollections() {
           <h2 className="text-2xl font-bold text-slate-900">Collections Ledger</h2>
           <p className="text-slate-500 text-sm">All savings deposits and EMI payments — searchable, filterable.</p>
         </div>
-        <Button onClick={exportCSV} variant="outline" className="gap-2 shrink-0">
-          <Download className="w-4 h-4" /> Export CSV
+        <Button
+          onClick={handleExportExcel}
+          disabled={exporting}
+          variant="outline"
+          className="gap-2 shrink-0 border-blue-200 text-blue-700 hover:bg-blue-50 hover:border-blue-300"
+        >
+          {exporting
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Exporting…</>
+            : <><Download className="w-4 h-4" /> Export Excel</>
+          }
         </Button>
       </div>
 
