@@ -17,8 +17,11 @@ import {
   Phone, MapPin, Hash, FileText, TrendingUp, Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
 import { format } from "date-fns";
 import FieldError from "@/components/ui/FieldError";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import EmptyState from "@/components/ui/EmptyState";
 import {
   sanitizeName, sanitizeEmail, sanitizeMultiline, sanitizeSearch,
   validateEmail, validatePhone10, validateLettersOnlyName,
@@ -150,7 +153,7 @@ export default function OrgAgents() {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
       setTimeout(() => setCopiedField(null), 2000);
-    } catch { toast.error("Could not copy to clipboard."); }
+    } catch { fcToast.clipboardFailed(); }
   };
 
   const handleAddAgent = async (e: React.FormEvent) => {
@@ -189,7 +192,7 @@ export default function OrgAgents() {
     if (address.trim().length > 500) submitErrors.address = "Maximum 500 characters";
     if (Object.values(submitErrors).some(Boolean)) {
       setFormErrors(submitErrors);
-      toast.error("Please fix the highlighted errors before continuing.");
+      fcToast.formError();
       return;
     }
     setFormErrors({});
@@ -206,9 +209,9 @@ export default function OrgAgents() {
       const msg = err instanceof Error ? err.message : "Email validation failed";
       console.error("[FC CreateAgent] STEP 1b — Email validation failed:", msg);
       if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("exist")) {
-        toast.error("❌ Duplicate Email — " + msg);
+        fcToast.agentCreationFailed("An account with this email already exists.");
       } else {
-        toast.error("❌ " + msg);
+        fcToast.agentCreationFailed(msg);
       }
       setIsValidating(false);
       return;
@@ -221,7 +224,7 @@ export default function OrgAgents() {
       let authToken = await getToken();
       if (!authToken) authToken = await getToken({ skipCache: true });
       if (!authToken) {
-        toast.error("❌ Authentication Failed — Could not obtain auth token. Please sign in again.");
+        fcToast.authError();
         return;
       }
       console.log("[FC CreateAgent] STEP 2 — Auth token obtained, calling API");
@@ -250,25 +253,19 @@ export default function OrgAgents() {
         password: generatedPassword,
         employeeCode: generatedEmpCode,
       });
-      toast.success("Agent account created successfully.");
+      fcToast.agentCreated(`${firstName.trim()} ${lastName.trim()}`, undefined);
 
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to create agent";
       console.error("[FC CreateAgent] ✗ Creation failed:", msg);
 
       // Map server error context to specific user-facing label
-      if (msg.includes("Clerk user") || msg.toLowerCase().includes("create user")) {
-        toast.error("❌ Clerk User Creation Failed — " + msg);
-      } else if (msg.includes("membership") || msg.includes("organization")) {
-        toast.error("❌ Organization Membership Failed — " + msg);
-      } else if (msg.includes("Firestore") || msg.includes("records") || msg.includes("database")) {
-        toast.error("❌ Firestore Write Failed — " + msg);
+      if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("already exist") || msg.toLowerCase().includes("already in use")) {
+        fcToast.agentCreationFailed("An account with this email already exists.");
       } else if (msg.includes("token") || msg.includes("Token") || msg.includes("401")) {
-        toast.error("❌ Authentication Failed — " + msg);
-      } else if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("already exist") || msg.toLowerCase().includes("already in use")) {
-        toast.error("❌ Duplicate Email — " + msg);
+        fcToast.authError();
       } else {
-        toast.error("❌ " + msg);
+        fcToast.agentCreationFailed(msg);
       }
     } finally { setIsSubmitting(false); }
   };
@@ -326,10 +323,10 @@ export default function OrgAgents() {
         phone: cleanPhone || editPhone, address: cleanAddress,
         status: editStatus, notes: cleanNotes, updatedAt: serverTimestamp(),
       });
-      toast.success("Agent updated successfully.");
+      fcToast.agentUpdated((editAgent as any)?.fullName || (editAgent as any)?.name);
       setEditAgent(null);
     } catch (err) {
-      toast.error("Failed to update agent.");
+      fcToast.agentUpdateFailed();
     } finally { setSaving(false); }
   };
 
@@ -343,9 +340,12 @@ export default function OrgAgents() {
       await updateDoc(doc(db, "organizationMembers", archiveAgent.id), {
         status: newStatus, updatedAt: serverTimestamp(),
       });
-      toast.success(`Agent status changed to ${newStatus}.`);
+      fcToast.agentStatusChanged(
+        (archiveAgent as any)?.fullName || (archiveAgent as any)?.name || "Agent",
+        newStatus
+      );
       setArchiveAgent(null);
-    } catch { toast.error("Failed to update agent status."); }
+    } catch { fcToast.agentUpdateFailed("Failed to update agent status."); }
     finally { setArchiving(false); }
   };
 
@@ -556,9 +556,12 @@ export default function OrgAgents() {
                   ))
                 ) : filteredCollectors.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12">
-                      <UserCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-slate-500 text-sm font-medium">No agents found.</p>
+                    <TableCell colSpan={6} className="py-0">
+                      <EmptyState
+                        icon={<UserCheck className="w-8 h-8" />}
+                        title={searchTerm ? "No agents match your search." : "No agents yet."}
+                        description={!searchTerm ? "Add your first pigmy collector to start assigning customers." : undefined}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -622,10 +625,12 @@ export default function OrgAgents() {
             {loading ? (
               <div className="p-4 space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse" />)}</div>
             ) : filteredCollectors.length === 0 ? (
-              <div className="py-12 text-center">
-                <UserCheck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-slate-500 text-sm font-medium">No agents yet.</p>
-              </div>
+              <EmptyState
+                icon={<UserCheck className="w-7 h-7" />}
+                title={searchTerm ? "No agents match your search." : "No agents yet."}
+                description={!searchTerm ? "Add your first pigmy collector to start assigning customers." : undefined}
+                compact
+              />
             ) : (
               <div className="divide-y divide-slate-100">
                 {filteredCollectors.map((collector) => {
@@ -773,42 +778,35 @@ export default function OrgAgents() {
         </DialogContent>
       </Dialog>
 
-      {/* Archive / Status Change Dialog */}
-      <Dialog open={!!archiveAgent} onOpenChange={(o) => !o && setArchiveAgent(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-700">
-              <Archive className="w-5 h-5" /> Change Agent Status
-            </DialogTitle>
-          </DialogHeader>
-          {archiveAgent && (() => {
-            const currentStatus = ((archiveAgent as any).status || "ACTIVE").toUpperCase();
-            const nextStatus = currentStatus === "ACTIVE" ? "INACTIVE" : currentStatus === "INACTIVE" ? "ARCHIVED" : "INACTIVE";
-            return (
-              <div className="space-y-4 mt-2">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
-                  <p className="font-semibold text-amber-900 text-sm">
-                    {archiveAgent.fullName || (archiveAgent as any).name || archiveAgent.email}
-                  </p>
-                  <p className="text-xs text-amber-700">
-                    Current status: <strong>{currentStatus}</strong> → New status: <strong>{nextStatus}</strong>
-                  </p>
-                  <p className="text-xs text-amber-600">
-                    {nextStatus === "INACTIVE" && "Agent will be deactivated. Their assigned customers will remain unchanged."}
-                    {nextStatus === "ARCHIVED" && "Agent will be archived. This is a soft delete — data is preserved."}
-                  </p>
-                </div>
-                <div className="flex gap-3">
-                  <Button variant="outline" className="flex-1" onClick={() => setArchiveAgent(null)}>Cancel</Button>
-                  <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={handleArchive} disabled={archiving}>
-                    {archiving ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</> : `Set ${nextStatus}`}
-                  </Button>
-                </div>
-              </div>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
+      {/* Archive / Status Change Confirm */}
+      {archiveAgent && (() => {
+        const currentStatus = ((archiveAgent as any).status || "ACTIVE").toUpperCase();
+        const nextStatus = currentStatus === "ACTIVE" ? "INACTIVE" : currentStatus === "INACTIVE" ? "ARCHIVED" : "INACTIVE";
+        const agentName = archiveAgent.fullName || (archiveAgent as any).name || archiveAgent.email || "Agent";
+        const custCount = customersByAgent[archiveAgent.id] || 0;
+        return (
+          <ConfirmDialog
+            open={!!archiveAgent}
+            onOpenChange={(o) => !o && setArchiveAgent(null)}
+            variant={nextStatus === "ARCHIVED" ? "danger" : "warning"}
+            title={nextStatus === "ARCHIVED" ? `Archive ${agentName}?` : `Deactivate ${agentName}?`}
+            description={
+              nextStatus === "INACTIVE"
+                ? "Agent will be deactivated. Their assigned customers will remain unchanged."
+                : "Agent will be archived (soft delete). All data and collection history is preserved."
+            }
+            details={[
+              { label: "Agent", value: agentName },
+              { label: "Assigned Customers", value: String(custCount) },
+              { label: "Current Status", value: currentStatus },
+              { label: "New Status", value: nextStatus },
+            ]}
+            confirmLabel={nextStatus === "ARCHIVED" ? "Archive Agent" : "Deactivate Agent"}
+            loading={archiving}
+            onConfirm={handleArchive}
+          />
+        );
+      })()}
     </div>
   );
 }

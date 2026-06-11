@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
 import {
   CheckCircle, Loader2, TrendingUp, Banknote, ShieldCheck,
   AlertTriangle, ChevronDown, Crown, Calendar, ClipboardCheck,
@@ -227,7 +228,7 @@ export default function LoanApprovalDialog({
         address:  cleanAddress,
       });
       setShowInlineNominee(false);
-      toast.success("Nominee saved — approval is now enabled.");
+      toast.success("Nominee Saved", { description: "Approval is now enabled." });
     } catch (err: any) {
       toast.error(err?.message || "Failed to save nominee.");
     } finally {
@@ -237,7 +238,7 @@ export default function LoanApprovalDialog({
 
   const handleApprove = async () => {
     if (nomineeBlocked) {
-      toast.error("Nominee is required. Please add one using '+ Add Nominee Now' above.");
+      fcToast.nomineeRequired();
       return;
     }
     // Validate amount and rate
@@ -336,10 +337,11 @@ export default function LoanApprovalDialog({
         });
       }
 
-      toast.success(`Loan approved — Account ${loanAccountNum} activated.`);
+      const custName = (loan as any)?.customerName || (application as any)?.customerName || "";
+      fcToast.loanApproved(custName, approvedAmountNum, loanAccountNum);
       onClose();
     } catch (err: any) {
-      toast.error(err?.message || "Approval failed");
+      fcToast.loanApprovalFailed(err?.message);
     } finally {
       setProcessing(false);
     }

@@ -17,7 +17,10 @@ import {
   MapPin, FileText, UserCheck, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
 import FieldError from "@/components/ui/FieldError";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import EmptyState from "@/components/ui/EmptyState";
 import {
   sanitizeName, sanitizeEmail, sanitizeMultiline, sanitizeSearch,
   validateEmail, validatePhone10, validateLettersOnlyName,
@@ -297,7 +300,7 @@ export default function OrgCustomers() {
     if (address.trim().length > 500) submitErrors.address = "Maximum 500 characters";
     if (Object.values(submitErrors).some(Boolean)) {
       setFormErrors(submitErrors);
-      toast.error("Please fix the highlighted errors before continuing.");
+      fcToast.formError();
       return;
     }
     setFormErrors({});
@@ -348,9 +351,12 @@ export default function OrgCustomers() {
         authToken: authToken || undefined,
       });
       setCredentials({ name: `${firstName.trim()} ${lastName.trim()}`.trim(), email: emailKey, password: generatedPassword });
-      toast.success("Customer account created successfully.");
+      const collectorName = credentials
+        ? (collectorsForAssignment.find(c => c.id === selectedCollectorId)?.fullName || (collectorsForAssignment.find(c => c.id === selectedCollectorId) as any)?.name)
+        : undefined;
+      fcToast.customerCreated(`${firstName.trim()} ${lastName.trim()}`, collectorName);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create customer");
+      fcToast.customerCreationFailed(error instanceof Error ? error.message : undefined);
     } finally {
       setIsSubmitting(false);
     }
@@ -482,12 +488,12 @@ export default function OrgCustomers() {
         } catch (_) {}
       }
 
-      toast.success("Customer updated successfully.");
+      fcToast.customerUpdated(editCustomer?.fullName || (editCustomer as any)?.name || undefined);
       setEditCustomer(null);
       setNomineeOverrideReason("");
       setShowNomineeOverride(false);
     } catch (err) {
-      toast.error("Failed to update customer.");
+      fcToast.customerUpdateFailed();
     } finally {
       setSavingEdit(false);
     }
@@ -510,9 +516,11 @@ export default function OrgCustomers() {
       try {
         await updateDoc(doc(db, "customers", deactivateCustomer.id), statusUpdate);
       } catch (_) {}
-      toast.success(isActive ? "Customer deactivated." : "Customer reactivated.");
+      const toggledName = (deactivateCustomer as any)?.fullName || (deactivateCustomer as any)?.name || "Customer";
+      if (isActive) fcToast.customerDeactivated(toggledName);
+      else fcToast.customerReactivated(toggledName);
       setDeactivateCustomer(null);
-    } catch { toast.error("Failed to update customer status."); }
+    } catch { fcToast.customerUpdateFailed("Failed to update customer status."); }
     finally { setDeactivating(false); }
   };
 
@@ -531,11 +539,15 @@ export default function OrgCustomers() {
         changedBy: user.id,
         organizationId: organization.id,
       });
-      toast.success("Customer reassigned successfully.");
+      const newColl = collectorsForAssignment.find((c) => c.id === newCollectorId);
+      fcToast.customerReassigned(
+        (reassigningCustomer as any).fullName || (reassigningCustomer as any).name || "Customer",
+        newColl?.fullName || (newColl as any)?.name || "new collector"
+      );
       setReassigningCustomer(null);
       setNewCollectorId("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to reassign customer");
+      fcToast.customerUpdateFailed(err instanceof Error ? err.message : "Failed to reassign customer");
     } finally {
       setIsReassigning(false);
     }
@@ -957,16 +969,12 @@ export default function OrgCustomers() {
                   ))
                 ) : filteredCustomers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-12">
-                      <div className="flex flex-col items-center gap-2">
-                        <Users className="w-8 h-8 text-slate-300" />
-                        <p className="text-slate-500 text-sm font-medium">
-                          {searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
-                        </p>
-                        {!searchTerm && activeTypeTab === "ALL" && (
-                          <p className="text-slate-400 text-xs">Click "Add Customer" to add your first savings member.</p>
-                        )}
-                      </div>
+                    <TableCell colSpan={7} className="py-0">
+                      <EmptyState
+                        icon={<Users className="w-8 h-8" />}
+                        title={searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
+                        description={!searchTerm && activeTypeTab === "ALL" ? "Click \"Add Customer\" to add your first savings member." : undefined}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1070,15 +1078,12 @@ export default function OrgCustomers() {
                 ))}
               </div>
             ) : filteredCustomers.length === 0 ? (
-              <div className="py-12 text-center">
-                <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-slate-500 text-sm font-medium">
-                  {searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
-                </p>
-                {!searchTerm && activeTypeTab === "ALL" && (
-                  <p className="text-slate-400 text-xs mt-1">Click "Add Customer" to add your first savings member.</p>
-                )}
-              </div>
+              <EmptyState
+                icon={<Users className="w-7 h-7" />}
+                title={searchTerm ? "No customers match your search." : activeTypeTab === "ALL" ? "No customers yet." : "No customers in this category."}
+                description={!searchTerm && activeTypeTab === "ALL" ? "Click \"Add Customer\" to add your first savings member." : undefined}
+                compact
+              />
             ) : (
               <div className="divide-y divide-slate-100">
                 {paginatedCustomers.map((customer) => {
@@ -1368,42 +1373,35 @@ export default function OrgCustomers() {
         </DialogContent>
       </Dialog>
 
-      {/* Deactivate Customer Dialog */}
-      <Dialog open={!!deactivateCustomer} onOpenChange={(o) => !o && setDeactivateCustomer(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-700">
-              <UserX className="w-5 h-5" /> {deactivateCustomer && (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "Deactivate" : "Reactivate"} Customer
-            </DialogTitle>
-          </DialogHeader>
-          {deactivateCustomer && (
-            <div className="space-y-4 mt-2">
-              <div className={`rounded-xl border p-4 space-y-2 ${(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
-                <p className="font-semibold text-slate-900 text-sm">{deactivateCustomer.fullName || (deactivateCustomer as any).name || deactivateCustomer.email}</p>
-                {(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? (
-                  <p className="text-xs text-red-700">
-                    This customer will be marked <strong>Inactive</strong>. They will no longer be able to sign in. Existing savings and loan records are preserved.
-                    {(activeLoansByCustomer[deactivateCustomer.id] || 0) > 0 && (
-                      <><br /><strong className="text-red-800">⚠ This customer has {activeLoansByCustomer[deactivateCustomer.id]} active loan(s). Close them first.</strong></>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-xs text-emerald-700">This customer will be reactivated and can sign in again.</p>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={() => setDeactivateCustomer(null)}>Cancel</Button>
-                <Button
-                  className={`flex-1 ${(deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}
-                  onClick={handleDeactivate} disabled={deactivating || ((deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" && (activeLoansByCustomer[deactivateCustomer.id] || 0) > 0)}>
-                  {deactivating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</> :
-                    (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE" ? "Deactivate" : "Reactivate"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Deactivate / Reactivate Customer Confirm */}
+      {deactivateCustomer && (() => {
+        const isActive = (deactivateCustomer.status as string || "ACTIVE") === "ACTIVE";
+        const hasLoans = (activeLoansByCustomer[deactivateCustomer.id] || 0) > 0;
+        const custName = deactivateCustomer.fullName || (deactivateCustomer as any).name || deactivateCustomer.email || "Customer";
+        return (
+          <ConfirmDialog
+            open={!!deactivateCustomer}
+            onOpenChange={(o) => !o && setDeactivateCustomer(null)}
+            variant={isActive ? "warning" : "info"}
+            title={isActive ? `Deactivate ${custName}?` : `Reactivate ${custName}?`}
+            description={
+              isActive
+                ? hasLoans
+                  ? `This customer has ${activeLoansByCustomer[deactivateCustomer.id]} active loan(s). Close all loans before deactivating.`
+                  : "They will be marked Inactive and blocked from signing in. All records are preserved."
+                : "This customer will be able to sign in again."
+            }
+            details={[
+              { label: "Customer", value: custName },
+              { label: "Email", value: deactivateCustomer.email || "—" },
+              { label: "Status after", value: isActive ? "Inactive" : "Active" },
+            ]}
+            confirmLabel={isActive ? "Deactivate" : "Reactivate"}
+            loading={deactivating}
+            onConfirm={handleDeactivate}
+          />
+        );
+      })()}
 
       {/* Reassign Dialog */}
       <Dialog open={!!reassigningCustomer} onOpenChange={(open) => { if (!open) { setReassigningCustomer(null); setNewCollectorId(""); } }}>

@@ -1,0 +1,663 @@
+Use this as the Ultra Master Report Generation Prompt in Replit AI after uploading your complete FundCircle project source code.
+
+:::writing{variant="document" id="58371"} YOU ARE A WORLD-CLASS SOFTWARE ARCHITECT, TECHNICAL WRITER, SYSTEM ANALYST, SOFTWARE TESTING ENGINEER, DATABASE ARCHITECT, UI/UX ANALYST, FINTECH DOMAIN EXPERT, AND UNIVERSITY PROJECT DOCUMENTATION SPECIALIST.
+
+Your task is to analyze my COMPLETE uploaded project source code and generate a PROFESSIONAL UNIVERSITY-GRADE PROJECT REPORT for the system:
+
+FUNDCIRCLE
+
+Multi-Tenant Pigmy Collection, Savings & Loan Management Platform
+
+================================================== PRIMARY OBJECTIVE
+
+Analyze EVERYTHING inside the uploaded project.
+
+Do NOT use generic content.
+
+Generate the report strictly from:
+
+Source code
+
+Database schema
+
+Firestore collections
+
+Clerk authentication setup
+
+API routes
+
+Components
+
+Pages
+
+UI screens
+
+Business logic
+
+Validation rules
+
+Security implementation
+
+Role management
+
+Reports module
+
+Savings module
+
+Loan module
+
+Collection module
+
+Notification module
+
+Organization module
+
+Audit logs
+
+
+The report must represent the ACTUAL implementation.
+
+================================================== REPORT FORMAT
+
+Generate:
+
+1. DOCX Report
+
+
+2. PDF Report
+
+
+
+Both must be downloadable.
+
+Target Length: 60–120 Pages
+
+Professional Formatting:
+
+Cover Page
+
+Certificate
+
+Declaration
+
+Acknowledgement
+
+Abstract
+
+Table of Contents
+
+List of Figures
+
+List of Tables
+
+Chapters
+
+Conclusion
+
+References
+
+Appendix
+
+
+================================================== CHAPTER 1 INTRODUCTION
+
+Generate:
+
+Project Overview
+
+Problem Statement
+
+Existing System
+
+Limitations of Existing System
+
+Proposed System
+
+Objectives
+
+Scope
+
+Advantages
+
+Features
+
+Technologies Used
+
+
+================================================== CHAPTER 2 SYSTEM ANALYSIS
+
+Generate:
+
+Feasibility Study
+
+Technical Feasibility
+
+Operational Feasibility
+
+Economic Feasibility
+
+Requirement Analysis
+
+Functional Requirements
+
+Non Functional Requirements
+
+User Roles
+
+
+================================================== CHAPTER 3 SYSTEM DESIGN
+
+Generate actual diagrams from source code.
+
+Include:
+
+1. High-Level Architecture Diagram
+
+
+2. Low-Level Architecture Diagram
+
+
+3. ER Diagram
+
+
+
+Entities must include:
+
+Organizations Organization Members Admins Collectors Customers Savings Accounts Savings Transactions Loan Applications Loans EMI Schedule Collections Receipts Notifications Reports Settings Audit Logs
+
+4. Use Case Diagram
+
+
+
+Owner Admin Collector Customer
+
+5. DFD Level 0
+
+
+6. DFD Level 1
+
+
+7. DFD Level 2
+
+
+8. Sequence Diagram
+
+
+
+Customer Creation
+
+Loan Approval
+
+Savings Collection
+
+EMI Collection
+
+Agent Assignment
+
+Notification Trigger
+
+================================================== CHAPTER 4 DATABASE DESIGN
+
+Analyze actual Firestore structure.
+
+Generate:
+
+Collection Name
+
+Fields
+
+Data Types
+
+Relationships
+
+Indexes
+
+Constraints
+
+Validation Rules
+
+Security Rules
+
+Tenant Isolation Logic
+
+================================================== CHAPTER 5 IMPLEMENTATION
+
+Explain every module.
+
+================================================== AUTHENTICATION MODULE
+
+Clerk Authentication
+
+Role Management
+
+Organization Membership
+
+Session Handling
+
+Password Recovery
+
+Invitation Flow
+
+================================================== CUSTOMER MANAGEMENT MODULE
+
+Customer Creation
+
+Profile Management
+
+Customer Types
+
+Savings Only
+
+Loan Only
+
+Savings + Loan
+
+Nominee Management
+
+Customer Assignment
+
+================================================== SAVINGS MODULE
+
+Savings Account Creation
+
+Daily Collection
+
+Balance Calculation
+
+Ledger Update
+
+Transaction History
+
+Receipt Generation
+
+Reports
+
+================================================== LOAN MODULE
+
+Loan Application
+
+Loan Approval
+
+EMI Calculation
+
+Interest Calculation
+
+Loan Disbursement
+
+Repayment Tracking
+
+Loan Closure
+
+Overdue Detection
+
+================================================== COLLECTION MODULE
+
+Savings Collection
+
+Loan EMI Collection
+
+Mixed Collection
+
+Receipt Generation
+
+Collection Reports
+
+Collector Assignment
+
+================================================== ORGANIZATION MODULE
+
+Organization Creation
+
+Organization Settings
+
+Multi-Tenant Isolation
+
+Member Management
+
+Permission Management
+
+================================================== NOTIFICATION MODULE
+
+Push Notifications
+
+Dashboard Notifications
+
+System Alerts
+
+Loan Alerts
+
+Collection Alerts
+
+================================================== REPORTING MODULE
+
+Dashboard Reports
+
+Collection Reports
+
+Savings Reports
+
+Loan Reports
+
+Export Reports
+
+Excel Reports
+
+PDF Reports
+
+================================================== AUDIT MODULE
+
+Activity Logs
+
+Approval Logs
+
+Collection Logs
+
+Security Logs
+
+================================================== CHAPTER 6 UI/UX ANALYSIS
+
+Analyze every screen.
+
+Generate:
+
+Screen Name
+
+Purpose
+
+Components
+
+User Flow
+
+Validation Rules
+
+UX Improvements
+
+Accessibility
+
+Responsive Behavior
+
+================================================== SCREENSHOTS
+
+Capture screenshots from actual application.
+
+Include:
+
+Login
+
+Register
+
+Dashboard
+
+Customer List
+
+Customer Profile
+
+Add Customer
+
+Edit Customer
+
+Savings Screen
+
+Collection Screen
+
+Loan Application
+
+Loan Approval
+
+Loan Details
+
+Reports
+
+Settings
+
+Organization
+
+Notifications
+
+Agent Management
+
+Audit Logs
+
+Mobile View
+
+Tablet View
+
+Desktop View
+
+For each screenshot provide:
+
+Figure Number
+
+Figure Title
+
+Description
+
+Expected Result
+
+Actual Result
+
+================================================== CHAPTER 7 VALIDATIONS & SANITIZATION
+
+Generate detailed validation matrix.
+
+Include:
+
+Email Validation
+
+Phone Validation
+
+Amount Validation
+
+Interest Validation
+
+Loan Validation
+
+Savings Validation
+
+Date Validation
+
+Nominee Validation
+
+Guarantor Validation
+
+Organization Validation
+
+Role Validation
+
+Permission Validation
+
+API Validation
+
+Input Sanitization
+
+XSS Protection
+
+SQL/NoSQL Injection Protection
+
+Firestore Security
+
+Tenant Security
+
+================================================== CHAPTER 8 TESTING
+
+Generate 100+ test cases.
+
+Use exact table format.
+
+
+---
+
+| Functionality | | Test Input | | Expected Output | | Actual Output | | Status |
+
+
+---
+
+Generate test cases for:
+
+Authentication
+
+Organizations
+
+Customers
+
+Collectors
+
+Savings
+
+Collections
+
+Loans
+
+EMI
+
+Reports
+
+Notifications
+
+Exports
+
+Security
+
+Validation
+
+Audit Logs
+
+Settings
+
+================================================== SYSTEM TESTING
+
+Use exact table format.
+
+
+---
+
+| System Scenario | | Expected Result | | Actual Result | | Status |
+
+
+---
+
+Generate workflows:
+
+Complete Login Workflow
+
+Complete Customer Workflow
+
+Complete Savings Workflow
+
+Complete Loan Workflow
+
+Complete EMI Workflow
+
+Complete Collection Workflow
+
+Complete Reporting Workflow
+
+Complete Notification Workflow
+
+Complete Organization Workflow
+
+Complete Audit Workflow
+
+================================================== PERFORMANCE ANALYSIS
+
+Generate:
+
+Response Time Analysis
+
+Firestore Query Analysis
+
+Scalability Analysis
+
+Optimization Analysis
+
+Security Analysis
+
+================================================== CHAPTER 9 RESULTS
+
+Generate:
+
+Features Implemented
+
+Modules Completed
+
+Screens Developed
+
+Database Statistics
+
+Performance Results
+
+Testing Results
+
+Pass Percentage
+
+Success Rate
+
+================================================== CHAPTER 10 CONCLUSION
+
+Generate:
+
+Conclusion
+
+Achievements
+
+Business Benefits
+
+Technical Benefits
+
+Future Scope
+
+Future Enhancements
+
+AI Features to Add
+
+Mobile App Expansion
+
+Advanced Analytics
+
+================================================== APPENDIX
+
+Include:
+
+Source Code Statistics
+
+Project Structure
+
+Folder Structure
+
+Database Collections
+
+API Endpoints
+
+Environment Variables
+
+Dependencies
+
+================================================== OUTPUT REQUIREMENTS
+
+Generate:
+
+FundCircle_Project_Report.docx
+
+FundCircle_Project_Report.pdf
+
+FundCircle_ER_Diagram.png
+
+FundCircle_UseCase_Diagram.png
+
+FundCircle_Architecture_Diagram.png
+
+FundCircle_DFD_Level0.png
+
+FundCircle_DFD_Level1.png
+
+FundCircle_DFD_Level2.png
+
+FundCircle_Sequence_Diagrams.pdf
+
+FundCircle_TestCases.xlsx
+
+FundCircle_Screenshots.pdf
+
+All documents must be fully professional, submission-ready, university-project quality, and based entirely on the uploaded FundCircle implementation. :::
+
+This is the highest-detail prompt for generating a complete college/university project report with screenshots, ER diagram, use case diagram, architecture diagrams, database design, validations, security analysis, and 100+ test cases from your uploaded FundCircle project.

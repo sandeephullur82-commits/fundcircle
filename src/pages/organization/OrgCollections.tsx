@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { exportCollectionsReport } from "@/lib/exportExcel";
 import { createAuditLog } from "@/lib/services";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
 import { useOrganization, useUser } from "@clerk/clerk-react";
 
 const PAGE_SIZE = 50;
@@ -96,7 +97,7 @@ export default function OrgCollections() {
         installments,
         savingsAccounts,
       });
-      toast.success("Excel report downloaded successfully!");
+      fcToast.reportExported("Excel Report");
       if (organization?.id && user?.id) {
         createAuditLog({
           organizationId: organization.id,
@@ -114,7 +115,7 @@ export default function OrgCollections() {
       }
     } catch (err) {
       console.error("Export failed:", err);
-      toast.error("Failed to export report. Please try again.");
+      fcToast.exportFailed();
     } finally {
       setExporting(false);
     }

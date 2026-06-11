@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import EmptyState from "@/components/ui/EmptyState";
 import { format, isBefore, startOfDay } from "date-fns";
 import { Search, Plus, CheckCircle, XCircle, Eye, Loader2, CreditCard, Inbox, ChevronDown, Crown, AlertTriangle } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
@@ -144,7 +147,7 @@ export default function OrgLoans() {
     if (!tenureMonths || tenureNum <= 0 || tenureNum > 360) errors.tenureMonths = "Tenure must be 1–360 months";
     if (Object.values(errors).some(Boolean)) {
       setLoanErrors(errors);
-      toast.error("Please fix the highlighted errors.");
+      fcToast.formError();
       return;
     }
     setLoanErrors({});
@@ -161,11 +164,11 @@ export default function OrgLoans() {
         loanAssignedCollectorName: collector ? (collector.fullName || (collector as any).name || "") : "",
         loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
       });
-      toast.success("Loan application created successfully.");
+      fcToast.loanCreated(customers.find(c => c.id === customerId) ? ((customers.find(c => c.id === customerId) as any)?.fullName || (customers.find(c => c.id === customerId) as any)?.name) : undefined);
       setShowCreate(false);
       setPrincipal(""); setCustomerId(""); setInterestRate("12"); setTenureMonths("12"); setCreateCollectorId("");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to create loan");
+      fcToast.loanApprovalFailed(err?.message || "Failed to create loan");
     } finally {
       setCreating(false);
     }
@@ -176,10 +179,10 @@ export default function OrgLoans() {
     setRejecting(true);
     try {
       await rejectLoan({ loanId: rejectLoanId, reason: rejectReason, actorId: user.id, actorRole: "OWNER", actorName });
-      toast.success("Loan rejected.");
+      fcToast.loanRejected();
       setRejectLoanId(null); setRejectReason("");
     } catch (err: any) {
-      toast.error(err?.message || "Rejection failed");
+      fcToast.loanRejectionFailed(err?.message);
     } finally {
       setRejecting(false);
     }
@@ -194,10 +197,11 @@ export default function OrgLoans() {
         reviewedByActorId: user.id, reviewedByActorName: actorName,
         reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
       });
-      toast.success("Application rejected.");
+      const app = sortedApps.find(a => a.id === rejectAppId);
+      fcToast.loanRejected(app?.customerName);
       setRejectAppId(null); setAppRejectReason("");
     } catch (err: any) {
-      toast.error(err?.message || "Rejection failed");
+      fcToast.loanRejectionFailed(err?.message);
     } finally {
       setRejectingApp(false);
     }

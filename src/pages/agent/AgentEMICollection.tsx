@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { fcToast } from "@/lib/toast";
+import EmptyState from "@/components/ui/EmptyState";
 import { format, isBefore, startOfDay } from "date-fns";
 import { Search, CreditCard, Loader2, AlertTriangle, CheckCircle, Banknote, Smartphone, Building2 } from "lucide-react";
 import { useUser, useOrganization } from "@clerk/clerk-react";
@@ -169,18 +171,14 @@ export default function AgentEMICollection() {
         loanOutstanding: result.loanClosed ? 0 : (loan.outstandingBalance ?? 0) - inst.emiAmount,
       });
 
-      if (result.loanClosed) {
-        toast.success("🎉 EMI collected! Loan fully repaid and closed.");
-      } else {
-        toast.success(`EMI collected · Receipt: ${result.receiptNo}`);
-      }
+      fcToast.emiCollected(inst.emiAmount, custName, result.receiptNo, result.loanClosed);
 
       setSelectedCustomer(null);
       setCustomerLoan(null);
       setPaymentMode("CASH");
       setUpiRef("");
     } catch (err: any) {
-      toast.error(err?.message || "EMI collection failed.");
+      fcToast.emiCollectionFailed(err?.message);
     } finally {
       setSubmitting(false);
     }
