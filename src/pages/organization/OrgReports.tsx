@@ -10,8 +10,9 @@ import {
 import { format, startOfMonth, subMonths, isBefore, startOfDay, differenceInDays } from "date-fns";
 import { Download, TrendingUp, PieChart as PieIcon, AlertTriangle, Loader2 } from "lucide-react";
 import { exportCollectionsReport } from "@/lib/exportExcel";
+import { createAuditLog } from "@/lib/services";
 import { toast } from "sonner";
-import { useOrganization } from "@clerk/clerk-react";
+import { useOrganization, useUser } from "@clerk/clerk-react";
 
 function toDate(ts: any): Date {
   if (!ts) return new Date(0);
@@ -29,6 +30,7 @@ export default function OrgReports() {
   const { data: members } = useCollectionRealtime<Membership>("organizationMembers");
   const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
   const { organization } = useOrganization();
+  const { user } = useUser();
 
   const [activeTab, setActiveTab] = useState<"overview" | "emi_aging" | "savings" | "portfolio">("overview");
   const [exporting, setExporting] = useState(false);
@@ -46,8 +48,16 @@ export default function OrgReports() {
     });
     return {
       month: format(monthStart, "MMM 'yy"),
-      savings: cols.filter((c) => c.collectionType !== "LOAN_EMI").reduce((s, c) => s + Number(c.amount), 0),
-      emi: cols.filter((c) => c.collectionType === "LOAN_EMI").reduce((s, c) => s + Number(c.amount), 0),
+      savings: cols.reduce((s, c) => {
+        if (c.collectionType === "SAVINGS")  return s + Number(c.amount);
+        if (c.collectionType === "BOTH")     return s + Number((c as any).savingsAmount || 0);
+        return s;
+      }, 0),
+      emi: cols.reduce((s, c) => {
+        if (c.collectionType === "LOAN_EMI") return s + Number(c.amount);
+        if (c.collectionType === "BOTH")     return s + Number((c as any).loanAmount || 0);
+        return s;
+      }, 0),
       total: cols.reduce((s, c) => s + Number(c.amount), 0),
     };
   }), [collections]);
@@ -117,6 +127,21 @@ export default function OrgReports() {
         savingsAccounts,
       });
       toast.success("Excel report downloaded successfully!");
+      if (organization?.id && user?.id) {
+        createAuditLog({
+          organizationId: organization.id,
+          actorId: user.id,
+          actorRole: "OWNER",
+          actorName: user.fullName || user.firstName || "",
+          action: "EXCEL_EXPORTED",
+          module: "REPORTS",
+          category: "EXPORT",
+          entityType: "Report",
+          entityId: organization.id,
+          description: `${user.fullName || "Owner"} downloaded Excel analytics report`,
+          metadata: { tab: activeTab, exportedAt: new Date().toISOString() },
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error("Export failed:", err);
       toast.error("Failed to export report. Please try again.");

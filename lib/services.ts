@@ -6,7 +6,7 @@ import {
 import { db } from "./firebase";
 import {
   Collection, Loan, LoanInstallment, SavingsAccount, SavingsTransaction,
-  Membership, AuditLog, AuditAction, EMIPayment, Customer
+  Membership, AuditLog, AuditAction, AuditModule, AuditCategory, EMIPayment, Customer
 } from "../types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,20 +61,36 @@ export async function createAuditLog(params: {
   actorRole: string;
   actorName?: string;
   action: AuditAction | string;
+  module?: AuditModule;
+  category?: AuditCategory;
   entityType: string;
   entityId: string;
+  description?: string;
+  oldValues?: Record<string, any>;
+  newValues?: Record<string, any>;
   metadata?: Record<string, any>;
+  deviceInfo?: string;
+  browserInfo?: string;
+  platform?: string;
 }): Promise<void> {
   try {
     await addDoc(collection(db, "audit_logs"), {
-      organizationId: params.organizationId,
-      actorId: params.actorId,
-      actorRole: params.actorRole,
-      actorName: params.actorName || "",
-      action: params.action,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      metadata: params.metadata || {},
+      organizationId:   params.organizationId,
+      actorId:          params.actorId,
+      actorRole:        params.actorRole,
+      actorName:        params.actorName || "",
+      action:           params.action,
+      ...(params.module       ? { module:       params.module }       : {}),
+      ...(params.category     ? { category:     params.category }     : {}),
+      entityType:       params.entityType,
+      entityId:         params.entityId,
+      ...(params.description  ? { description:  params.description }  : {}),
+      ...(params.oldValues    ? { oldValues:    params.oldValues }    : {}),
+      ...(params.newValues    ? { newValues:    params.newValues }    : {}),
+      metadata:         params.metadata || {},
+      ...(params.deviceInfo   ? { deviceInfo:   params.deviceInfo }   : {}),
+      ...(params.browserInfo  ? { browserInfo:  params.browserInfo }  : {}),
+      ...(params.platform     ? { platform:     params.platform }     : {}),
       createdAt: serverTimestamp(),
     });
   } catch (e) {
@@ -598,6 +614,189 @@ export async function recordEMICollection(params: {
   }
 
   return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id };
+}
+
+// ── Loan / Installment Helpers ────────────────────────────────────────────────
+
+export async function getActiveLoanForCustomer(customerId: string, organizationId: string): Promise<Loan | null> {
+  const q = query(
+    collection(db, "loans"),
+    where("customerId", "==", customerId),
+    where("organizationId", "==", organizationId)
+  );
+  const snap = await getDocs(q);
+  const ACTIVE = ["ACTIVE", "OVERDUE", "PARTIALLY_PAID"];
+  const active = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as Loan)
+    .filter((l) => ACTIVE.includes((l.status || "").toUpperCase()));
+  return active[0] || null;
+}
+
+export async function getNextPendingInstallment(loanId: string): Promise<LoanInstallment | null> {
+  const q = query(collection(db, "loan_installments"), where("loanId", "==", loanId));
+  const snap = await getDocs(q);
+  const pending = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }) as LoanInstallment)
+    .filter((i) => (i.status || "").toUpperCase() !== "PAID")
+    .sort((a, b) => (a.installmentNo || 0) - (b.installmentNo || 0));
+  return pending[0] || null;
+}
+
+// ── Combined Collection (SAVINGS + EMI in one receipt) ────────────────────────
+
+export interface CombinedCollectionResult {
+  receiptNo: string;
+  savingsBalance: number;
+  loanOutstanding: number;
+  loanClosed: boolean;
+  collectionId: string;
+}
+
+export async function recordCombinedCollection(params: {
+  organizationId: string;
+  organizationName: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  savingsAmount: number;
+  loanId: string;
+  installmentId: string;
+  emiAmount: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  paymentReference?: string;
+}): Promise<CombinedCollectionResult> {
+  if (params.savingsAmount <= 0) throw new Error("Savings amount must be greater than zero.");
+  if (params.emiAmount <= 0)     throw new Error("EMI amount must be greater than zero.");
+
+  // Validate savings account
+  const savingsAccount = await getSavingsAccountByCustomer(params.customerId, params.organizationId);
+  if (!savingsAccount) throw new Error("Savings account not found for this customer.");
+  if (savingsAccount.status !== "ACTIVE") throw new Error("Savings account is not active.");
+
+  // Validate installment
+  const installmentRef = doc(db, "loan_installments", params.installmentId);
+  const installmentSnap = await getDoc(installmentRef);
+  if (!installmentSnap.exists()) throw new Error("Installment not found.");
+  const installment = installmentSnap.data() as LoanInstallment;
+  if (installment.status === "PAID") throw new Error("This installment has already been paid.");
+
+  // Validate loan
+  const loanRef = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+
+  // Generate ONE receipt for both
+  const receiptNo = await generateReceiptNo(params.organizationId);
+
+  const newSavingsBalance = savingsAccount.totalBalance + params.savingsAmount;
+  const rawOutstanding    = (loan.outstandingBalance ?? loan.balanceRemaining ?? 0) - params.emiAmount;
+  const loanClosed        = rawOutstanding <= 0.05;
+  const newOutstanding    = loanClosed ? 0 : Math.round(rawOutstanding * 100) / 100;
+  const totalAmount       = params.savingsAmount + params.emiAmount;
+
+  // ── Write savings transaction ─────────────────────────────────────────────
+  const txRef = doc(collection(db, "savings_transactions"));
+  await setDoc(txRef, {
+    id: txRef.id,
+    savingsAccountId: savingsAccount.id,
+    organizationId: params.organizationId,
+    customerId: params.customerId,
+    agentId: params.agentId,
+    amount: params.savingsAmount,
+    balanceAfter: newSavingsBalance,
+    receiptNo,
+    collectedByName: params.agentName,
+    collectedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    createdBy: params.agentId,
+    status: "COMPLETED",
+    linkedCollectionType: "BOTH",
+  });
+
+  // ── Update savings account balance ────────────────────────────────────────
+  await updateDoc(doc(db, "savings_accounts", savingsAccount.id), {
+    totalBalance: newSavingsBalance,
+    updatedAt: serverTimestamp(),
+  });
+
+  // ── Mark installment PAID ─────────────────────────────────────────────────
+  await updateDoc(installmentRef, {
+    status: "PAID",
+    paidAmount: params.emiAmount,
+    paidAt: serverTimestamp(),
+    receiptNo,
+    collectedByAgentId: params.agentId,
+    collectedByAgentName: params.agentName,
+  });
+
+  // ── Update loan outstanding ───────────────────────────────────────────────
+  await updateDoc(loanRef, {
+    outstandingBalance: newOutstanding,
+    balanceRemaining: newOutstanding,
+    ...(loanClosed ? { status: "CLOSED" } : {}),
+    updatedAt: serverTimestamp(),
+  });
+
+  // ── One combined collection entry ─────────────────────────────────────────
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    customerId: params.customerId,
+    collectionType: "BOTH",
+    referenceId: txRef.id,
+    amount: totalAmount,
+    savingsAmount: params.savingsAmount,
+    loanAmount: params.emiAmount,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: "AGENT",
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+    paymentMode: params.paymentMode || "CASH",
+    ...(params.paymentReference ? { paymentReference: params.paymentReference } : {}),
+  });
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: params.agentId,
+    actorRole: "AGENT",
+    actorName: params.agentName,
+    action: "COMBINED_COLLECTION_RECORDED",
+    module: "COLLECTIONS",
+    category: "CREATE",
+    entityType: "Collection",
+    entityId: collRef.id,
+    metadata: {
+      receiptNo, totalAmount,
+      savingsAmount: params.savingsAmount,
+      emiAmount: params.emiAmount,
+      newSavingsBalance, newOutstanding,
+      loanClosed, customerId: params.customerId,
+      loanId: params.loanId,
+    },
+  });
+
+  if (loanClosed) {
+    await createAuditLog({
+      organizationId: params.organizationId,
+      actorId: params.agentId,
+      actorRole: "AGENT",
+      actorName: params.agentName,
+      action: "LOAN_CLOSED",
+      entityType: "Loan",
+      entityId: params.loanId,
+      metadata: { customerId: params.customerId, via: "combined_collection" },
+    });
+    try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
+  }
+
+  return { receiptNo, savingsBalance: newSavingsBalance, loanOutstanding: newOutstanding, loanClosed, collectionId: collRef.id };
 }
 
 // ── Provisioning (existing, kept) ─────────────────────────────────────────────

@@ -259,13 +259,17 @@ export interface Collection {
   organizationId: string;
   agentId: string;
   customerId: string;
-  collectionType: "SAVINGS" | "LOAN_EMI";
-  referenceId: string; // savingsTransactionId or loanInstallmentId
+  collectionType: "SAVINGS" | "LOAN_EMI" | "BOTH";
+  referenceId: string;
   amount: number;
+  savingsAmount?: number;
+  loanAmount?: number;
   receiptNo: string;
   collectedAt: FSTimestamp;
   collectedByName?: string;
   collectedByRole?: string;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  paymentReference?: string;
   // Legacy compat
   timestamp?: FSTimestamp;
   status?: string;
@@ -273,18 +277,45 @@ export interface Collection {
 }
 
 // ── Audit Logs ────────────────────────────────────────────────────────────────
+export type AuditModule =
+  | "ORGANIZATION" | "CUSTOMERS" | "AGENTS" | "SAVINGS"
+  | "LOANS" | "COLLECTIONS" | "REPORTS" | "AUTHENTICATION";
+
+export type AuditCategory =
+  | "CREATE" | "UPDATE" | "DELETE" | "APPROVE"
+  | "REJECT" | "LOGIN" | "EXPORT" | "VIEW" | "SECURITY";
+
 export type AuditAction =
+  // Organization
+  | "ORG_CREATED" | "ORG_UPDATED" | "ORG_SECURITY_UPDATED" | "ORG_SETTINGS_UPDATED"
+  // Agents
   | "AGENT_CREATED" | "AGENT_DEACTIVATED" | "AGENT_REACTIVATED"
-  | "CUSTOMER_CREATED" | "CUSTOMER_STATUS_CHANGED"
-  | "SAVINGS_COLLECTION_RECORDED"
+  | "AGENT_INVITED" | "AGENT_REGISTERED" | "AGENT_PROFILE_UPDATED"
+  | "AGENT_ROLE_CHANGED" | "AGENT_REASSIGNED"
+  // Customers
+  | "CUSTOMER_CREATED" | "CUSTOMER_STATUS_CHANGED" | "CUSTOMER_ACTIVATED"
+  | "CUSTOMER_DEACTIVATED" | "CUSTOMER_REASSIGNED" | "CUSTOMER_PROFILE_UPDATED"
+  | "CUSTOMER_TYPE_CHANGED"
+  // Nominees
+  | "NOMINEE_ADDED" | "NOMINEE_UPDATED" | "NOMINEE_REMOVED"
+  // Savings
+  | "SAVINGS_COLLECTION_RECORDED" | "COMBINED_COLLECTION_RECORDED"
+  | "SAVINGS_DEPOSIT_REVERSED"
   | "SAVINGS_PLAN_CREATED" | "SAVINGS_PLAN_UPDATED" | "SAVINGS_PLAN_DELETED"
   | "SAVINGS_ACCOUNT_OPENED" | "SAVINGS_ACCOUNT_FROZEN" | "SAVINGS_ACCOUNT_CLOSED"
   | "SAVINGS_APPLICATION_APPROVED" | "SAVINGS_APPLICATION_REJECTED"
   | "SAVINGS_AGENT_TRANSFERRED"
+  // Loans
   | "LOAN_CREATED" | "LOAN_APPROVED" | "LOAN_REJECTED" | "LOAN_CLOSED"
-  | "EMI_COLLECTION_RECORDED"
-  | "CUSTOMER_REASSIGNED"
-  | "ORG_SETTINGS_UPDATED";
+  | "LOAN_APPLICATION_SUBMITTED" | "LOAN_APPLICATION_EDITED"
+  | "LOAN_AMOUNT_MODIFIED" | "LOAN_DISBURSED" | "LOAN_WRITTEN_OFF"
+  // Collections / EMI
+  | "EMI_COLLECTION_RECORDED" | "COLLECTION_REVERSED" | "RECEIPT_REGENERATED"
+  // Reports
+  | "REPORT_GENERATED" | "REPORT_EXPORTED" | "EXCEL_EXPORTED" | "PDF_EXPORTED"
+  // Auth
+  | "LOGIN_SUCCESS" | "LOGIN_FAILED" | "LOGOUT"
+  | "PASSWORD_CHANGED" | "PASSWORD_RESET" | "SESSION_EXPIRED";
 
 export interface AuditLog {
   id: string;
@@ -293,9 +324,17 @@ export interface AuditLog {
   actorRole: string;
   actorName?: string;
   action: AuditAction | string;
+  module?: AuditModule;
+  category?: AuditCategory;
   entityType: string;
   entityId: string;
+  description?: string;
+  oldValues?: Record<string, any>;
+  newValues?: Record<string, any>;
   metadata?: Record<string, any>;
+  deviceInfo?: string;
+  browserInfo?: string;
+  platform?: string;
   createdAt: FSTimestamp;
 }
 

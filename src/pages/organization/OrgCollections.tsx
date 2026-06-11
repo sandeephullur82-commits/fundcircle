@@ -8,8 +8,9 @@ import { format, startOfDay, subDays, isAfter } from "date-fns";
 import { Search, Download, IndianRupee, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { exportCollectionsReport } from "@/lib/exportExcel";
+import { createAuditLog } from "@/lib/services";
 import { toast } from "sonner";
-import { useOrganization } from "@clerk/clerk-react";
+import { useOrganization, useUser } from "@clerk/clerk-react";
 
 const PAGE_SIZE = 50;
 
@@ -20,7 +21,7 @@ function toDate(ts: any): Date {
   return new Date(ts);
 }
 
-type CollectionTypeFilter = "ALL" | "SAVINGS" | "LOAN_EMI";
+type CollectionTypeFilter = "ALL" | "SAVINGS" | "LOAN_EMI" | "BOTH";
 type DateRangeFilter = "ALL" | "TODAY" | "WEEK" | "MONTH";
 
 export default function OrgCollections() {
@@ -30,6 +31,7 @@ export default function OrgCollections() {
   const { data: installments } = useCollectionRealtime<any>("loan_installments");
   const { data: savingsAccounts } = useCollectionRealtime<any>("savings_accounts");
   const { organization } = useOrganization();
+  const { user } = useUser();
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<CollectionTypeFilter>("ALL");
@@ -44,10 +46,7 @@ export default function OrgCollections() {
 
   const filtered = collections.filter((col) => {
     // type filter
-    if (typeFilter !== "ALL") {
-      if (typeFilter === "SAVINGS" && col.collectionType !== "SAVINGS") return false;
-      if (typeFilter === "LOAN_EMI" && col.collectionType !== "LOAN_EMI") return false;
-    }
+    if (typeFilter !== "ALL" && col.collectionType !== typeFilter) return false;
 
     // date filter
     const d = toDate(col.collectedAt || col.timestamp);
@@ -70,9 +69,17 @@ export default function OrgCollections() {
     return true;
   }).sort((a, b) => toDate(b.collectedAt || b.timestamp).valueOf() - toDate(a.collectedAt || a.timestamp).valueOf());
 
-  const totalAmount = filtered.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-  const savingsTotal = filtered.filter((c) => c.collectionType !== "LOAN_EMI").reduce((s, c) => s + (Number(c.amount) || 0), 0);
-  const emiTotal = filtered.filter((c) => c.collectionType === "LOAN_EMI").reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const totalAmount   = filtered.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const savingsTotal  = filtered.reduce((s, c) => {
+    if (c.collectionType === "SAVINGS")  return s + (Number(c.amount) || 0);
+    if (c.collectionType === "BOTH")     return s + (Number(c.savingsAmount) || 0);
+    return s;
+  }, 0);
+  const emiTotal      = filtered.reduce((s, c) => {
+    if (c.collectionType === "LOAN_EMI") return s + (Number(c.amount) || 0);
+    if (c.collectionType === "BOTH")     return s + (Number(c.loanAmount) || 0);
+    return s;
+  }, 0);
 
   const paginated = filtered.slice(0, page * PAGE_SIZE);
   const hasMore = page * PAGE_SIZE < filtered.length;
@@ -89,6 +96,21 @@ export default function OrgCollections() {
         savingsAccounts,
       });
       toast.success("Excel report downloaded successfully!");
+      if (organization?.id && user?.id) {
+        createAuditLog({
+          organizationId: organization.id,
+          actorId: user.id,
+          actorRole: "OWNER",
+          actorName: user.fullName || user.firstName || "",
+          action: "EXCEL_EXPORTED",
+          module: "REPORTS",
+          category: "EXPORT",
+          entityType: "Report",
+          entityId: organization.id,
+          description: `${user.fullName || "Owner"} downloaded Excel collections report`,
+          metadata: { totalCollections: collections.length, exportedAt: new Date().toISOString() },
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error("Export failed:", err);
       toast.error("Failed to export report. Please try again.");
@@ -148,13 +170,13 @@ export default function OrgCollections() {
 
         {/* Type filter */}
         <div className="flex gap-1">
-          {(["ALL", "SAVINGS", "LOAN_EMI"] as CollectionTypeFilter[]).map((t) => (
+          {(["ALL", "SAVINGS", "LOAN_EMI", "BOTH"] as CollectionTypeFilter[]).map((t) => (
             <button
               key={t}
               onClick={() => handleFilterChange(() => setTypeFilter(t))}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${typeFilter === t ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}
             >
-              {t === "ALL" ? "All Types" : t === "SAVINGS" ? "Savings" : "EMI"}
+              {t === "ALL" ? "All Types" : t === "SAVINGS" ? "Savings" : t === "LOAN_EMI" ? "EMI" : "Combined"}
             </button>
           ))}
         </div>
@@ -225,8 +247,16 @@ export default function OrgCollections() {
                           {(cust as any)?.fullName || (cust as any)?.name || col.customerId?.slice(-8)}
                         </TableCell>
                         <TableCell>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isSavings ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-indigo-50 text-indigo-700 border-indigo-100"}`}>
-                            {isSavings ? "SAVINGS" : "EMI"}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            col.collectionType === "SAVINGS"  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            : col.collectionType === "LOAN_EMI" ? "bg-indigo-50 text-indigo-700 border-indigo-100"
+                            : col.collectionType === "BOTH"     ? "bg-violet-50 text-violet-700 border-violet-100"
+                            : "bg-slate-50 text-slate-600 border-slate-100"
+                          }`}>
+                            {col.collectionType === "SAVINGS" ? "SAVINGS"
+                             : col.collectionType === "LOAN_EMI" ? "EMI"
+                             : col.collectionType === "BOTH" ? "S+L COMBINED"
+                             : col.collectionType || "—"}
                           </span>
                         </TableCell>
                         <TableCell className="text-slate-600">
