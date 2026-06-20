@@ -49,6 +49,8 @@ export interface Membership {
   dateOfBirth?: string;
   gender?: string;
   profilePhotoUrl?: string;
+  profileImage?: string;
+  avatarUrl?: string;
   // Nominee — top-level (master source of truth; also mirrored in nested `nominee` for legacy compat)
   nomineeName?: string;
   nomineeRelation?: string;

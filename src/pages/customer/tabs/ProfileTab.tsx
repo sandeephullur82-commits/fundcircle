@@ -4,9 +4,10 @@ import {
   LogOut, RefreshCw, CreditCard, AlertTriangle, Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SignOutButton, useClerk, useUser } from "@clerk/clerk-react";
+import { SignOutButton, useClerk } from "@clerk/clerk-react";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 import { toast } from "sonner";
 import type { Membership } from "@/types";
 
@@ -18,7 +19,6 @@ interface Props {
 }
 
 // ── Canvas image compressor ─────────────────────────────────────────────────
-// Resizes to maxDim×maxDim, outputs WebP (falls back to JPEG). Never blocks UI.
 async function compressImage(file: File, maxDim = 512, maxBytes = 300 * 1024): Promise<File> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -37,7 +37,6 @@ async function compressImage(file: File, maxDim = 512, maxBytes = 300 * 1024): P
         if (blob.size <= maxBytes) {
           resolve(new File([blob], "profile.webp", { type: "image/webp" }));
         } else {
-          // Reduce quality with JPEG as fallback
           canvas.toBlob(
             (b2) => resolve(b2 ? new File([b2], "profile.jpg", { type: "image/jpeg" }) : file),
             "image/jpeg",
@@ -84,7 +83,6 @@ const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export default function ProfileTab({ user, membershipId, membershipDoc, nomineeLocked = false }: Props) {
   const { signOut } = useClerk();
-  const { user: clerkUser } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editMode, setEditMode] = useState(false);
@@ -92,7 +90,13 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadLabel, setUploadLabel] = useState("Uploading…");
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
+
+  /*
+   * PROFILE AVATAR — completely separate from Clerk / header avatar.
+   * Source: Firestore organizationMembers.profileImage (Firebase Storage URL).
+   * The header avatar in CustomerDashboard reads user.imageUrl (Clerk) — never this field.
+   */
+  const [profileAvatar, setProfileAvatar] = useState<string>(membershipDoc?.profileImage || "");
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -119,10 +123,10 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
 
   const nomineeComplete = !!(resolvedNomineeName && resolvedNomineeRelation);
 
+  // Sync profile avatar from Firestore whenever membershipDoc changes
   useEffect(() => {
-    const url = clerkUser?.imageUrl || user?.imageUrl || "";
-    setAvatarUrl(url);
-  }, [clerkUser?.imageUrl, user?.imageUrl]);
+    setProfileAvatar(mem?.profileImage || "");
+  }, [mem?.profileImage]);
 
   useEffect(() => {
     if (!editMode) return;
@@ -142,56 +146,64 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
     setNomineeAddress(resolvedNomineeAddress);
   }, [editMode]);
 
-  // ── Profile Image Upload via Clerk API + Canvas Compression ─────────────────
+  // ── Profile Image Upload → Firebase Storage ONLY (never touches Clerk) ───────
+  // This keeps the profile photo completely separate from the Clerk/header avatar.
   const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !clerkUser) return;
+    if (!file || !membershipId) return;
     if (fileInputRef.current) fileInputRef.current.value = "";
 
     if (!ACCEPTED_TYPES.includes(file.type)) {
       toast.error("Only JPG, PNG, and WEBP images are allowed.");
       return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be smaller than 5 MB.");
+      return;
+    }
 
-    // Save previous URL for rollback
-    const prevUrl = avatarUrl;
+    const prevAvatar = profileAvatar;
 
-    // Instant preview — never stays at 0%
+    // Instant local preview
     const objectUrl = URL.createObjectURL(file);
-    setAvatarUrl(objectUrl);
+    setProfileAvatar(objectUrl);
     setUploading(true);
     setUploadProgress(15);
     setUploadLabel("Compressing…");
 
     try {
-      // Compress: resize to 512×512 max, WebP, ≤300 KB
+      // 1. Compress: max 512×512, WebP ≤300 KB
       const compressed = await compressImage(file, 512, 300 * 1024);
       setUploadProgress(40);
       setUploadLabel("Uploading…");
 
-      // Upload directly to Clerk (no Firebase Storage needed)
-      await clerkUser.setProfileImage({ file: compressed });
-      setUploadProgress(85);
+      // 2. Upload to Firebase Storage (not Clerk — header avatar is unaffected)
+      const storagePath = `profileImages/${membershipId}/${Date.now()}.webp`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, compressed);
+      setUploadProgress(75);
       setUploadLabel("Processing…");
 
-      // Sync the new Clerk imageUrl to Firestore so org dashboards see it
-      const newImageUrl = clerkUser.imageUrl;
-      if (membershipId && newImageUrl) {
-        await updateDoc(doc(db, "organizationMembers", membershipId), {
-          avatarUrl: newImageUrl,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      // 3. Get the download URL
+      const downloadUrl = await getDownloadURL(storageRef);
+      setUploadProgress(90);
+
+      // 4. Persist to Firestore: profileImage field (separate from avatarUrl/Clerk)
+      await updateDoc(doc(db, "organizationMembers", membershipId), {
+        profileImage: downloadUrl,
+        updatedAt: serverTimestamp(),
+      });
 
       setUploadProgress(100);
       setUploadLabel("Done!");
-      setAvatarUrl(clerkUser.imageUrl || objectUrl);
+      setProfileAvatar(downloadUrl);
+      URL.revokeObjectURL(objectUrl);
       toast.success("Profile photo updated!");
     } catch (err: any) {
-      console.error("[Avatar] upload error:", err);
+      console.error("[ProfileAvatar] upload error:", err);
       URL.revokeObjectURL(objectUrl);
-      setAvatarUrl(prevUrl); // rollback
-      toast.error(err?.errors?.[0]?.longMessage || err?.message || "Upload failed. Please try again.");
+      setProfileAvatar(prevAvatar); // rollback
+      toast.error(err?.message || "Upload failed. Please try again.");
     } finally {
       setTimeout(() => {
         setUploading(false);
@@ -199,7 +211,7 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
         setUploadLabel("Uploading…");
       }, 600);
     }
-  }, [clerkUser, membershipId, avatarUrl]);
+  }, [membershipId, profileAvatar]);
 
   const handleSave = async () => {
     if (!membershipId) return toast.error("Not authenticated.");
@@ -240,6 +252,7 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
 
   const displayName  = mem?.fullName || `${mem?.firstName || ""} ${mem?.lastName || ""}`.trim() || user?.fullName || "Customer";
   const displayEmail = mem?.email || user?.primaryEmailAddress?.emailAddress || "";
+  const initials     = (displayName[0] || "C").toUpperCase();
 
   return (
     <div className="space-y-4">
@@ -263,7 +276,7 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
       <Card>
         <CardContent className="p-5">
           <div className="flex items-start gap-4">
-            {/* Avatar */}
+            {/* Profile Avatar — reads from Firestore profileImage, never from Clerk */}
             <div className="relative shrink-0">
               <input
                 ref={fileInputRef}
@@ -272,16 +285,16 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                 className="hidden"
                 onChange={handleAvatarUpload}
               />
-              {avatarUrl ? (
+              {profileAvatar ? (
                 <img
-                  src={avatarUrl}
+                  src={profileAvatar}
                   alt="Profile"
                   className="w-16 h-16 rounded-2xl object-cover ring-2 ring-emerald-200 dark:ring-emerald-700"
-                  onError={() => setAvatarUrl(user?.imageUrl || clerkUser?.imageUrl || "")}
+                  onError={() => setProfileAvatar("")}
                 />
               ) : (
                 <div className="w-16 h-16 rounded-2xl bg-emerald-600 flex items-center justify-center text-white text-xl font-black">
-                  {(displayName[0] || "C").toUpperCase()}
+                  {initials}
                 </div>
               )}
 
