@@ -9,7 +9,6 @@ import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { toast } from "sonner";
 import type { Membership } from "@/types";
-import ChangePasswordForm from "./ChangePasswordForm";
 
 interface Props {
   user: any;
@@ -110,8 +109,6 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
   const [nomineeRelation, setNomineeRelation] = useState("");
   const [nomineePhone, setNomineePhone] = useState("");
   const [nomineeAddress, setNomineeAddress] = useState("");
-
-  const [showPwForm, setShowPwForm] = useState(false);
 
   const mem = membershipDoc;
 
@@ -513,33 +510,6 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
           )}
           {editMode && (
             <p className="text-[10px] text-slate-400">Only the last 4 digits are stored for security.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Password */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-900 dark:text-white text-sm">Change Password</p>
-              <p className="text-xs text-slate-500 mt-0.5">Update your account password</p>
-            </div>
-            {!showPwForm && (
-              <button
-                onClick={() => setShowPwForm(true)}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold transition-colors"
-              >
-                Change
-              </button>
-            )}
-          </div>
-          {showPwForm && (
-            <ChangePasswordForm
-              userEmail={displayEmail}
-              onSuccess={() => setShowPwForm(false)}
-              onCancel={() => setShowPwForm(false)}
-            />
           )}
         </CardContent>
       </Card>

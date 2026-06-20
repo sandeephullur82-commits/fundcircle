@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { BookOpen, Download, Search, ArrowUpRight, CreditCard, ChevronDown } from "lucide-react";
+import { BookOpen, Download, Search, ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { format } from "date-fns";
 import type { SavingsTransaction, Collection, Loan } from "@/types";
@@ -81,27 +81,6 @@ export default function PassbookTab({ savingsTxs, collections, loans, orgName }:
 
   const handleFilterChange = (fn: () => void) => { fn(); setPage(1); };
 
-  const downloadCSV = () => {
-    const headers = ["Date", "Time", "Type", "Amount (₹)", "Balance After (₹)", "Collector", "Receipt No"];
-    const csvRows = filtered.map((r) => [
-      r.date.getTime() > 0 ? format(r.date, "yyyy-MM-dd") : "—",
-      r.date.getTime() > 0 ? format(r.date, "HH:mm") : "—",
-      r.type === "SAVINGS" ? "Savings Deposit" : "EMI Payment",
-      r.amount.toString(),
-      r.balanceAfter?.toString() ?? "—",
-      r.collector,
-      r.receiptNo,
-    ]);
-    const csv = [headers, ...csvRows].map((row) => row.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `passbook-${orgName.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const downloadPrint = () => {
     const win = window.open("", "_blank");
     if (!win) return;
@@ -161,22 +140,13 @@ export default function PassbookTab({ savingsTxs, collections, loans, orgName }:
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">Complete transaction history</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={downloadCSV}
-            disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-40"
-          >
-            <Download className="w-3.5 h-3.5" /> CSV
-          </button>
-          <button
-            onClick={downloadPrint}
-            disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-xs font-semibold hover:bg-blue-100 transition-colors disabled:opacity-40"
-          >
-            <Download className="w-3.5 h-3.5" /> PDF
-          </button>
-        </div>
+        <button
+          onClick={downloadPrint}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 text-xs font-semibold hover:bg-blue-100 transition-colors disabled:opacity-40"
+        >
+          <Download className="w-3.5 h-3.5" /> PDF Statement
+        </button>
       </div>
 
       {/* Filters */}
