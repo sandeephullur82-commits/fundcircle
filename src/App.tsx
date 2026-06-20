@@ -76,6 +76,50 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
   }
 }
 
+// ─── Branded auth loading screen (prevents landing-page flicker) ────────────
+function FundCircleLoader() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0b1020]">
+      <div className="flex flex-col items-center gap-5">
+        {/* Logo mark */}
+        <div className="relative">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center shadow-2xl shadow-violet-900/50">
+            <span className="text-white font-black text-2xl tracking-tight">F</span>
+          </div>
+          {/* Pulsing ring */}
+          <span className="absolute inset-0 rounded-2xl bg-violet-500/30 animate-ping" />
+        </div>
+        <div className="text-center">
+          <p className="text-white font-bold text-lg tracking-tight">FundCircle</p>
+          <p className="text-white/40 text-sm mt-1">Loading…</p>
+        </div>
+        {/* Spinner bar */}
+        <div className="w-32 h-0.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-violet-500 to-blue-500 rounded-full animate-[shimmer_1.2s_ease-in-out_infinite]"
+            style={{ width: "40%", animation: "shimmerBar 1.2s ease-in-out infinite" }} />
+        </div>
+      </div>
+      <style>{`
+        @keyframes shimmerBar {
+          0%   { transform: translateX(-200%); }
+          100% { transform: translateX(600%); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── PublicOnlyRoute ─────────────────────────────────────────────────────────
+// Renders children only for unauthenticated users.
+// Shows branded loader while Clerk initializes, then redirects to /router
+// if already signed in — completely prevents Landing/Auth-page flicker.
+function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn } = useUser();
+  if (!isLoaded) return <FundCircleLoader />;
+  if (isSignedIn) return <Navigate to="/router" replace />;
+  return <>{children}</>;
+}
+
 // ─── Loading shimmer ────────────────────────────────────────────────────────
 function DashboardShimmer() {
   return (
@@ -427,13 +471,16 @@ export default function App() {
           <AuthRedirectManager />
           <Suspense fallback={<DashboardShimmer />}>
             <Routes>
-              <Route path="/" element={<LandingPage />} />
+              {/* Public-only routes: redirect signed-in users straight to /router */}
+              <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} />
 
               {/* Auth pages */}
-              <Route path="/auth/sign-in" element={<CustomSignInPage />} />
-              <Route path="/auth/sign-up" element={<CustomSignUpPage />} />
-              <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
-              <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/auth/sign-in"        element={<PublicOnlyRoute><CustomSignInPage /></PublicOnlyRoute>} />
+              <Route path="/auth/sign-up"        element={<PublicOnlyRoute><CustomSignUpPage /></PublicOnlyRoute>} />
+              <Route path="/auth/forgot-password" element={<PublicOnlyRoute><ForgotPasswordPage /></PublicOnlyRoute>} />
+
+              {/* Mid-flow auth pages — accessible regardless of auth state */}
+              <Route path="/auth/verify-email"   element={<VerifyEmailPage />} />
               <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
               <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
               <Route path="/auth/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
