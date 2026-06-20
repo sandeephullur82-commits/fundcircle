@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
-  PiggyBank, Download, TrendingUp, Calendar, Search,
+  PiggyBank, Download, TrendingUp, Calendar,
   BarChart3, ArrowUpRight, Clock, XCircle, CheckCircle, ChevronRight, Loader2, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,7 +46,6 @@ export default function SavingsTab({
   organizationId = "", customerId = "", customerName = "", customerEmail = "", customerPhone,
 }: Props) {
   const [subTab, setSubTab] = useState<SubTab>("history");
-  const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -96,29 +95,59 @@ export default function SavingsTab({
     } finally { setApplying(false); }
   };
 
-  const totalBalance = safeN(savingsAccount?.totalBalance);
+  // ── Balance calculations (never NaN/null/undefined) ──────────────────────────
   const totalDeposits = savingsTxs.reduce((s, t) => s + safeN(t.amount), 0);
+  const totalWithdrawals = savingsTxs.reduce((s, t) => s + safeN((t as any).withdrawalAmount), 0);
+  const computedBalance = Math.max(0, totalDeposits - totalWithdrawals);
+  // Use stored balance if > 0, otherwise fall back to transaction sum
+  const storedBalance = safeN(savingsAccount?.totalBalance);
+  const totalBalance = storedBalance > 0 ? storedBalance : computedBalance;
 
-  const sortedTxs = useMemo(() => {
-    return [...savingsTxs].sort(
+  // Compute running balanceAfter for any transaction missing it
+  const txsWithBalance = useMemo(() => {
+    const chronological = [...savingsTxs].sort(
+      (a, b) => toDate(a.collectedAt).getTime() - toDate(b.collectedAt).getTime()
+    );
+    let running = 0;
+    const withBal = chronological.map((tx) => {
+      running += safeN(tx.amount);
+      running -= safeN((tx as any).withdrawalAmount);
+      const bal = safeN(tx.balanceAfter) > 0 ? safeN(tx.balanceAfter) : running;
+      return { ...tx, balanceAfter: bal };
+    });
+    return withBal.sort(
       (a, b) => toDate(b.collectedAt).getTime() - toDate(a.collectedAt).getTime()
     );
   }, [savingsTxs]);
 
-  const lastCollection = sortedTxs[0];
+  const lastCollection = txsWithBalance[0];
+
+  // Account Since: first deposit date, or savings account startDate, or createdAt
+  const firstDepositDate = useMemo(() => {
+    if (savingsTxs.length === 0) return null;
+    const oldest = [...savingsTxs].sort(
+      (a, b) => toDate(a.collectedAt).getTime() - toDate(b.collectedAt).getTime()
+    )[0];
+    const d = toDate(oldest.collectedAt);
+    return d.getTime() > 0 ? d : null;
+  }, [savingsTxs]);
+
+  const accountSinceDate = useMemo(() => {
+    if (savingsAccount?.startDate && toDate(savingsAccount.startDate).getTime() > 0)
+      return toDate(savingsAccount.startDate);
+    if (savingsAccount?.createdAt && toDate((savingsAccount as any).createdAt).getTime() > 0)
+      return toDate((savingsAccount as any).createdAt);
+    return firstDepositDate;
+  }, [savingsAccount, firstDepositDate]);
 
   const filteredTxs = useMemo(() => {
-    return sortedTxs.filter((tx) => {
+    return txsWithBalance.filter((tx) => {
       const d = toDate(tx.collectedAt);
-      const matchSearch =
-        !search ||
-        (tx.receiptNo || "").toLowerCase().includes(search.toLowerCase()) ||
-        (tx.collectedByName || "").toLowerCase().includes(search.toLowerCase());
       const matchFrom = !dateFrom || d >= new Date(dateFrom);
       const matchTo = !dateTo || d <= new Date(dateTo + "T23:59:59");
-      return matchSearch && matchFrom && matchTo;
+      return matchFrom && matchTo;
     });
-  }, [sortedTxs, search, dateFrom, dateTo]);
+  }, [txsWithBalance, dateFrom, dateTo]);
 
   const monthlyData = useMemo(() => {
     const months = [];
@@ -131,7 +160,7 @@ export default function SavingsTab({
           const ts = toDate(t.collectedAt).getTime();
           return ts >= start && ts <= end;
         })
-        .reduce((s, t) => s + t.amount, 0);
+        .reduce((s, t) => s + safeN(t.amount), 0);
       const count = savingsTxs.filter((t) => {
         const ts = toDate(t.collectedAt).getTime();
         return ts >= start && ts <= end;
@@ -142,7 +171,7 @@ export default function SavingsTab({
   }, [savingsTxs]);
 
   const balanceHistory = useMemo(() => {
-    return [...sortedTxs]
+    return [...txsWithBalance]
       .reverse()
       .slice(-30)
       .map((tx, i) => ({
@@ -150,12 +179,12 @@ export default function SavingsTab({
         balance: safeN(tx.balanceAfter),
         date: format(toDate(tx.collectedAt), "MMM d"),
       }));
-  }, [sortedTxs]);
+  }, [txsWithBalance]);
 
   const downloadCSV = () => {
     const rows = [
       ["Date", "Time", "Receipt No", "Amount (₹)", "Balance After (₹)", "Collected By"],
-      ...sortedTxs.map((tx) => {
+      ...txsWithBalance.map((tx) => {
         const d = toDate(tx.collectedAt);
         return [
           d.getTime() > 0 ? format(d, "yyyy-MM-dd") : "—",
@@ -406,24 +435,24 @@ export default function SavingsTab({
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-white/15 rounded-xl p-2.5">
-            <p className="text-emerald-100 text-[10px] font-medium">Plan Type</p>
-            <p className="text-white font-bold text-sm mt-0.5">{savingsAccount?.planType ?? "—"}</p>
+            <p className="text-emerald-100 text-[10px] font-medium">Total Deposits</p>
+            <p className="text-white font-bold text-sm mt-0.5">₹{totalDeposits.toLocaleString()}</p>
           </div>
           <div className="bg-white/15 rounded-xl p-2.5">
-            <p className="text-emerald-100 text-[10px] font-medium">Deposits</p>
+            <p className="text-emerald-100 text-[10px] font-medium">Transactions</p>
             <p className="text-white font-bold text-sm mt-0.5">{savingsTxs.length}</p>
           </div>
           <div className="bg-white/15 rounded-xl p-2.5">
             <p className="text-emerald-100 text-[10px] font-medium">Status</p>
-            <p className="text-white font-bold text-sm mt-0.5">{savingsAccount?.status ?? "—"}</p>
+            <p className="text-white font-bold text-sm mt-0.5">{savingsAccount?.status ?? "ACTIVE"}</p>
           </div>
         </div>
-        {savingsAccount?.scheduledAmount && savingsAccount.scheduledAmount > 0 && (
+        {savingsAccount?.scheduledAmount && safeN(savingsAccount.scheduledAmount) > 0 && (
           <div className="mt-3 flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2">
             <Calendar className="w-4 h-4 text-emerald-100" />
             <p className="text-emerald-100 text-xs">
               Scheduled: <span className="font-bold text-white">
-                ₹{savingsAccount.scheduledAmount.toLocaleString()} / {(savingsAccount.planType || "DAILY").toLowerCase()}
+                ₹{safeN(savingsAccount.scheduledAmount).toLocaleString()} / collection
               </span>
             </p>
           </div>
@@ -446,20 +475,20 @@ export default function SavingsTab({
       <div className="grid grid-cols-2 gap-3">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-slate-500">Total Deposited</p>
+            <p className="text-xs text-slate-500">Total Deposits</p>
             <p className="text-xl font-black text-slate-900 dark:text-white mt-1">₹{totalDeposits.toLocaleString()}</p>
-            <p className="text-xs text-slate-400 mt-0.5">All time</p>
+            <p className="text-xs text-slate-400 mt-0.5">Balance ₹{totalBalance.toLocaleString()}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-slate-500">Account Since</p>
             <p className="text-xl font-black text-slate-900 dark:text-white mt-1">
-              {savingsAccount?.startDate && toDate(savingsAccount.startDate).getTime() > 0
-                ? format(toDate(savingsAccount.startDate), "MMM yyyy")
-                : "—"}
+              {accountSinceDate ? format(accountSinceDate, "MMM yyyy") : "—"}
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">Member since</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {accountSinceDate ? format(accountSinceDate, "dd MMM yyyy") : "Member"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -484,30 +513,20 @@ export default function SavingsTab({
       {/* History sub-tab */}
       {subTab === "history" && (
         <div className="space-y-3">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by receipt or agent…"
-                className="w-full h-9 pl-8 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <input
               type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
               className="flex-1 h-9 px-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
             />
+            <span className="text-slate-400 text-xs shrink-0">to</span>
             <input
               type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
               className="flex-1 h-9 px-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
             />
-            {(search || dateFrom || dateTo) && (
+            {(dateFrom || dateTo) && (
               <button
-                onClick={() => { setSearch(""); setDateFrom(""); setDateTo(""); }}
-                className="px-3 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-500 text-xs font-semibold"
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                className="px-3 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-500 text-xs font-semibold shrink-0"
               >
                 Clear
               </button>
@@ -645,19 +664,21 @@ export default function SavingsTab({
           <CardContent className="space-y-3">
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Account</span>
+                <span className="text-slate-500">Organization</span>
                 <span className="font-semibold text-slate-900 dark:text-white">{orgName}</span>
               </div>
+              {accountSinceDate && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Account Since</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{format(accountSinceDate, "dd MMM yyyy")}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Plan</span>
-                <span className="font-semibold text-slate-900 dark:text-white">{savingsAccount?.planType ?? "—"}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Total Deposits</span>
+                <span className="text-slate-500">Transactions</span>
                 <span className="font-semibold text-slate-900 dark:text-white">{savingsTxs.length}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Total Amount</span>
+                <span className="text-slate-500">Total Deposits</span>
                 <span className="font-bold text-emerald-600">₹{totalDeposits.toLocaleString()}</span>
               </div>
               <div className="flex justify-between text-sm">

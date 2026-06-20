@@ -41,8 +41,9 @@ export default function DashboardTab({
 }: Props) {
   const today = startOfDay(new Date());
 
-  const totalSavings = safeN(savingsAccount?.totalBalance);
   const totalDeposits = savingsTxs.reduce((s, t) => s + safeN(t.amount), 0);
+  const storedSavingsBal = safeN(savingsAccount?.totalBalance);
+  const totalSavings = storedSavingsBal > 0 ? storedSavingsBal : totalDeposits;
   const totalReceipts = collections.length;
 
   const activeLoans = loans.filter((l) => (l.status || "").toUpperCase() === "ACTIVE");
@@ -146,7 +147,7 @@ export default function DashboardTab({
     {
       label: "Account Status",
       value: accountStatus,
-      sub: savingsAccount ? `Plan: ${savingsAccount.planType}` : "No account",
+      sub: savingsAccount ? `${savingsTxs.length} deposit${savingsTxs.length !== 1 ? "s" : ""}` : "No account",
       icon: accountStatus === "ACTIVE" ? CheckCircle : Activity,
       color: accountStatus === "ACTIVE" ? "bg-teal-500" : "bg-slate-400",
       textColor: "text-white",
