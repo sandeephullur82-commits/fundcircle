@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { FileText, Search, Download, PiggyBank, CreditCard, Eye, ChevronDown } from "lucide-react";
+import { FileText, Search, PiggyBank, CreditCard, Eye, ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { format } from "date-fns";
 import ReceiptModal, { type ReceiptData } from "@/components/ReceiptModal";
@@ -70,43 +70,22 @@ export default function ReceiptsTab({
     const tx = isSavings ? savingsTxs.find((t) => t.id === col.referenceId) : null;
     const loan = !isSavings ? loans.find((l) => l.id === col.referenceId) : null;
 
+    const safeBalance = (v: any) => { const n = Number(v); return isFinite(n) && n > 0 ? n : undefined; };
+
     setViewReceipt({
       receiptNo: col.receiptNo || "—",
       organizationName: orgName,
       customerName,
-      amount: col.amount,
-      newBalance: isSavings && tx ? tx.balanceAfter : undefined,
+      amount: Number(col.amount) || 0,
+      newBalance: isSavings && tx ? safeBalance(tx.balanceAfter) : undefined,
       collectionType: isSavings ? "SAVINGS" : "LOAN_EMI",
       agentName: col.collectedByName || "Agent",
       collectedAt: date,
       loanId: !isSavings ? col.referenceId : undefined,
-      loanOutstanding: loan ? (loan.outstandingBalance ?? (loan as any).balanceRemaining ?? 0) : undefined,
+      loanOutstanding: loan
+        ? (Number(loan.outstandingBalance ?? (loan as any).balanceRemaining) || 0)
+        : undefined,
     });
-  };
-
-  const downloadCSV = () => {
-    const rows = [
-      ["Date", "Time", "Type", "Receipt No", "Amount (₹)", "Collector"],
-      ...filtered.map((col) => {
-        const d = toDate(col.collectedAt ?? col.timestamp);
-        return [
-          d.getTime() > 0 ? format(d, "yyyy-MM-dd") : "—",
-          d.getTime() > 0 ? format(d, "HH:mm") : "—",
-          col.collectionType === "LOAN_EMI" ? "EMI Payment" : "Savings Deposit",
-          col.receiptNo || "",
-          col.amount.toString(),
-          col.collectedByName || "Agent",
-        ];
-      }),
-    ];
-    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `receipts-${orgName.replace(/\s+/g, "-")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   return (
@@ -132,23 +111,14 @@ export default function ReceiptsTab({
 
       {/* Search & Filters */}
       <div className="space-y-2">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              value={search}
-              onChange={(e) => handleFilterChange(() => setSearch(e.target.value))}
-              placeholder="Search receipt, collector…"
-              className="w-full h-9 pl-8 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-            />
-          </div>
-          <button
-            onClick={downloadCSV}
-            disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-semibold hover:bg-emerald-100 transition-colors disabled:opacity-40"
-          >
-            <Download className="w-3.5 h-3.5" />
-          </button>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => handleFilterChange(() => setSearch(e.target.value))}
+            placeholder="Search receipt, collector…"
+            className="w-full h-9 pl-8 pr-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+          />
         </div>
         <div className="flex gap-2">
           <input type="date" value={dateFrom} onChange={(e) => handleFilterChange(() => setDateFrom(e.target.value))}

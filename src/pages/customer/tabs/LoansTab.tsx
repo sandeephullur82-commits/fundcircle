@@ -342,13 +342,15 @@ export default function LoansTab({ loans, installments, loanApplications, onAppl
         </div>
       )}
 
-      {/* Apply CTA */}
-      <button
-        onClick={onApplyLoan}
-        className="w-full py-3 border-2 border-dashed border-emerald-200 dark:border-emerald-800 rounded-2xl text-emerald-600 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors flex items-center justify-center gap-2"
-      >
-        <Plus className="w-4 h-4" /> Apply for a New Loan
-      </button>
+      {/* Apply CTA — only shown when no active loan exists */}
+      {activeLoans.length === 0 && (
+        <button
+          onClick={onApplyLoan}
+          className="w-full py-3 border-2 border-dashed border-emerald-200 dark:border-emerald-800 rounded-2xl text-emerald-600 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" /> Apply for a Loan
+        </button>
+      )}
     </div>
   );
 }

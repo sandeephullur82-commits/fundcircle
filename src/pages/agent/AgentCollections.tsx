@@ -3,7 +3,7 @@ import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Membership, Collection, Loan } from "@/types";
 import {
   IndianRupee, PiggyBank, CreditCard, Clock, CheckCircle,
-  Layers, Users,
+  Users,
 } from "lucide-react";
 import { startOfDay } from "date-fns";
 import { useUser, useOrganization } from "@clerk/clerk-react";
@@ -220,29 +220,6 @@ export default function AgentCollections() {
                   </div>
                 </div>
 
-                {/* S+L buttons when not collected */}
-                {!done && cType === "SAVINGS_LOAN" && savAcc && loan && (
-                  <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-                    <button
-                      onClick={() => setCollectCustomer({ ...customer, customerType: "SAVINGS" })}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold border border-emerald-200 transition-colors"
-                    >
-                      <PiggyBank className="w-3.5 h-3.5" /> Savings
-                    </button>
-                    <button
-                      onClick={() => setCollectCustomer({ ...customer, customerType: "LOAN" })}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200 transition-colors"
-                    >
-                      <CreditCard className="w-3.5 h-3.5" /> EMI
-                    </button>
-                    <button
-                      onClick={() => setCollectCustomer(customer)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-semibold border border-violet-200 transition-colors"
-                    >
-                      <Layers className="w-3.5 h-3.5" /> Both
-                    </button>
-                  </div>
-                )}
               </div>
             );
           })}
