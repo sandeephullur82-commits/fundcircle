@@ -1,11 +1,10 @@
 import React from "react";
 import {
   Shield, Smartphone, Clock, LogOut, AlertTriangle,
-  CheckCircle, Monitor, KeyRound,
+  CheckCircle, Monitor,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignOutButton } from "@clerk/clerk-react";
-import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 
 interface Props {
@@ -13,7 +12,6 @@ interface Props {
 }
 
 export default function SecurityTab({ user }: Props) {
-  const navigate = useNavigate();
 
   const lastSignIn = user?.lastSignInAt ? new Date(user.lastSignInAt) : null;
   const createdAt = user?.createdAt ? new Date(user.createdAt) : null;
@@ -125,29 +123,6 @@ export default function SecurityTab({ user }: Props) {
                 </span>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Password & Security */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <KeyRound className="w-4 h-4 text-slate-500 shrink-0" />
-                <p className="font-semibold text-slate-900 dark:text-white text-sm">Password & Security</p>
-              </div>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Manage your account password and account security. A reset link will be sent to your registered email.
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/auth/forgot-password")}
-              className="shrink-0 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-semibold transition-colors"
-            >
-              Reset Password
-            </button>
           </div>
         </CardContent>
       </Card>

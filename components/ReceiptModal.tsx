@@ -41,16 +41,21 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
     <>
       {/*
         Print CSS — visibility approach so it works inside React's #root container.
-        Using `body > *` hiding would hide #root itself and blank the page.
+        Only the receipt content is shown; modal chrome (close btn, action buttons,
+        overlay backdrop) are all hidden via .fc-no-print { display:none }.
+        A single @page 80mm auto rule prevents blank second pages.
       */}
       <style>{`
         @media print {
-          /* Make everything invisible, then reveal only the receipt card */
+          /* Hide everything, then reveal only the receipt card */
           body * { visibility: hidden !important; }
           .fc-receipt-modal,
           .fc-receipt-modal * { visibility: visible !important; }
 
-          /* Position receipt at top-left of the 80mm page */
+          /* Modal chrome must never appear in print */
+          .fc-no-print { display: none !important; visibility: hidden !important; }
+
+          /* Position receipt flush at page top-left */
           .fc-receipt-modal {
             position: fixed !important;
             top: 0 !important;
@@ -62,9 +67,17 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
             box-shadow: none !important;
             padding: 6mm !important;
             margin: 0 !important;
+            page-break-inside: avoid !important;
+            overflow: hidden !important;
           }
 
-          /* 80mm thermal paper */
+          /* Prevent any child from breaking across pages */
+          .fc-receipt-modal * {
+            page-break-inside: avoid !important;
+            overflow: hidden !important;
+          }
+
+          /* 80mm thermal paper — auto height prevents blank second page */
           @page {
             size: 80mm auto;
             margin: 0;
@@ -74,10 +87,10 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
 
       <div className="fc-receipt-print fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
         <div className="fc-receipt-modal relative bg-white rounded-2xl shadow-2xl w-full max-w-sm">
-          {/* Close ✕ */}
+          {/* Close ✕ — hidden during print */}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 text-slate-400 hover:text-slate-700 transition-colors"
+            className="fc-no-print absolute top-3 right-3 text-slate-400 hover:text-slate-700 transition-colors"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -210,8 +223,8 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
             </div>
           </div>
 
-          {/* ── Action Buttons ─────────────────────────────────────────── */}
-          <div className="px-6 pb-6 flex gap-3">
+          {/* ── Action Buttons — hidden during print ───────────────────── */}
+          <div className="fc-no-print px-6 pb-6 flex gap-3">
             <Button
               onClick={handlePrint}
               variant="outline"

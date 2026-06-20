@@ -123,9 +123,9 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
   const nomineeComplete = !!(resolvedNomineeName && resolvedNomineeRelation);
 
   useEffect(() => {
-    const url = (mem as any)?.avatarUrl || user?.imageUrl || clerkUser?.imageUrl || "";
+    const url = clerkUser?.imageUrl || user?.imageUrl || "";
     setAvatarUrl(url);
-  }, [mem, user, clerkUser?.imageUrl]);
+  }, [clerkUser?.imageUrl, user?.imageUrl]);
 
   useEffect(() => {
     if (!editMode) return;
@@ -302,17 +302,19 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                 </div>
               )}
 
-              {/* Camera button */}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                title="Change profile photo"
-                className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full flex items-center justify-center shadow-sm transition-colors"
-              >
-                {uploading
-                  ? <RefreshCw className="w-3 h-3 animate-spin" />
-                  : <Camera className="w-3 h-3" />}
-              </button>
+              {/* Camera button — only visible in edit mode */}
+              {editMode && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  title="Change profile photo"
+                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-full flex items-center justify-center shadow-sm transition-colors"
+                >
+                  {uploading
+                    ? <RefreshCw className="w-3 h-3 animate-spin" />
+                    : <Camera className="w-3 h-3" />}
+                </button>
+              )}
             </div>
 
             <div className="flex-1 min-w-0">

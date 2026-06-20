@@ -9,6 +9,35 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/languageContext";
 
+async function compressProfileImage(file: File, maxDim = 512, maxBytes = 300 * 1024): Promise<File> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+        else        { w = Math.round((w * maxDim) / h); h = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(file); return; }
+        if (blob.size <= maxBytes) {
+          resolve(new File([blob], "profile.webp", { type: "image/webp" }));
+        } else {
+          canvas.toBlob(
+            (b2) => resolve(b2 ? new File([b2], "profile.jpg", { type: "image/jpeg" }) : file),
+            "image/jpeg", 0.75,
+          );
+        }
+      }, "image/webp", 0.85);
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 export default function UserProfilePage() {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut, client } = useClerk();
@@ -52,15 +81,29 @@ export default function UserProfilePage() {
   const handleProfileImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+    // Reset input so the same file can be re-selected if needed
+    e.target.value = "";
+
+    const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
+    if (!ALLOWED.includes(file.type)) {
+      toast.error("Only JPG, PNG, or WEBP images are allowed.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be under 5 MB.");
+      return;
+    }
 
     setIsUpdating(true);
+    const uploadToast = toast.loading("Uploading…");
     try {
-      // Set profile image on real Clerk account
-      await user.setProfileImage({ file });
-      toast.success("Profile image updated successfully!");
+      // Compress: resize to 512×512 max, WebP ≤ 300 KB
+      const compressed = await compressProfileImage(file);
+      await user.setProfileImage({ file: compressed });
+      toast.success("Profile photo updated!", { id: uploadToast });
     } catch (err: any) {
       console.error(err);
-      toast.error(err.errors?.[0]?.message || "Image file too large or invalid format");
+      toast.error(err.errors?.[0]?.message || "Upload failed. Please try again.", { id: uploadToast });
     } finally {
       setIsUpdating(false);
     }
@@ -141,8 +184,8 @@ export default function UserProfilePage() {
 
         {/* PROFILE HEADER CARD */}
         <div className="bg-white border border-slate-200/80 rounded-3xl p-6 md:p-8 shadow-md flex flex-col md:flex-row items-center gap-6">
-          {/* Avatar Area with Edit hover Overlay */}
-          <div className="relative group shrink-0">
+          {/* Avatar Area */}
+          <div className="relative shrink-0">
             <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-slate-200 shadow-inner bg-slate-100 flex items-center justify-center">
               {user.imageUrl ? (
                 <img referrerPolicy="no-referrer" src={user.imageUrl} alt={user.fullName || "User"} className="w-full h-full object-cover" />
@@ -150,11 +193,22 @@ export default function UserProfilePage() {
                 <User className="w-12 h-12 text-slate-400" />
               )}
             </div>
-            {/* Hover Trigger input */}
-            <label className="absolute inset-0 bg-black/40 hover:bg-black/55 text-white flex items-center justify-center rounded-full cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-              <Camera className="w-5 h-5" />
-              <input type="file" accept="image/*" onChange={handleProfileImageChange} className="hidden" />
-            </label>
+            {/* Change photo button — always visible as explicit action, not a hidden hover trigger */}
+            {isUpdating ? (
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center shadow">
+                <RefreshCw className="w-3.5 h-3.5 text-white animate-spin" />
+              </div>
+            ) : (
+              <label className="absolute -bottom-1 -right-1 w-7 h-7 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center shadow cursor-pointer transition-colors" title="Change profile photo">
+                <Camera className="w-3.5 h-3.5 text-white" />
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleProfileImageChange}
+                  className="hidden"
+                />
+              </label>
+            )}
           </div>
 
           <div className="flex-1 text-center md:text-left space-y-1.5 min-w-0">
