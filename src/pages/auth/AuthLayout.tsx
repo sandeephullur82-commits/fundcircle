@@ -1,6 +1,7 @@
 import React from "react";
+import { Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import BrandLogo from "@/components/BrandLogo";
-import BackToHomeButton from "@/components/BackToHomeButton";
 
 interface AuthLayoutProps {
   children: React.ReactNode;
@@ -15,20 +16,21 @@ export default function AuthLayout({ children, maxWidth = "max-w-[440px]", hideB
       <div className="pointer-events-none absolute -bottom-48 -right-40 h-[550px] w-[550px] rounded-full bg-blue-600/18 blur-[120px]" />
       <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[320px] w-[320px] rounded-full bg-indigo-500/8 blur-[90px]" />
 
+      {!hideBackButton && (
+        <Link
+          to="/"
+          aria-label="Back to FundCircle"
+          className="absolute top-6 left-6 z-20 inline-flex items-center gap-1.5 text-sm font-medium text-white/50 hover:text-white/90 transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 rounded"
+        >
+          <ArrowLeft className="h-4 w-4 shrink-0" />
+          <span>Back to FundCircle</span>
+        </Link>
+      )}
+
       <div className={`relative z-10 w-full ${maxWidth}`}>
-        {/* Logo — always centered */}
         <div className="flex justify-center mb-5">
           <BrandLogo size="md" />
         </div>
-
-        {/* Back button — left-aligned, directly above card */}
-        {!hideBackButton && (
-          <div className="mb-3">
-            <BackToHomeButton dark />
-          </div>
-        )}
-
-        {/* Auth card */}
         {children}
       </div>
     </div>
