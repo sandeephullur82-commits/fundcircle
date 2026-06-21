@@ -1,18 +1,21 @@
 import { useState } from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
-import { Membership, Collection, Loan } from "@/types";
-import { Card, CardContent } from "@/components/ui/card";
+import { Membership, Collection } from "@/types";
 import {
-  IndianRupee, CheckCircle, Clock, Users, CreditCard, PiggyBank, Eye,
+  IndianRupee, Clock, Users, Banknote, Smartphone,
+  PiggyBank, ListChecks, ReceiptText, RefreshCw, ChevronRight,
 } from "lucide-react";
-import { startOfDay } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
 import CollectDialog, { toDate } from "@/components/agent/CollectDialog";
+import { toast } from "sonner";
 
 interface AgentOverviewProps {
   onSwitchTab: (tab: string) => void;
 }
+
+function safeN(v: any) { const n = Number(v); return isFinite(n) ? n : 0; }
 
 export default function AgentOverview({ onSwitchTab }: AgentOverviewProps) {
   const { user }         = useUser();
@@ -24,183 +27,217 @@ export default function AgentOverview({ onSwitchTab }: AgentOverviewProps) {
   const orgName   = organization?.name || "FundCircle";
 
   const { data: allMembers } = useCollectionRealtime<Membership>("organizationMembers", [
-    where("role", "==", "CUSTOMER"),
+    where("role",            "==", "CUSTOMER"),
     where("assignedAgentId", "==", agentId || "NONE"),
   ]);
-  const { data: collections } = useCollectionRealtime<Collection>("collections", [
+  const { data: allCollections } = useCollectionRealtime<Collection>("collections", [
     where("agentId", "==", agentId || "NONE"),
   ]);
-  const { data: loans } = useCollectionRealtime<Loan>("loans", [
-    where("status", "==", "ACTIVE"),
-  ]);
 
-  const today            = startOfDay(new Date());
-  const todayCollections = collections.filter((c) => toDate(c.collectedAt || (c as any).timestamp) >= today);
-  const todayTotal       = todayCollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
 
-  const activeCustomers  = allMembers.filter((m) => (m as any).status === "ACTIVE");
+  const today = startOfDay(new Date());
+
+  const todayCollections = allCollections.filter(
+    (c) => toDate(c.collectedAt || (c as any).timestamp) >= today
+  );
+
+  const todayTotal = todayCollections.reduce((s, c) => s + safeN(c.amount), 0);
+
+  const cashTotal = todayCollections
+    .filter((c) => !c.paymentMode || c.paymentMode === "CASH")
+    .reduce((s, c) => s + safeN(c.amount), 0);
+
+  const upiTotal = todayCollections
+    .filter((c) => c.paymentMode === "UPI")
+    .reduce((s, c) => s + safeN(c.amount), 0);
+
+  const activeCustomers = allMembers.filter((m) => (m as any).status === "ACTIVE");
+
   const pendingCustomers = activeCustomers.filter(
     (c) => !todayCollections.some((col) => col.customerId === c.id || col.customerId === c.clerkUserId)
   );
 
-  const myActiveLoans = loans.filter((l) => {
-    if (l.loanAssignedCollectorId) return l.loanAssignedCollectorId === agentId;
-    const cust = allMembers.find((m) => m.id === l.customerId || m.clerkUserId === l.customerId);
-    return (cust as any)?.assignedAgentId === agentId;
-  });
+  const collectedCount = activeCustomers.length - pendingCustomers.length;
+  const progressPct    = activeCustomers.length > 0
+    ? Math.round((collectedCount / activeCustomers.length) * 100)
+    : 0;
 
-  const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
+  // Recent Activity — last 10 all-time collections
+  const recentActivity = [...allCollections]
+    .sort((a, b) =>
+      toDate(b.collectedAt || (b as any).timestamp).valueOf() -
+      toDate(a.collectedAt || (a as any).timestamp).valueOf()
+    )
+    .slice(0, 10);
 
-  const shortId = (id: string) => `FC-${id.slice(-6).toUpperCase()}`;
+  const getMemberName = (col: Collection) => {
+    const m = allMembers.find((x) => x.id === col.customerId || x.clerkUserId === col.customerId);
+    return (m as any)?.fullName || (m as any)?.name || col.customerId?.slice(-6) || "Customer";
+  };
 
-  const sortedCustomers = [...activeCustomers].sort((a, b) => {
-    const aName = (a as any).fullName || (a as any).name || "";
-    const bName = (b as any).fullName || (b as any).name || "";
-    return aName.localeCompare(bName);
-  });
+  const handleSync = () => {
+    toast.success(navigator.onLine ? "All data is up to date" : "You're offline. Data will sync when reconnected.", {
+      icon: navigator.onLine ? "✓" : "📶",
+    });
+  };
 
   return (
     <div className="space-y-5">
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card className="bg-emerald-600 text-white shadow-md col-span-2">
-          <CardContent className="p-4 flex items-center justify-between">
+      {/* ── 4 Summary Cards ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Today's Collection — full width, prominent */}
+        <button
+          onClick={() => onSwitchTab("collect")}
+          className="col-span-2 bg-emerald-600 text-white rounded-2xl p-5 flex items-center justify-between shadow-md active:opacity-90 transition-opacity text-left"
+        >
+          <div>
+            <p className="text-emerald-100 text-sm font-medium">Today's Collection</p>
+            <p className="text-4xl font-black mt-0.5">₹{todayTotal.toLocaleString()}</p>
+            <p className="text-emerald-200 text-xs mt-1">
+              {todayCollections.length} transaction{todayCollections.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
+            <IndianRupee className="w-7 h-7 text-white" />
+          </div>
+        </button>
+
+        {/* Cash */}
+        <button
+          onClick={() => onSwitchTab("collect")}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left active:opacity-80 transition-opacity"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 bg-green-100 rounded-xl flex items-center justify-center">
+              <Banknote className="w-4 h-4 text-green-600" />
+            </div>
+            <span className="text-xs font-medium text-slate-500">Cash</span>
+          </div>
+          <p className="text-xl font-black text-slate-900">₹{cashTotal.toLocaleString()}</p>
+        </button>
+
+        {/* UPI */}
+        <button
+          onClick={() => onSwitchTab("collect")}
+          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left active:opacity-80 transition-opacity"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 bg-blue-100 rounded-xl flex items-center justify-center">
+              <Smartphone className="w-4 h-4 text-blue-600" />
+            </div>
+            <span className="text-xs font-medium text-slate-500">UPI</span>
+          </div>
+          <p className="text-xl font-black text-slate-900">₹{upiTotal.toLocaleString()}</p>
+        </button>
+
+        {/* Pending */}
+        <button
+          onClick={() => onSwitchTab("collect")}
+          className="col-span-2 bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-center justify-between shadow-sm text-left active:opacity-80 transition-opacity"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+              <Clock className="w-5 h-5 text-amber-600" />
+            </div>
             <div>
-              <p className="text-emerald-100 text-sm font-medium">Today's Collection</p>
-              <p className="text-3xl font-black">₹{todayTotal.toLocaleString()}</p>
-              <p className="text-emerald-200 text-xs mt-0.5">
-                {todayCollections.length} transaction{todayCollections.length !== 1 ? "s" : ""}
-              </p>
+              <p className="text-xs font-medium text-amber-700">Pending Customers</p>
+              <p className="text-2xl font-black text-amber-900">{pendingCustomers.length}</p>
             </div>
-            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-              <IndianRupee className="w-6 h-6 text-white" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-amber-50 border-amber-100">
-          <CardContent className="p-4">
-            <p className="text-amber-700 text-xs font-medium mb-1">Pending Visits</p>
-            <p className="text-2xl font-black text-amber-900">{pendingCustomers.length}</p>
-            <div className="flex items-center gap-1 mt-0.5">
-              <Clock className="w-3 h-3 text-amber-500" />
-              <span className="text-xs text-amber-600">not visited</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-50">
-          <CardContent className="p-4">
-            <p className="text-slate-500 text-xs font-medium mb-1">Assigned Customers</p>
-            <p className="text-2xl font-black text-slate-900">{activeCustomers.length}</p>
-            <div className="flex items-center gap-1 mt-0.5">
-              <Users className="w-3 h-3 text-slate-400" />
-              <span className="text-xs text-slate-400">active</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-indigo-50 border-indigo-100 col-span-2 sm:col-span-4 sm:hidden">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-indigo-700 text-xs font-medium mb-1">Today's EMI Due</p>
-              <p className="text-2xl font-black text-indigo-900">{myActiveLoans.length}</p>
-            </div>
-            <CreditCard className="w-8 h-8 text-indigo-300" />
-          </CardContent>
-        </Card>
-
-        <Card className="bg-indigo-50 border-indigo-100 hidden sm:block">
-          <CardContent className="p-4">
-            <p className="text-indigo-700 text-xs font-medium mb-1">Today's EMI Due</p>
-            <p className="text-2xl font-black text-indigo-900">{myActiveLoans.length}</p>
-            <div className="flex items-center gap-1 mt-0.5">
-              <CreditCard className="w-3 h-3 text-indigo-400" />
-              <span className="text-xs text-indigo-500">active loans</span>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <ChevronRight className="w-5 h-5 text-amber-400" />
+        </button>
       </div>
 
-      {/* Today's Progress Bar */}
+      {/* ── Today's Progress ─────────────────────────────────────────────── */}
       {activeCustomers.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-            <span className="font-semibold text-slate-700">Today's Progress</span>
-            <span>{activeCustomers.length - pendingCustomers.length}/{activeCustomers.length} collected</span>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-bold text-slate-700">Today's Progress</span>
+            <span className="text-sm font-semibold text-emerald-600">
+              {collectedCount}/{activeCustomers.length} collected · {progressPct}%
+            </span>
           </div>
-          <div className="w-full bg-slate-100 rounded-full h-2.5">
+          <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
             <div
-              className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
-              style={{ width: `${activeCustomers.length > 0 ? ((activeCustomers.length - pendingCustomers.length) / activeCustomers.length) * 100 : 0}%` }}
+              className="bg-emerald-500 h-3 rounded-full transition-all duration-700"
+              style={{ width: `${progressPct}%` }}
             />
           </div>
         </div>
       )}
 
-      {/* Customer List */}
+      {/* ── Quick Actions ─────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-sm font-bold text-slate-700 mb-3">Quick Actions</h2>
+        <div className="grid grid-cols-2 gap-2.5">
+          {[
+            { label: "New Collection", icon: PiggyBank,   tab: "collect",   color: "bg-emerald-600 text-white" },
+            { label: "Customer List",  icon: Users,        tab: "customers", color: "bg-slate-800 text-white"   },
+            { label: "View Receipts",  icon: ReceiptText,  tab: "receipts",  color: "bg-indigo-600 text-white"  },
+            { label: "Sync Data",      icon: RefreshCw,    tab: null,        color: "bg-slate-100 text-slate-700" },
+          ].map(({ label, icon: Icon, tab, color }) => (
+            <button
+              key={label}
+              onClick={() => tab ? onSwitchTab(tab) : handleSync()}
+              className={`flex items-center gap-3 px-4 py-4 rounded-2xl font-semibold text-sm transition-opacity active:opacity-80 ${color}`}
+            >
+              <Icon className="w-5 h-5 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Recent Activity ───────────────────────────────────────────────── */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-slate-800">
-            <PiggyBank className="w-4 h-4 text-emerald-600 inline mr-1.5 mb-0.5" />
-            Daily Collection Route
+          <h2 className="text-sm font-bold text-slate-700">
+            <ListChecks className="w-4 h-4 text-emerald-600 inline mr-1.5 mb-0.5" />
+            Recent Activity
           </h2>
-          <span className="text-xs text-slate-400">{sortedCustomers.length} customers</span>
+          <button onClick={() => onSwitchTab("receipts")} className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+            View all <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        {sortedCustomers.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">
-            <PiggyBank className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm font-medium">No customers assigned yet.</p>
-            <p className="text-xs mt-1">Your manager will assign customers to you.</p>
+        {recentActivity.length === 0 ? (
+          <div className="text-center py-10 text-slate-400">
+            <PiggyBank className="w-9 h-9 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No collections yet today.</p>
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {sortedCustomers.map((customer) => {
-              const collectedToday = todayCollections.some(
-                (c) => c.customerId === customer.id || c.customerId === customer.clerkUserId
-              );
-              const name  = (customer as any).fullName || (customer as any).name || customer.email || "";
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-50">
+            {recentActivity.map((col) => {
+              const d    = toDate(col.collectedAt || (col as any).timestamp);
+              const mode = col.paymentMode || "CASH";
               return (
-                <div
-                  key={customer.id}
-                  className={`rounded-2xl border p-4 transition-all ${
-                    collectedToday
-                      ? "border-emerald-200 bg-emerald-50/60"
-                      : "border-slate-200 bg-white hover:border-emerald-200 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <p className="font-bold text-slate-900 text-sm truncate">{name}</p>
-                      </div>
-                      <p className="text-xs text-slate-400">{shortId(customer.id)} · {customer.phone || customer.email || "—"}</p>
+                <div key={col.id} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      mode === "UPI" ? "bg-blue-100" : "bg-emerald-100"
+                    }`}>
+                      {mode === "UPI"
+                        ? <Smartphone className="w-4 h-4 text-blue-600" />
+                        : <Banknote    className="w-4 h-4 text-emerald-600" />}
                     </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {collectedToday ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
-                          <CheckCircle className="w-3 h-3" /> Done
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{getMemberName(col)}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          mode === "UPI"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>{mode}</span>
+                        <span className="text-xs text-slate-400">
+                          {d.getTime() > 0 ? format(d, "h:mm a") : "—"}
                         </span>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => setSelectedCustomer(customer)}
-                            className="flex items-center gap-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            <IndianRupee className="w-3 h-3" /> Collect
-                          </button>
-                          <button
-                            onClick={() => onSwitchTab("customers")}
-                            className="flex items-center gap-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-3 h-3" />
-                          </button>
-                        </>
-                      )}
+                      </div>
                     </div>
                   </div>
+                  <p className="font-bold text-emerald-600 text-sm shrink-0">
+                    +₹{safeN(col.amount).toLocaleString()}
+                  </p>
                 </div>
               );
             })}

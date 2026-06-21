@@ -1,6 +1,6 @@
 import { useUser, useOrganization, useOrganizationList, SignOutButton } from "@clerk/clerk-react";
 import {
-  CalendarDays, Users, Wallet, History, User,
+  LayoutDashboard, Users, PiggyBank, ReceiptText, MoreHorizontal,
   Menu, Check, Building2, ChevronDown, LogOut,
 } from "lucide-react";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -18,25 +18,25 @@ import AgentHistory from "./AgentHistory";
 import AgentProfile from "./AgentProfile";
 
 const BOTTOM_NAV = [
-  { id: "today",       label: "Today",       icon: CalendarDays },
-  { id: "customers",   label: "Customers",   icon: Users },
-  { id: "collections", label: "Collections", icon: Wallet },
-  { id: "history",     label: "History",     icon: History },
-  { id: "profile",     label: "Profile",     icon: User },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "customers", label: "Customers", icon: Users },
+  { id: "collect",   label: "Collect",   icon: PiggyBank },
+  { id: "receipts",  label: "Receipts",  icon: ReceiptText },
+  { id: "more",      label: "More",      icon: MoreHorizontal },
 ];
 
 const SIDEBAR_ITEMS = [
-  { id: "today",       label: "Today's Route",     icon: CalendarDays },
-  { id: "customers",   label: "My Customers",       icon: Users },
-  { id: "collections", label: "Collections",        icon: Wallet },
-  { id: "history",     label: "Collection History", icon: History },
-  { id: "profile",     label: "Profile",            icon: User },
+  { id: "dashboard", label: "Dashboard",        icon: LayoutDashboard },
+  { id: "customers", label: "My Customers",      icon: Users },
+  { id: "collect",   label: "Collection Entry",  icon: PiggyBank },
+  { id: "receipts",  label: "Receipts",          icon: ReceiptText },
+  { id: "more",      label: "More",              icon: MoreHorizontal },
 ];
 
 export default function AgentDashboard() {
   const { isLoaded: isUserLoaded, isSignedIn, user } = useUser();
   const { isLoaded: isOrgLoaded, organization } = useOrganization();
-  const [activeTab, setActiveTab] = useState("today");
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   useEffect(() => {
     const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
@@ -54,9 +54,6 @@ export default function AgentDashboard() {
           </div>
           <div className="flex-1 p-3 space-y-1">
             {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10 rounded-xl" />)}
-          </div>
-          <div className="p-3 border-t border-slate-100">
-            <Skeleton className="h-14 rounded-xl" />
           </div>
         </div>
         <div className="flex-1 p-6 space-y-4">
@@ -80,7 +77,7 @@ export default function AgentDashboard() {
           {organization && (
             <>
               <span className="text-slate-300 font-light">·</span>
-              <span className="text-xs font-semibold text-slate-500 truncate max-w-[100px]">{organization.name}</span>
+              <span className="text-xs font-semibold text-slate-500 truncate max-w-[110px]">{organization.name}</span>
             </>
           )}
         </div>
@@ -105,26 +102,26 @@ export default function AgentDashboard() {
       <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3 md:p-8 w-full max-w-5xl mx-auto pb-24 md:pb-10">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="hidden" />
-          <TabsContent value="today" className="mt-0">
+          <TabsContent value="dashboard" className="mt-0">
             <AgentOverview onSwitchTab={setActiveTab} />
           </TabsContent>
           <TabsContent value="customers" className="mt-0">
-            <AgentCustomers onCollect={() => setActiveTab("collections")} />
+            <AgentCustomers onCollect={() => setActiveTab("collect")} />
           </TabsContent>
-          <TabsContent value="collections" className="mt-0">
+          <TabsContent value="collect" className="mt-0">
             <AgentCollections />
           </TabsContent>
-          <TabsContent value="history" className="mt-0">
+          <TabsContent value="receipts" className="mt-0">
             <AgentHistory />
           </TabsContent>
-          <TabsContent value="profile" className="mt-0">
+          <TabsContent value="more" className="mt-0">
             <AgentProfile />
           </TabsContent>
         </Tabs>
       </main>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 flex items-center safe-area-pb">
         {BOTTOM_NAV.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -132,12 +129,12 @@ export default function AgentDashboard() {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 px-1 transition-colors ${
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 px-1 transition-colors min-h-[56px] justify-center ${
                 isActive ? "text-emerald-600" : "text-slate-400"
               }`}
             >
               <Icon className={`w-5 h-5 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
-              <span className="text-[10px] font-semibold leading-none">{item.label}</span>
+              <span className="text-[9px] font-semibold leading-none mt-0.5">{item.label}</span>
             </button>
           );
         })}
@@ -227,7 +224,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
 
       <div className="flex-1 py-3 px-3 space-y-0.5">
         {SIDEBAR_ITEMS.map((item) => {
-          const Icon    = item.icon;
+          const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
             <button
@@ -239,7 +236,7 @@ function AgentSidebar({ activeTab, setActiveTab, user, organization }: any) {
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               }`}
             >
-              <Icon className={`h-4.5 w-4.5 shrink-0 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
               <span className="flex-1">{item.label}</span>
             </button>
           );
