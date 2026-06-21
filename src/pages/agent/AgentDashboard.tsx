@@ -12,9 +12,11 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { BrandMark } from "@/components/BrandLogo";
 import AgentOverview from "./AgentOverview";
 import AgentCustomers from "./AgentCustomers";
+import CustomerDetailPage from "./CustomerDetailPage";
 import AgentCollections from "./AgentCollections";
 import AgentHistory from "./AgentHistory";
 import AgentProfile from "./AgentProfile";
+import { Membership } from "@/types";
 
 const BOTTOM_NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -35,10 +37,15 @@ const SIDEBAR_ITEMS = [
 export default function AgentDashboard() {
   const { isLoaded: isUserLoaded, isSignedIn, user } = useUser();
   const { isLoaded: isOrgLoaded, organization } = useOrganization();
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab,        setActiveTab]        = useState("dashboard");
+  const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
 
   useEffect(() => {
-    const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent).detail;
+      setActiveTab(tab);
+      if (tab !== "customers") setSelectedCustomer(null);
+    };
     window.addEventListener("fundcircle:agentSwitchTab", handler);
     return () => window.removeEventListener("fundcircle:agentSwitchTab", handler);
   }, []);
@@ -108,7 +115,18 @@ export default function AgentDashboard() {
             <AgentOverview onSwitchTab={setActiveTab} />
           </TabsContent>
           <TabsContent value="customers" className="mt-0">
-            <AgentCustomers onCollect={() => setActiveTab("collect")} onSwitchTab={setActiveTab} />
+            {selectedCustomer ? (
+              <CustomerDetailPage
+                customer={selectedCustomer}
+                onBack={() => setSelectedCustomer(null)}
+                onSwitchTab={(tab) => { setSelectedCustomer(null); setActiveTab(tab); }}
+              />
+            ) : (
+              <AgentCustomers
+                onViewCustomer={(c) => setSelectedCustomer(c)}
+                onSwitchTab={setActiveTab}
+              />
+            )}
           </TabsContent>
           <TabsContent value="collect" className="mt-0">
             <AgentCollections />
