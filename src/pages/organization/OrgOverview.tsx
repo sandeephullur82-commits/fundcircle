@@ -4,7 +4,7 @@ import { Collection, Loan, Membership, LoanInstallment, LoanApplication } from "
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Users, CreditCard, TrendingUp, IndianRupee,
-  UserCheck, CalendarDays, AlertTriangle, PiggyBank,
+  UserCheck, AlertTriangle,
   Wallet, FileText, Activity, BarChart2,
 } from "lucide-react";
 import { format, startOfDay, startOfMonth, subMonths, isBefore } from "date-fns";
@@ -26,11 +26,10 @@ export default function OrgOverview() {
   const { data: collections, loading: collLoading } = useCollectionRealtime<Collection>("collections");
   const { data: members, loading: membersLoading } = useCollectionRealtime<Membership>("organizationMembers");
   const { data: loans, loading: loansLoading } = useCollectionRealtime<Loan>("loans");
-  const { data: savingsAccounts, loading: savLoading } = useCollectionRealtime<any>("savings_accounts");
   const { data: installments, loading: instLoading } = useCollectionRealtime<LoanInstallment>("loan_installments");
   const { data: loanApps, loading: appsLoading } = useCollectionRealtime<LoanApplication>("loanApplications");
 
-  const isLoading = collLoading || membersLoading || loansLoading || savLoading || instLoading || appsLoading;
+  const isLoading = collLoading || membersLoading || loansLoading || instLoading || appsLoading;
 
   if (isLoading) {
     return (
@@ -52,22 +51,13 @@ export default function OrgOverview() {
   const activeAgents = agents.filter((a: any) => (a.status || "").toUpperCase() === "ACTIVE");
   const activeCustomers = customers.filter((c: any) => (c.status || "").toUpperCase() === "ACTIVE");
 
-  // Customer type breakdown
-  const savingsOnlyCustomers = activeCustomers.filter((c: any) => c.customerType === "SAVINGS");
-  const loanOnlyCustomers = activeCustomers.filter((c: any) => c.customerType === "LOAN");
-  const savingsLoanCustomers = activeCustomers.filter((c: any) => !c.customerType || c.customerType === "SAVINGS_LOAN");
-
   const today = startOfDay(new Date());
 
   // Collections
   const todayCollections = collections.filter((c) => toDate(c.collectedAt || c.timestamp) >= today);
-  const todaySavingsCollections = todayCollections.filter((c) => c.collectionType !== "LOAN_EMI");
   const todayEMICollections = todayCollections.filter((c) => c.collectionType === "LOAN_EMI");
   const todayTotal = todayCollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const todayEMITotal = todayEMICollections.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-
-  // Savings
-  const totalSavings = savingsAccounts.reduce((s: number, a: any) => s + (Number(a.totalBalance) || 0), 0);
 
   // Loans
   const activeLoans = loans.filter((l) => l.status === "ACTIVE" || (l.status as string) === "active");
@@ -91,7 +81,7 @@ export default function OrgOverview() {
   const monthlyData = Array.from({ length: 12 }, (_, i) => {
     const monthStart = startOfMonth(subMonths(now, 11 - i));
     const monthEnd = startOfMonth(subMonths(now, 10 - i));
-    const savings = collections
+    const general = collections
       .filter((c) => {
         const d = toDate(c.collectedAt || c.timestamp);
         return d >= monthStart && d < monthEnd && c.collectionType !== "LOAN_EMI";
@@ -103,7 +93,7 @@ export default function OrgOverview() {
         return d >= monthStart && d < monthEnd && c.collectionType === "LOAN_EMI";
       })
       .reduce((s, c) => s + (Number(c.amount) || 0), 0);
-    return { month: format(monthStart, "MMM"), savings, emi, total: savings + emi };
+    return { month: format(monthStart, "MMM"), general, emi, total: general + emi };
   });
 
   // Loan portfolio trend (loans created per month)
@@ -122,13 +112,6 @@ export default function OrgOverview() {
       .reduce((s, l) => s + (l.principalAmount ?? 0), 0);
     return { month: format(monthStart, "MMM"), loans: count, amount };
   });
-
-  // Customer type pie
-  const customerTypePie = [
-    { name: "Savings Only", value: savingsOnlyCustomers.length },
-    { name: "Loan Only", value: loanOnlyCustomers.length },
-    { name: "Savings+Loan", value: savingsLoanCustomers.length },
-  ].filter((d) => d.value > 0);
 
   const recentCollections = [...collections]
     .sort((a, b) => toDate(b.collectedAt || b.timestamp).valueOf() - toDate(a.collectedAt || a.timestamp).valueOf())
@@ -162,18 +145,6 @@ export default function OrgOverview() {
         <MetricCard title="Total Agents" value={activeAgents.length.toString()}
           icon={<UserCheck className="w-5 h-5 text-sky-600" />}
           trend={`${agents.length} total collectors`} bg="bg-sky-50" />
-        <MetricCard title="Savings Customers" value={savingsOnlyCustomers.length.toString()}
-          icon={<PiggyBank className="w-5 h-5 text-emerald-600" />}
-          trend="Savings-only accounts" bg="bg-emerald-50" />
-        <MetricCard title="Loan Customers" value={loanOnlyCustomers.length.toString()}
-          icon={<CreditCard className="w-5 h-5 text-indigo-600" />}
-          trend="Loan-only accounts" bg="bg-indigo-50" />
-        <MetricCard title="Savings + Loan" value={savingsLoanCustomers.length.toString()}
-          icon={<Wallet className="w-5 h-5 text-teal-600" />}
-          trend="Combined account holders" bg="bg-teal-50" />
-        <MetricCard title="Total Savings" value={`₹${totalSavings.toLocaleString()}`}
-          icon={<PiggyBank className="w-5 h-5 text-emerald-600" />}
-          trend="Combined savings balance" bg="bg-emerald-50" />
         <MetricCard title="Loan Portfolio" value={`₹${totalLoanPortfolio.toLocaleString()}`}
           icon={<BarChart2 className="w-5 h-5 text-blue-600" />}
           trend={`${activeLoans.length} active loans`} bg="bg-blue-50" />
@@ -195,8 +166,8 @@ export default function OrgOverview() {
       </div>
 
       {/* Charts row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="shadow-sm lg:col-span-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="shadow-sm">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-slate-500" />
@@ -210,45 +181,16 @@ export default function OrgOverview() {
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false}
                   tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={48} />
-                <Tooltip formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name === "savings" ? "Savings" : "EMI"]}
+                <Tooltip formatter={(value: number, name: string) => [`₹${value.toLocaleString()}`, name === "general" ? "Collection" : "EMI"]}
                   contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
-                <Legend formatter={(v) => v === "savings" ? "Savings" : "EMI"} wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="savings" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={36} />
+                <Legend formatter={(v) => v === "general" ? "Collection" : "EMI"} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="general" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} maxBarSize={36} />
                 <Bar dataKey="emi" stackId="a" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={36} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Customer Type Pie */}
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Customer Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {customerTypePie.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-slate-400 text-sm">No customers yet.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie data={customerTypePie} cx="50%" cy="50%" innerRadius={50} outerRadius={80}
-                    paddingAngle={3} dataKey="value" label={({ name, percent }) => `${Math.round(percent * 100)}%`}
-                    labelLine={false} fontSize={10}>
-                    {customerTypePie.map((_, index) => (
-                      <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: number, name: string) => [v, name]} contentStyle={{ borderRadius: "10px", fontSize: 12 }} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Loan Portfolio Trend */}
         <Card className="shadow-sm">
           <CardHeader>
@@ -258,7 +200,7 @@ export default function OrgOverview() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={loanPortfolioData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
@@ -268,29 +210,6 @@ export default function OrgOverview() {
                   contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
                 <Area type="monotone" dataKey="amount" stroke="#6366f1" fill="#e0e7ff" strokeWidth={2} />
               </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Savings Growth */}
-        <Card className="shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <PiggyBank className="w-4 h-4 text-slate-500" />
-              Savings Collections — Last 6 Months
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={monthlyData.slice(-6)} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`} width={48} />
-                <Tooltip formatter={(value: number) => [`₹${value.toLocaleString()}`, "Savings"]}
-                  contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: 12 }} />
-                <Line type="monotone" dataKey="savings" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} />
-              </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -313,13 +232,13 @@ export default function OrgOverview() {
                     <div key={act.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isEMI ? "bg-indigo-100" : "bg-emerald-100"}`}>
-                          {isEMI ? <CreditCard className="w-4 h-4 text-indigo-600" /> : <PiggyBank className="w-4 h-4 text-emerald-600" />}
+                          {isEMI ? <CreditCard className="w-4 h-4 text-indigo-600" /> : <Wallet className="w-4 h-4 text-emerald-600" />}
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm text-slate-900 truncate">{name}</p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isEMI ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>
-                              {isEMI ? "EMI" : "SAVINGS"}
+                              {isEMI ? "EMI" : "COLLECTION"}
                             </span>
                             <span className="text-xs text-slate-400">
                               {act.time.getTime() > 0 ? format(act.time, "MMM d, h:mm a") : "—"}

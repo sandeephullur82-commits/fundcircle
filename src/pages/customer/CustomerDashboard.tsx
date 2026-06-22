@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useUser, useOrganization, useOrganizationList } from "@clerk/clerk-react";
 import {
-  LayoutDashboard, PiggyBank, BookOpen, CreditCard, Plus,
+  LayoutDashboard, CreditCard, Plus, Wallet,
   CalendarDays, FileText, Bell, HelpCircle, User, Shield,
   ChevronDown, Check, Building2, Menu, X, LogOut,
 } from "lucide-react";
@@ -9,13 +9,11 @@ import { where } from "firebase/firestore";
 import { useCollectionRealtimeRaw, useDocumentRealtime } from "@/lib/firestore-hooks";
 import type {
   Collection, Loan, LoanApplication, LoanInstallment,
-  Membership, SavingsAccount, SavingsApplication, SavingsPlan, SavingsTransaction, Notification, Organization,
+  Membership, Notification, Organization,
 } from "@/types";
 
 // Tab components
 import DashboardTab from "./tabs/DashboardTab";
-import SavingsTab from "./tabs/SavingsTab";
-import PassbookTab from "./tabs/PassbookTab";
 import LoansTab from "./tabs/LoansTab";
 import ApplyLoanTab from "./tabs/ApplyLoanTab";
 import EMITab from "./tabs/EMITab";
@@ -27,7 +25,7 @@ import SecurityTab from "./tabs/SecurityTab";
 import { SignOutButton } from "@clerk/clerk-react";
 
 type Tab =
-  | "dashboard" | "savings" | "passbook" | "loans" | "apply_loan"
+  | "dashboard" | "loans" | "apply_loan"
   | "emi_schedule" | "receipts" | "notifications" | "support" | "profile" | "security";
 
 interface NavItem {
@@ -39,8 +37,6 @@ interface NavItem {
 
 const ALL_NAV_ITEMS: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "savings", label: "Savings", icon: PiggyBank },
-  { id: "passbook", label: "Passbook", icon: BookOpen },
   { id: "loans", label: "Loans", icon: CreditCard },
   { id: "apply_loan", label: "Apply Loan", icon: Plus },
   { id: "emi_schedule", label: "EMI Schedule", icon: CalendarDays },
@@ -86,28 +82,7 @@ export default function CustomerDashboard() {
   );
 
   const NAV_ITEMS = ALL_NAV_ITEMS;
-  const BOTTOM_PRIMARY: Tab[] = ["dashboard", "savings", "loans", "receipts", "notifications"];
-
-  const { data: savingsAccounts } = useCollectionRealtimeRaw<SavingsAccount>(
-    "savings_accounts",
-    membershipId ? [where("customerId", "==", membershipId)] : []
-  );
-  const savingsAccount = savingsAccounts?.[0] ?? null;
-
-  const { data: savingsApplications } = useCollectionRealtimeRaw<SavingsApplication>(
-    "savings_applications",
-    membershipId ? [where("customerId", "==", membershipId)] : []
-  );
-
-  const { data: savingsPlans } = useCollectionRealtimeRaw<SavingsPlan>(
-    "savings_plans",
-    orgId ? [where("organizationId", "==", orgId), where("status", "==", "ACTIVE")] : []
-  );
-
-  const { data: savingsTxs } = useCollectionRealtimeRaw<SavingsTransaction>(
-    "savings_transactions",
-    membershipId ? [where("customerId", "==", membershipId)] : []
-  );
+  const BOTTOM_PRIMARY: Tab[] = ["dashboard", "loans", "emi_schedule", "receipts", "notifications"];
 
   const { data: loans } = useCollectionRealtimeRaw<Loan>(
     "loans",
@@ -183,7 +158,6 @@ export default function CustomerDashboard() {
   // ── Tab content ───────────────────────────────────────────────────────────────
   const renderTab = () => {
     const customerName = displayName;
-    const txs = savingsTxs ?? [];
     const cols = collections ?? [];
     const lns = loans ?? [];
     const insts = installments ?? [];
@@ -194,37 +168,11 @@ export default function CustomerDashboard() {
       case "dashboard":
         return (
           <DashboardTab
-            savingsAccount={savingsAccount}
-            savingsTxs={txs}
             loans={lns}
             installments={insts}
             collections={cols}
             notifications={notifs}
             onNavigate={navigate}
-          />
-        );
-      case "savings":
-        return (
-          <SavingsTab
-            savingsAccount={savingsAccount}
-            savingsTxs={txs}
-            orgName={orgName}
-            savingsApplications={savingsApplications ?? []}
-            savingsPlans={savingsPlans ?? []}
-            organizationId={orgId}
-            customerId={membershipId ?? ""}
-            customerName={displayName}
-            customerEmail={user?.primaryEmailAddress?.emailAddress ?? ""}
-            customerPhone={membershipDoc?.phone}
-          />
-        );
-      case "passbook":
-        return (
-          <PassbookTab
-            savingsTxs={txs}
-            collections={cols}
-            loans={lns}
-            orgName={orgName}
           />
         );
       case "loans":
@@ -252,7 +200,7 @@ export default function CustomerDashboard() {
         return (
           <ReceiptsTab
             collections={cols}
-            savingsTxs={txs}
+
             loans={lns}
             orgName={orgName}
             customerName={customerName}
@@ -301,7 +249,7 @@ export default function CustomerDashboard() {
         <div className="p-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2 mb-3">
             <div className="w-8 h-8 bg-emerald-600 rounded-xl flex items-center justify-center">
-              <PiggyBank className="w-4.5 h-4.5 text-white" />
+              <Wallet className="w-4.5 h-4.5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-black text-slate-900 dark:text-white text-sm leading-tight">FundCircle</p>
@@ -393,7 +341,7 @@ export default function CustomerDashboard() {
             <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-emerald-600 rounded-xl flex items-center justify-center">
-                  <PiggyBank className="w-4 h-4 text-white" />
+                  <Wallet className="w-4 h-4 text-white" />
                 </div>
                 <div>
                   <p className="font-black text-slate-900 dark:text-white text-sm">FundCircle</p>
@@ -472,7 +420,7 @@ export default function CustomerDashboard() {
 
           <div className="flex items-center gap-1.5">
             <div className="w-6 h-6 bg-emerald-600 rounded-lg flex items-center justify-center">
-              <PiggyBank className="w-3.5 h-3.5 text-white" />
+              <Wallet className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="font-black text-slate-900 dark:text-white text-sm">FundCircle</span>
           </div>

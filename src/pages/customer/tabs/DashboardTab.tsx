@@ -1,17 +1,17 @@
 import React, { useMemo } from "react";
 import {
-  PiggyBank, CreditCard, CalendarDays, TrendingUp,
-  FileText, CheckCircle, AlertTriangle, Clock, ArrowUpRight,
+  CreditCard, CalendarDays, TrendingUp,
+  FileText, CheckCircle, AlertTriangle, ArrowUpRight,
   Wallet, BarChart3, Activity,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
+  BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { format, isBefore, startOfDay, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import type {
-  SavingsAccount, SavingsTransaction, Loan, LoanInstallment, Collection, Notification,
+  Loan, LoanInstallment, Collection, Notification,
 } from "@/types";
 
 function toDate(ts: any): Date {
@@ -27,8 +27,6 @@ function safeN(v: any): number {
 }
 
 interface Props {
-  savingsAccount: SavingsAccount | null;
-  savingsTxs: SavingsTransaction[];
   loans: Loan[];
   installments: LoanInstallment[];
   collections: Collection[];
@@ -37,14 +35,12 @@ interface Props {
 }
 
 export default function DashboardTab({
-  savingsAccount, savingsTxs, loans, installments, collections, notifications, onNavigate,
+  loans, installments, collections, notifications, onNavigate,
 }: Props) {
   const today = startOfDay(new Date());
 
-  const totalDeposits = savingsTxs.reduce((s, t) => s + safeN(t.amount), 0);
-  const storedSavingsBal = safeN(savingsAccount?.totalBalance);
-  const totalSavings = storedSavingsBal > 0 ? storedSavingsBal : totalDeposits;
   const totalReceipts = collections.length;
+  const totalCollected = collections.reduce((s, c) => s + safeN(c.amount), 0);
 
   const activeLoans = loans.filter((l) => (l.status || "").toUpperCase() === "ACTIVE");
   const totalOutstanding = activeLoans.reduce(
@@ -56,51 +52,39 @@ export default function DashboardTab({
   const overdueInstallments = pendingInstallments.filter((i) => isBefore(toDate(i.dueDate), today));
   const nextDue = pendingInstallments[0] ?? null;
 
-  const accountStatus = savingsAccount?.status ?? (savingsTxs.length > 0 ? "ACTIVE" : "NEW");
-
   const unreadNotifications = notifications.filter((n) => !n.read);
 
-  const monthlySavings = useMemo(() => {
-    const months: { month: string; amount: number; balance: number }[] = [];
+  const monthlyCollections = useMemo(() => {
+    const months: { month: string; amount: number; count: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = subMonths(new Date(), i);
       const start = startOfMonth(d).getTime();
       const end = endOfMonth(d).getTime();
-      const amount = savingsTxs
-        .filter((t) => {
-          const ts = toDate(t.collectedAt).getTime();
-          return ts >= start && ts <= end;
-        })
-        .reduce((s, t) => s + safeN(t.amount), 0);
-      const lastTxInMonth = [...savingsTxs]
-        .filter((t) => toDate(t.collectedAt).getTime() <= end)
-        .sort((a, b) => toDate(b.collectedAt).getTime() - toDate(a.collectedAt).getTime())[0];
+      const filtered = collections.filter((c) => {
+        const ts = toDate(c.collectedAt ?? c.timestamp).getTime();
+        return ts >= start && ts <= end;
+      });
       months.push({
         month: format(d, "MMM"),
-        amount,
-        balance: safeN(lastTxInMonth?.balanceAfter),
+        amount: filtered.reduce((s, c) => s + safeN(c.amount), 0),
+        count: filtered.length,
       });
     }
     return months;
-  }, [savingsTxs]);
-
-  const recentTxs = [...savingsTxs]
-    .sort((a, b) => toDate(b.collectedAt).getTime() - toDate(a.collectedAt).getTime())
-    .slice(0, 4);
+  }, [collections]);
 
   const recentReceipts = [...collections]
     .sort((a, b) => toDate(b.collectedAt ?? b.timestamp).getTime() - toDate(a.collectedAt ?? a.timestamp).getTime())
-    .slice(0, 3);
+    .slice(0, 5);
 
   const summaryCards = [
     {
-      label: "Total Savings",
-      value: `₹${totalSavings.toLocaleString()}`,
-      sub: `${savingsTxs.length} deposits`,
-      icon: PiggyBank,
+      label: "Total Collected",
+      value: `₹${totalCollected.toLocaleString()}`,
+      sub: `${totalReceipts} receipts`,
+      icon: TrendingUp,
       color: "bg-emerald-500",
-      textColor: "text-white",
-      onClick: () => onNavigate("savings"),
+      onClick: () => onNavigate("receipts"),
     },
     {
       label: "Loan Outstanding",
@@ -108,7 +92,6 @@ export default function DashboardTab({
       sub: `${activeLoans.length} active loan${activeLoans.length !== 1 ? "s" : ""}`,
       icon: CreditCard,
       color: "bg-orange-500",
-      textColor: "text-white",
       onClick: () => onNavigate("loans"),
     },
     {
@@ -123,35 +106,31 @@ export default function DashboardTab({
         : "All clear",
       icon: overdueInstallments.length > 0 ? AlertTriangle : CalendarDays,
       color: overdueInstallments.length > 0 ? "bg-red-500" : nextDue ? "bg-amber-500" : "bg-slate-400",
-      textColor: "text-white",
       onClick: () => onNavigate("emi_schedule"),
-    },
-    {
-      label: "Total Deposits",
-      value: `₹${totalDeposits.toLocaleString()}`,
-      sub: "All time",
-      icon: TrendingUp,
-      color: "bg-blue-500",
-      textColor: "text-white",
-      onClick: () => onNavigate("passbook"),
     },
     {
       label: "Total Receipts",
       value: totalReceipts.toString(),
-      sub: "Transactions",
+      sub: "All transactions",
       icon: FileText,
       color: "bg-purple-500",
-      textColor: "text-white",
       onClick: () => onNavigate("receipts"),
     },
     {
-      label: "Account Status",
-      value: accountStatus,
-      sub: savingsAccount ? `${savingsTxs.length} deposit${savingsTxs.length !== 1 ? "s" : ""}` : "No account",
-      icon: accountStatus === "ACTIVE" ? CheckCircle : Activity,
-      color: accountStatus === "ACTIVE" ? "bg-teal-500" : "bg-slate-400",
-      textColor: "text-white",
-      onClick: () => onNavigate("savings"),
+      label: "Loan Status",
+      value: activeLoans.length > 0 ? "ACTIVE" : "NONE",
+      sub: activeLoans.length > 0 ? `${activeLoans.length} loan${activeLoans.length !== 1 ? "s" : ""}` : "No active loan",
+      icon: activeLoans.length > 0 ? CheckCircle : Activity,
+      color: activeLoans.length > 0 ? "bg-teal-500" : "bg-slate-400",
+      onClick: () => onNavigate("loans"),
+    },
+    {
+      label: "Notifications",
+      value: unreadNotifications.length > 0 ? unreadNotifications.length.toString() : "—",
+      sub: unreadNotifications.length > 0 ? "Unread messages" : "All caught up",
+      icon: FileText,
+      color: unreadNotifications.length > 0 ? "bg-red-500" : "bg-slate-400",
+      onClick: () => onNavigate("notifications"),
     },
   ];
 
@@ -206,41 +185,7 @@ export default function DashboardTab({
         </button>
       )}
 
-      {/* Savings Growth Chart */}
-      {savingsTxs.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-emerald-500" />
-                Savings Growth
-              </CardTitle>
-              <span className="text-xs text-slate-400">Last 6 months</span>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0 pb-4 pr-4">
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={monthlySavings} margin={{ top: 8, right: 0, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="savingsGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="amount" stroke="#10b981" strokeWidth={2.5}
-                  fill="url(#savingsGrad)" dot={{ fill: "#10b981", strokeWidth: 0, r: 3 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Loan repayment chart */}
+      {/* Loan repayment progress */}
       {activeLoans.length > 0 && (() => {
         const loan = activeLoans[0];
         const principal = loan.principalAmount ?? (loan as any).principal ?? 0;
@@ -295,66 +240,26 @@ export default function DashboardTab({
         );
       })()}
 
-      {/* Monthly deposit bar chart */}
-      {monthlySavings.some((m) => m.amount > 0) && (
+      {/* Monthly collections chart */}
+      {monthlyCollections.some((m) => m.amount > 0) && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-blue-500" />
-              Monthly Deposits
+              Monthly Collections
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 pb-4 pr-4">
             <ResponsiveContainer width="100%" height={130}>
-              <BarChart data={monthlySavings} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
+              <BarChart data={monthlyCollections} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} axisLine={false} tickLine={false}
                   tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Recent Transactions */}
-      {recentTxs.length > 0 && (
-        <Card>
-          <CardHeader className="pb-0">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Recent Deposits</CardTitle>
-              <button onClick={() => onNavigate("passbook")} className="text-xs text-emerald-600 font-semibold">
-                View all
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0 mt-2">
-            <div className="divide-y divide-slate-50 dark:divide-slate-800">
-              {recentTxs.map((tx) => {
-                const d = toDate(tx.collectedAt);
-                return (
-                  <div key={tx.id} className="flex items-center justify-between px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
-                        <PiggyBank className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-white">Savings Deposit</p>
-                        <p className="text-xs text-slate-400">
-                          {tx.collectedByName || "Agent"} · {d.getTime() > 0 ? format(d, "MMM d") : "—"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-emerald-600 text-sm">+₹{safeN(tx.amount).toLocaleString()}</p>
-                      <p className="text-xs text-slate-400">₹{safeN(tx.balanceAfter).toLocaleString()}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </CardContent>
         </Card>
       )}
@@ -374,16 +279,18 @@ export default function DashboardTab({
             <div className="divide-y divide-slate-50 dark:divide-slate-800">
               {recentReceipts.map((col) => {
                 const d = toDate(col.collectedAt ?? col.timestamp);
-                const isSavings = col.collectionType !== "LOAN_EMI";
+                const isEMI = col.collectionType === "LOAN_EMI";
                 return (
                   <div key={col.id} className="flex items-center justify-between px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isSavings ? "bg-emerald-50 dark:bg-emerald-950/40" : "bg-indigo-50 dark:bg-indigo-950/40"}`}>
-                        <FileText className={`w-4 h-4 ${isSavings ? "text-emerald-600" : "text-indigo-600"}`} />
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isEMI ? "bg-indigo-50 dark:bg-indigo-950/40" : "bg-emerald-50 dark:bg-emerald-950/40"}`}>
+                        {isEMI
+                          ? <CreditCard className="w-4 h-4 text-indigo-600" />
+                          : <FileText className="w-4 h-4 text-emerald-600" />}
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                          {isSavings ? "Savings" : "EMI Payment"}
+                          {isEMI ? "EMI Payment" : "Collection"}
                         </p>
                         <p className="text-xs text-slate-400 font-mono">{col.receiptNo || "—"}</p>
                       </div>
@@ -428,12 +335,12 @@ export default function DashboardTab({
       )}
 
       {/* Empty state */}
-      {savingsTxs.length === 0 && loans.length === 0 && (
+      {loans.length === 0 && collections.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
-            <PiggyBank className="w-12 h-12 mx-auto mb-3 text-emerald-200" />
+            <CreditCard className="w-12 h-12 mx-auto mb-3 text-emerald-200" />
             <p className="font-semibold text-slate-700 dark:text-slate-300">Welcome to FundCircle!</p>
-            <p className="text-sm text-slate-400 mt-1">Your savings and loan activity will appear here.</p>
+            <p className="text-sm text-slate-400 mt-1">Your loan and collection activity will appear here.</p>
           </CardContent>
         </Card>
       )}

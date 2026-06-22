@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { FileText, Search, PiggyBank, CreditCard, Eye, ChevronDown } from "lucide-react";
+import { FileText, Search, Banknote, CreditCard, Eye, ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { format } from "date-fns";
 import ReceiptModal, { type ReceiptData } from "@/components/ReceiptModal";
-import type { Collection, SavingsTransaction, Loan } from "@/types";
+import type { Collection, Loan } from "@/types";
 
 const PAGE_SIZE = 50;
 
@@ -16,7 +16,6 @@ function toDate(ts: any): Date {
 
 interface Props {
   collections: Collection[];
-  savingsTxs: SavingsTransaction[];
   loans: Loan[];
   orgName: string;
   customerName: string;
@@ -25,7 +24,7 @@ interface Props {
 type TypeFilter = "ALL" | "SAVINGS" | "LOAN_EMI";
 
 export default function ReceiptsTab({
-  collections, savingsTxs, loans, orgName, customerName,
+  collections, loans, orgName, customerName,
 }: Props) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
   const [search, setSearch] = useState("");
@@ -67,17 +66,13 @@ export default function ReceiptsTab({
     const date = toDate(col.collectedAt ?? col.timestamp);
     if (date.getTime() === 0) return;
 
-    const tx = isSavings ? savingsTxs.find((t) => t.id === col.referenceId) : null;
     const loan = !isSavings ? loans.find((l) => l.id === col.referenceId) : null;
-
-    const safeBalance = (v: any) => { const n = Number(v); return isFinite(n) && n > 0 ? n : undefined; };
 
     setViewReceipt({
       receiptNo: col.receiptNo || "—",
       organizationName: orgName,
       customerName,
       amount: Number(col.amount) || 0,
-      newBalance: isSavings && tx ? safeBalance(tx.balanceAfter) : undefined,
       collectionType: isSavings ? "SAVINGS" : "LOAN_EMI",
       agentName: col.collectedByName || "Agent",
       collectedAt: date,
@@ -98,9 +93,9 @@ export default function ReceiptsTab({
           <p className="text-[10px] text-slate-400">All receipts</p>
         </button>
         <button onClick={() => handleFilterChange(() => setTypeFilter("SAVINGS"))} className={`rounded-xl p-3 text-left border transition-all ${typeFilter === "SAVINGS" ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40" : "border-transparent bg-emerald-50 dark:bg-emerald-950/20"}`}>
-          <p className="text-[10px] text-emerald-600 font-medium">Savings</p>
+          <p className="text-[10px] text-emerald-600 font-medium">General</p>
           <p className="text-xl font-black text-emerald-700 dark:text-emerald-400">{totalSavingsReceipts}</p>
-          <p className="text-[10px] text-emerald-500">Deposits</p>
+          <p className="text-[10px] text-emerald-500">Collections</p>
         </button>
         <button onClick={() => handleFilterChange(() => setTypeFilter("LOAN_EMI"))} className={`rounded-xl p-3 text-left border transition-all ${typeFilter === "LOAN_EMI" ? "border-indigo-300 bg-indigo-50 dark:bg-indigo-950/40" : "border-transparent bg-indigo-50 dark:bg-indigo-950/20"}`}>
           <p className="text-[10px] text-indigo-600 font-medium">EMI</p>
@@ -157,7 +152,7 @@ export default function ReceiptsTab({
                             : "bg-indigo-50 dark:bg-indigo-950/30"
                         }`}>
                           {isSavings
-                            ? <PiggyBank className="w-4 h-4 text-emerald-600" />
+                            ? <Banknote className="w-4 h-4 text-emerald-600" />
                             : <CreditCard className="w-4 h-4 text-indigo-600" />}
                         </div>
                         <div className="min-w-0">
@@ -167,7 +162,7 @@ export default function ReceiptsTab({
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
                                 : "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400"
                             }`}>
-                              {isSavings ? "SAVINGS" : "EMI"}
+                              {isSavings ? "COLLECTION" : "EMI"}
                             </span>
                             <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500 truncate">
                               {col.receiptNo || "—"}

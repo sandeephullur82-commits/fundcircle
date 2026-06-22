@@ -2,7 +2,7 @@ import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
 import {
   LogOut, Users, Wallet, CreditCard, FileText, Settings,
   Bell, Menu, LayoutDashboard,
-  ArrowUpCircle, X, Plus, UserPlus, UserCheck, PiggyBank,
+  ArrowUpCircle, X, Plus, UserPlus, UserCheck,
   Landmark, IndianRupee, CheckCircle2, BarChart2, ClipboardList,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,7 +30,6 @@ import OrgNotifications from "./OrgNotifications";
 import OrgSettings from "./OrgSettings";
 import OrgBilling from "./OrgBilling";
 import OrgAuditLogs from "./OrgAuditLogs";
-import OrgSavings from "./OrgSavings";
 const BOTTOM_NAV_ADMIN = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "customers", label: "Customers", icon: Users },
@@ -65,17 +64,13 @@ export default function OrgDashboard() {
   const { data: pendingSetupMembers } = useCollectionRealtime<any>("organizationMembers", [where("status", "==", "PENDING_SETUP")]);
   const pendingSetupCount = pendingSetupMembers.length;
 
-  // Pending loan and savings applications — for badges + push toasts
+  // Pending loan applications — for badges + push toasts
   const { data: pendingLoanApps } = useCollectionRealtime<any>("loanApplications", [
-    where("status", "==", "PENDING"),
-  ]);
-  const { data: pendingSavingsApps } = useCollectionRealtime<any>("savings_applications", [
     where("status", "==", "PENDING"),
   ]);
 
   // Delta-detection refs — null means "initial snapshot not yet recorded"
   const prevLoanAppIds = useRef<Set<string> | null>(null);
-  const prevSavingsAppIds = useRef<Set<string> | null>(null);
 
   // Toast when a NEW pending loan application arrives
   useEffect(() => {
@@ -98,28 +93,6 @@ export default function OrgDashboard() {
     });
     prevLoanAppIds.current = currentIds;
   }, [pendingLoanApps]);
-
-  // Toast when a NEW pending savings application arrives
-  useEffect(() => {
-    const currentIds = new Set(pendingSavingsApps.map((a: any) => a.id));
-    if (prevSavingsAppIds.current === null) {
-      prevSavingsAppIds.current = currentIds;
-      return;
-    }
-    const newOnes = pendingSavingsApps.filter((a: any) => !prevSavingsAppIds.current!.has(a.id));
-    newOnes.forEach((app: any) => {
-      const planName = app.planName ? ` — ${app.planName}` : "";
-      toast.info(
-        `💰 New savings application${planName}`,
-        {
-          description: "A customer has applied for a savings plan and is awaiting your approval.",
-          action: { label: "Review", onClick: () => setActiveTab("savings") },
-          duration: 8000,
-        }
-      );
-    });
-    prevSavingsAppIds.current = currentIds;
-  }, [pendingSavingsApps]);
 
   // Role is always resolved from org membership — never from global user metadata.
   // Priority: Firestore membershipDoc → Clerk org membership → null
@@ -144,7 +117,6 @@ export default function OrgDashboard() {
     { id: "customers", label: "Customers", icon: Users },
     { id: "agents", label: "Collectors", icon: Users, badge: pendingSetupCount || undefined },
     { id: "collections", label: "Collections", icon: Wallet },
-    { id: "savings", label: "Savings Management", icon: ArrowUpCircle, badge: pendingSavingsApps.length || undefined },
     { id: "loans", label: "Loans & EMI", icon: CreditCard, badge: pendingLoanApps.length || undefined },
     { id: "reports", label: "Reports", icon: FileText },
     { id: "auditLogs", label: "Audit Logs", icon: ClipboardList },
@@ -308,7 +280,6 @@ export default function OrgDashboard() {
           <TabsContent value="customers" className="mt-0"><OrgCustomers /></TabsContent>
           <TabsContent value="agents" className="mt-0"><OrgAgents /></TabsContent>
           <TabsContent value="collections" className="mt-0"><OrgCollections /></TabsContent>
-          <TabsContent value="savings" className="mt-0"><OrgSavings /></TabsContent>
           <TabsContent value="loans" className="mt-0"><OrgLoans /></TabsContent>
           <TabsContent value="reports" className="mt-0"><OrgReports /></TabsContent>
           <TabsContent value="notifications" className="mt-0"><OrgNotifications /></TabsContent>
@@ -361,7 +332,6 @@ const MOB_NAV_H = 56;
 const FAB_ACTIONS = [
   { id: "addCustomer",      label: "Add Customer",        icon: UserPlus,     tab: "customers",   color: "#2563eb" },
   { id: "addAgent",         label: "Add Agent",           icon: UserCheck,    tab: "agents",      color: "#0284c7" },
-  { id: "newSavings",       label: "New Savings Account", icon: PiggyBank,    tab: "savings",     color: "#059669" },
   { id: "newLoan",          label: "New Loan",            icon: Landmark,     tab: "loans",       color: "#4f46e5" },
   { id: "recordCollection", label: "Record Collection",   icon: IndianRupee,  tab: "collections", color: "#0d9488" },
   { id: "approveLoan",      label: "Approve Loan",        icon: CheckCircle2, tab: "loans",       color: "#ea580c" },
