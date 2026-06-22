@@ -8,13 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createDirectMember, validateCustomerEmail, reassignCustomer, createAuditLog, migrateCustomerAssignments } from "@/lib/services";
+import CollectDialog from "@/components/agent/CollectDialog";
 import { useOrganization, useUser, useAuth } from "@clerk/clerk-react";
 import { where, doc, updateDoc, serverTimestamp, getDocs, query, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   Search, Plus, AlertTriangle, Crown, Users, ChevronDown, RefreshCw,
   Loader2, KeyRound, Copy, Check, ShieldCheck, Pencil, UserX, Phone,
-  MapPin, FileText, UserCheck,
+  MapPin, FileText, UserCheck, IndianRupee,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fcToast } from "@/lib/toast";
@@ -85,6 +86,9 @@ export default function OrgCustomers() {
   // Deactivate state
   const [deactivateCustomer, setDeactivateCustomer] = useState<Membership | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+
+  // Owner collect state
+  const [collectingCustomer, setCollectingCustomer] = useState<any>(null);
 
   // Migration state
   const [isMigrating, setIsMigrating] = useState(false);
@@ -917,6 +921,15 @@ export default function OrgCustomers() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {(customer.status as string) === "ACTIVE" && (
+                              <button
+                                onClick={() => setCollectingCustomer(customer)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                                title="Collect payment"
+                              >
+                                <IndianRupee className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button onClick={() => handleOpenEdit(customer)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors" title="Edit customer">
                               <Pencil className="w-3.5 h-3.5" />
@@ -1000,6 +1013,15 @@ export default function OrgCustomers() {
                             {statusLabel(customer.status as string)}
                           </span>
                           <div className="flex gap-1">
+                            {(customer.status as string) === "ACTIVE" && (
+                              <button
+                                onClick={() => setCollectingCustomer(customer)}
+                                className="p-1 rounded text-slate-400 hover:text-violet-600 transition-colors"
+                                title="Collect payment"
+                              >
+                                <IndianRupee className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button onClick={() => handleOpenEdit(customer)} className="p-1 rounded text-slate-400 hover:text-emerald-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                             {collectorsForAssignment.length > 1 && (
                               <button onClick={() => {
@@ -1275,6 +1297,18 @@ export default function OrgCustomers() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Owner Collect Dialog — collect from any customer regardless of assignment */}
+      <CollectDialog
+        customer={collectingCustomer}
+        orgId={organization?.id || ""}
+        orgName={organization?.name || ""}
+        agentId={user?.id || ""}
+        agentName={user?.fullName || user?.firstName || "Owner"}
+        collectedByRole="OWNER"
+        collectedById={user?.id || ""}
+        onClose={() => setCollectingCustomer(null)}
+      />
     </div>
   );
 }

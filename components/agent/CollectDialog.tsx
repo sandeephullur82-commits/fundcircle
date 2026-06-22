@@ -33,10 +33,13 @@ interface CollectDialogProps {
   agentId: string;
   agentName: string;
   onClose: () => void;
+  collectedByRole?: string;
+  collectedById?: string;
 }
 
 export default function CollectDialog({
   customer, orgId, orgName, agentId, agentName, onClose,
+  collectedByRole, collectedById,
 }: CollectDialogProps) {
   const [collectMode,     setCollectMode]     = useState<CollectMode>(null);
   const [savingsAccount,  setSavingsAccount]  = useState<SavingsAccount | null>(null);
@@ -103,6 +106,8 @@ export default function CollectDialog({
       const result = await recordSavingsCollection({
         organizationId: orgId, organizationName: orgName,
         customerId: customer.id, agentId, agentName, amount: num,
+        ...(collectedByRole ? { collectedByRole } : {}),
+        ...(collectedById   ? { collectedById   } : {}),
       });
       setReceipt({
         receiptNo: result.receiptNo, organizationName: orgName,
@@ -130,6 +135,8 @@ export default function CollectDialog({
         organizationId: orgId, organizationName: orgName,
         loanId: activeLoan.id, installmentId: nextInstallment.id,
         customerId: customer.id, agentId, agentName, amount: num,
+        ...(collectedByRole ? { collectedByRole } : {}),
+        ...(collectedById   ? { collectedById   } : {}),
       });
       setReceipt({
         receiptNo: result.receiptNo, organizationName: orgName,
@@ -162,6 +169,8 @@ export default function CollectDialog({
         customerId: customer.id, agentId, agentName,
         savingsAmount: savNum, loanId: activeLoan.id,
         installmentId: nextInstallment.id, emiAmount: emiNum,
+        ...(collectedByRole ? { collectedByRole } : {}),
+        ...(collectedById   ? { collectedById   } : {}),
       });
       setReceipt({
         receiptNo: result.receiptNo, organizationName: orgName,

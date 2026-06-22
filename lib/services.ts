@@ -162,6 +162,8 @@ export async function recordSavingsCollection(params: {
   agentId: string;
   agentName: string;
   amount: number;
+  collectedByRole?: string;
+  collectedById?: string;
 }): Promise<SavingsCollectionResult> {
   if (!params.amount || params.amount <= 0) {
     throw new Error("Collection amount must be greater than zero.");
@@ -199,12 +201,16 @@ export async function recordSavingsCollection(params: {
     updatedAt: serverTimestamp(),
   });
 
+  const _collectedByRole = params.collectedByRole || "AGENT";
+  const _collectedById   = params.collectedById   || params.agentId;
+
   // Create master collections entry
   const collRef = doc(collection(db, "collections"));
   await setDoc(collRef, {
     id: collRef.id,
     organizationId: params.organizationId,
     agentId: params.agentId,
+    collectedById: _collectedById,
     customerId: params.customerId,
     collectionType: "SAVINGS",
     referenceId: txRef.id,
@@ -212,7 +218,7 @@ export async function recordSavingsCollection(params: {
     receiptNo,
     collectedAt: serverTimestamp(),
     collectedByName: params.agentName,
-    collectedByRole: "AGENT",
+    collectedByRole: _collectedByRole,
     // Legacy compat
     timestamp: serverTimestamp(),
     status: "completed",
@@ -222,8 +228,8 @@ export async function recordSavingsCollection(params: {
   // Audit log
   await createAuditLog({
     organizationId: params.organizationId,
-    actorId: params.agentId,
-    actorRole: "AGENT",
+    actorId: _collectedById,
+    actorRole: _collectedByRole,
     actorName: params.agentName,
     action: "SAVINGS_COLLECTION_RECORDED",
     entityType: "SavingsTransaction",
@@ -523,6 +529,8 @@ export async function recordEMICollection(params: {
   amount: number;
   paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
   paymentReference?: string;
+  collectedByRole?: string;
+  collectedById?: string;
 }): Promise<EMICollectionResult> {
   if (!params.amount || params.amount <= 0) throw new Error("EMI amount must be greater than zero.");
 
@@ -533,6 +541,8 @@ export async function recordEMICollection(params: {
   if (installment.status === "PAID") throw new Error("This installment has already been paid.");
 
   const receiptNo = await generateReceiptNo(params.organizationId);
+  const _emiCollectedByRole = params.collectedByRole || "AGENT";
+  const _emiCollectedById   = params.collectedById   || params.agentId;
 
   // Mark installment as paid
   await updateDoc(installmentRef, {
@@ -540,7 +550,7 @@ export async function recordEMICollection(params: {
     paidAmount: params.amount,
     paidAt: serverTimestamp(),
     receiptNo,
-    collectedByAgentId: params.agentId,
+    collectedByAgentId: _emiCollectedById,
     collectedByAgentName: params.agentName,
   });
 
@@ -568,6 +578,7 @@ export async function recordEMICollection(params: {
     id: collRef.id,
     organizationId: params.organizationId,
     agentId: params.agentId,
+    collectedById: _emiCollectedById,
     customerId: params.customerId,
     collectionType: "LOAN_EMI",
     referenceId: params.installmentId,
@@ -575,7 +586,7 @@ export async function recordEMICollection(params: {
     receiptNo,
     collectedAt: serverTimestamp(),
     collectedByName: params.agentName,
-    collectedByRole: "AGENT",
+    collectedByRole: _emiCollectedByRole,
     timestamp: serverTimestamp(),
     status: "completed",
     assigned_to_user_id: params.agentId,
@@ -585,8 +596,8 @@ export async function recordEMICollection(params: {
 
   await createAuditLog({
     organizationId: params.organizationId,
-    actorId: params.agentId,
-    actorRole: "AGENT",
+    actorId: _emiCollectedById,
+    actorRole: _emiCollectedByRole,
     actorName: params.agentName,
     action: "EMI_COLLECTION_RECORDED",
     entityType: "LoanInstallment",
@@ -600,8 +611,8 @@ export async function recordEMICollection(params: {
   if (loanClosed) {
     await createAuditLog({
       organizationId: params.organizationId,
-      actorId: params.agentId,
-      actorRole: "AGENT",
+      actorId: _emiCollectedById,
+      actorRole: _emiCollectedByRole,
       actorName: params.agentName,
       action: "LOAN_CLOSED",
       entityType: "Loan",
@@ -664,6 +675,8 @@ export async function recordCombinedCollection(params: {
   emiAmount: number;
   paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
   paymentReference?: string;
+  collectedByRole?: string;
+  collectedById?: string;
 }): Promise<CombinedCollectionResult> {
   if (params.savingsAmount <= 0) throw new Error("Savings amount must be greater than zero.");
   if (params.emiAmount <= 0)     throw new Error("EMI amount must be greater than zero.");
@@ -695,6 +708,9 @@ export async function recordCombinedCollection(params: {
   const newOutstanding    = loanClosed ? 0 : Math.round(rawOutstanding * 100) / 100;
   const totalAmount       = params.savingsAmount + params.emiAmount;
 
+  const _combCollectedByRole = params.collectedByRole || "AGENT";
+  const _combCollectedById   = params.collectedById   || params.agentId;
+
   // ── Write savings transaction ─────────────────────────────────────────────
   const txRef = doc(collection(db, "savings_transactions"));
   await setDoc(txRef, {
@@ -703,13 +719,15 @@ export async function recordCombinedCollection(params: {
     organizationId: params.organizationId,
     customerId: params.customerId,
     agentId: params.agentId,
+    collectedById: _combCollectedById,
     amount: params.savingsAmount,
     balanceAfter: newSavingsBalance,
     receiptNo,
     collectedByName: params.agentName,
+    collectedByRole: _combCollectedByRole,
     collectedAt: serverTimestamp(),
     createdAt: serverTimestamp(),
-    createdBy: params.agentId,
+    createdBy: _combCollectedById,
     status: "COMPLETED",
     linkedCollectionType: "BOTH",
   });
@@ -726,7 +744,7 @@ export async function recordCombinedCollection(params: {
     paidAmount: params.emiAmount,
     paidAt: serverTimestamp(),
     receiptNo,
-    collectedByAgentId: params.agentId,
+    collectedByAgentId: _combCollectedById,
     collectedByAgentName: params.agentName,
   });
 
@@ -744,6 +762,7 @@ export async function recordCombinedCollection(params: {
     id: collRef.id,
     organizationId: params.organizationId,
     agentId: params.agentId,
+    collectedById: _combCollectedById,
     customerId: params.customerId,
     collectionType: "BOTH",
     referenceId: txRef.id,
@@ -753,7 +772,7 @@ export async function recordCombinedCollection(params: {
     receiptNo,
     collectedAt: serverTimestamp(),
     collectedByName: params.agentName,
-    collectedByRole: "AGENT",
+    collectedByRole: _combCollectedByRole,
     timestamp: serverTimestamp(),
     status: "completed",
     assigned_to_user_id: params.agentId,
@@ -764,8 +783,8 @@ export async function recordCombinedCollection(params: {
   // ── Audit log ─────────────────────────────────────────────────────────────
   await createAuditLog({
     organizationId: params.organizationId,
-    actorId: params.agentId,
-    actorRole: "AGENT",
+    actorId: _combCollectedById,
+    actorRole: _combCollectedByRole,
     actorName: params.agentName,
     action: "COMBINED_COLLECTION_RECORDED",
     module: "COLLECTIONS",
@@ -785,8 +804,8 @@ export async function recordCombinedCollection(params: {
   if (loanClosed) {
     await createAuditLog({
       organizationId: params.organizationId,
-      actorId: params.agentId,
-      actorRole: "AGENT",
+      actorId: _combCollectedById,
+      actorRole: _combCollectedByRole,
       actorName: params.agentName,
       action: "LOAN_CLOSED",
       entityType: "Loan",

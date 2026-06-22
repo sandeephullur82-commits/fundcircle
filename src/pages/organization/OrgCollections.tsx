@@ -44,7 +44,16 @@ export default function OrgCollections() {
 
   const handleFilterChange = (fn: () => void) => { fn(); setPage(1); };
 
-  const agents = members.filter((m) => ["AGENT", "PIGMY_COLLECTOR", "agent"].includes(m.role as string));
+  // Build a unique set of collector IDs who actually appear in collections,
+  // then look up their member record for the dropdown filter.
+  const collectorIdsInData = new Set(
+    collections.map((c) => c.collectedById || c.agentId).filter(Boolean)
+  );
+  const agents = members.filter(
+    (m) =>
+      ["AGENT", "PIGMY_COLLECTOR", "agent", "OWNER", "owner"].includes(m.role as string) &&
+      (collectorIdsInData.has((m as any).clerkUserId) || collectorIdsInData.has(m.id))
+  );
 
   const filtered = collections.filter((col) => {
     // type filter
@@ -57,8 +66,15 @@ export default function OrgCollections() {
     if (dateFilter === "WEEK" && !isAfter(d, subDays(today, 7))) return false;
     if (dateFilter === "MONTH" && !isAfter(d, subDays(today, 30))) return false;
 
-    // agent filter
-    if (agentFilter && col.agentId !== agentFilter) return false;
+    // collector filter — match by collectedById (preferred) or legacy agentId
+    if (agentFilter) {
+      const collectorId = (col as any).collectedById || col.agentId;
+      const collectorMember = members.find(
+        (m) => m.id === agentFilter || (m as any).clerkUserId === agentFilter
+      );
+      const collectorClerkId = collectorMember ? (collectorMember as any).clerkUserId || collectorMember.id : agentFilter;
+      if (collectorId !== collectorClerkId && collectorId !== agentFilter) return false;
+    }
 
     // search
     if (search) {
@@ -196,19 +212,22 @@ export default function OrgCollections() {
           ))}
         </div>
 
-        {/* Agent filter */}
+        {/* Collector filter */}
         {agents.length > 0 && (
           <select
             className="border border-slate-200 rounded-lg h-9 px-3 text-sm bg-white text-slate-700"
             value={agentFilter}
             onChange={(e) => handleFilterChange(() => setAgentFilter(e.target.value))}
           >
-            <option value="">All Agents</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {(a as any).fullName || (a as any).name || a.email}
-              </option>
-            ))}
+            <option value="">All Collectors</option>
+            {agents.map((a) => {
+              const roleSuffix = (a.role || "").toUpperCase() === "OWNER" ? " (Owner)" : "";
+              return (
+                <option key={a.id} value={a.id}>
+                  {(a as any).fullName || (a as any).name || a.email}{roleSuffix}
+                </option>
+              );
+            })}
           </select>
         )}
       </div>
@@ -261,8 +280,21 @@ export default function OrgCollections() {
                              : col.collectionType || "—"}
                           </span>
                         </TableCell>
-                        <TableCell className="text-slate-600">
-                          {(agent as any)?.fullName || (agent as any)?.name || col.collectedByName || "—"}
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-700 text-sm">
+                              {(agent as any)?.fullName || (agent as any)?.name || col.collectedByName || "—"}
+                            </span>
+                            {(col.collectedByRole || "AGENT").toUpperCase() === "OWNER" ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-100">
+                                OWNER
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-100">
+                                AGENT
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right font-bold text-emerald-600">
                           ₹{Number(col.amount).toLocaleString()}
