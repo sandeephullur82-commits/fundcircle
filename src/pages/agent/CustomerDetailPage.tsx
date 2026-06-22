@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useOrganization, useUser, useAuth } from "@clerk/clerk-react";
 import { where } from "firebase/firestore";
 import { format, startOfDay, formatDistanceToNow } from "date-fns";
@@ -645,7 +645,6 @@ export default function CustomerDetailPage({ customer, onBack, onSwitchTab }: Cu
       <AnimatePresence>
         {callSheetOpen && (
           <CallSheet
-            key="call-sheet"
             name={displayName}
             phone={displayPhone}
             onClose={() => setCallSheetOpen(false)}

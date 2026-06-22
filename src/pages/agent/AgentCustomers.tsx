@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, memo } from "react";
+import React, { useState, useMemo, useRef, memo } from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { Membership, Collection } from "@/types";
 import {
@@ -436,7 +436,6 @@ export default function AgentCustomers({ onViewCustomer, onSwitchTab }: AgentCus
       <AnimatePresence>
         {callSheet && (
           <CallSheet
-            key="call-sheet"
             name={callSheet.name}
             phone={callSheet.phone}
             onClose={() => setCallSheet(null)}

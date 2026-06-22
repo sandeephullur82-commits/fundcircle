@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useCollectionRealtime } from "@/lib/firestore-hooks";
 import { useUser, useOrganization } from "@clerk/clerk-react";
 import { Collection, Membership } from "@/types";
@@ -150,14 +150,15 @@ export default function AgentHistory() {
               </div>
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                 {paginated.map((col, i) => (
-                  <ReceiptCard
-                    key={col.id}
-                    col={col}
-                    custName={getCustName(col)}
-                    onView={handleView}
-                    onPrint={handlePrint}
-                    divider={i > 0}
-                  />
+                  <React.Fragment key={col.id}>
+                    <ReceiptCard
+                      col={col}
+                      custName={getCustName(col)}
+                      onView={handleView}
+                      onPrint={handlePrint}
+                      divider={i > 0}
+                    />
+                  </React.Fragment>
                 ))}
               </div>
               {hasMore && (
@@ -200,14 +201,15 @@ function DateGroup({
       </div>
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {items.map((col, i) => (
-          <ReceiptCard
-            key={col.id}
-            col={col}
-            custName={getCustName(col)}
-            onView={onView}
-            onPrint={onPrint}
-            divider={i > 0}
-          />
+          <React.Fragment key={col.id}>
+            <ReceiptCard
+              col={col}
+              custName={getCustName(col)}
+              onView={onView}
+              onPrint={onPrint}
+              divider={i > 0}
+            />
+          </React.Fragment>
         ))}
       </div>
     </div>
