@@ -81,7 +81,12 @@ export default function OrgCustomers() {
   const { data: collections } = useCollectionRealtime<Collection>("collections");
 
   // ── View state ──────────────────────────────────────────────────────────────
-  const [view, setView] = useState<"list" | "profile">("list");
+  const [view, setView] = useState<"list" | "profile">(() => {
+    try { return (sessionStorage.getItem("fc_org_active_customer_view") as "list" | "profile") || "list"; } catch { return "list"; }
+  });
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(() => {
+    try { return sessionStorage.getItem("fc_org_active_customer") || null; } catch { return null; }
+  });
   const [selectedCustomer, setSelectedCustomer] = useState<Membership | null>(null);
 
   // ── Filter / sort state ─────────────────────────────────────────────────────
@@ -404,6 +409,32 @@ export default function OrgCustomers() {
     { key: "completed", label: "Paid Today" },
   ];
 
+  // Restore selected customer from persisted ID once customers load
+  useEffect(() => {
+    if (!selectedCustomerId || selectedCustomer) return;
+    const found = customers.find((c) => c.id === selectedCustomerId);
+    if (found) { setSelectedCustomer(found); setView("profile"); }
+    else if (customers.length > 0) {
+      // Customers loaded but ID not found — clear stale session
+      try { sessionStorage.removeItem("fc_org_active_customer"); sessionStorage.removeItem("fc_org_active_customer_view"); } catch {}
+      setSelectedCustomerId(null);
+    }
+  }, [customers, selectedCustomerId, selectedCustomer]);
+
+  const handleSelectCustomer = (customer: Membership) => {
+    setSelectedCustomer(customer);
+    setSelectedCustomerId(customer.id);
+    setView("profile");
+    try { sessionStorage.setItem("fc_org_active_customer", customer.id); sessionStorage.setItem("fc_org_active_customer_view", "profile"); } catch {}
+  };
+
+  const handleBackToList = () => {
+    setView("list");
+    setSelectedCustomer(null);
+    setSelectedCustomerId(null);
+    try { sessionStorage.removeItem("fc_org_active_customer"); sessionStorage.removeItem("fc_org_active_customer_view"); } catch {}
+  };
+
   // ── Profile view ─────────────────────────────────────────────────────────────
   if (view === "profile" && selectedCustomer) {
     return (
@@ -411,7 +442,7 @@ export default function OrgCustomers() {
         customer={selectedCustomer}
         orgId={organization?.id || ""}
         orgName={organization?.name || ""}
-        onBack={() => { setView("list"); setSelectedCustomer(null); }}
+        onBack={handleBackToList}
         collectors={collectorsForAssignment}
         currentUser={user}
       />
@@ -836,7 +867,7 @@ export default function OrgCustomers() {
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 pt-1">
                     <button
-                      onClick={() => { setSelectedCustomer(customer); setView("profile"); }}
+                      onClick={() => handleSelectCustomer(customer)}
                       className="flex-1 flex items-center justify-center gap-1.5 h-8 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors"
                     >
                       <Eye className="w-3.5 h-3.5" /> View

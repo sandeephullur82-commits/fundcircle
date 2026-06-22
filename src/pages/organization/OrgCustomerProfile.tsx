@@ -67,7 +67,7 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
     where("organizationId", "==", orgId),
     orderBy("collectedAt", "desc"),
   ]);
-  const { data: loans } = useCollectionRealtimeRaw<Loan>("loans", [
+  const { data: loans, loading: loansLoading } = useCollectionRealtimeRaw<Loan>("loans", [
     where("customerId", "==", custId),
     where("organizationId", "==", orgId),
   ]);
@@ -617,6 +617,17 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
           </div>
 
           {/* Active Loans */}
+          {activeLoans.length === 0 && !loansLoading && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4 text-slate-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700">No active loans</p>
+                <p className="text-xs text-slate-400 mt-0.5">This customer has no open loan accounts.</p>
+              </div>
+            </div>
+          )}
           {activeLoans.length > 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">

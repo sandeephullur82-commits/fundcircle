@@ -153,7 +153,7 @@ export default function CollectDialog({
   return (
     <>
       <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-full sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {collectMode === "LOAN_EMI"
@@ -192,36 +192,11 @@ export default function CollectDialog({
                 )}
               </div>
 
-              {/* Mode toggle */}
-              {!loadingDetails && (
-                <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCollectMode("LOAN_EMI");
-                      if (nextInstallment) setAmount(String(nextInstallment.emiAmount || ""));
-                      else setAmount("");
-                      setAmountError("");
-                    }}
-                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors ${collectMode === "LOAN_EMI" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                  >
-                    EMI Payment
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCollectMode("GENERAL"); setAmount(""); setAmountError(""); }}
-                    className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors ${collectMode === "GENERAL" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
-                  >
-                    General
-                  </button>
-                </div>
-              )}
-
               {collectMode === "LOAN_EMI" && (
                 <form onSubmit={handleCollectEMI} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="cd-emi-amt">EMI Amount (₹)</Label>
-                    <Input id="cd-emi-amt" type="number" min="1" placeholder="EMI amount"
+                    <Input id="cd-emi-amt" type="number" inputMode="decimal" min="1" placeholder="EMI amount"
                       value={amount}
                       onChange={(e) => { setAmount(e.target.value); setAmountError(""); }}
                       className={`text-xl h-12 font-bold ${amountError ? "border-red-400" : ""}`}
@@ -251,7 +226,7 @@ export default function CollectDialog({
                 <form onSubmit={handleCollectGeneral} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="cd-gen-amt">Amount to Collect (₹)</Label>
-                    <Input id="cd-gen-amt" type="number" min="1" placeholder="e.g. 100"
+                    <Input id="cd-gen-amt" type="number" inputMode="decimal" min="1" placeholder="e.g. 100"
                       value={amount}
                       onChange={(e) => { setAmount(e.target.value); setAmountError(""); }}
                       className={`text-xl h-12 font-bold ${amountError ? "border-red-400" : ""}`}
