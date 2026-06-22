@@ -7,13 +7,15 @@ import { toast } from "sonner";
 import { CreditCard, Banknote, Loader2 } from "lucide-react";
 import { Loan, LoanInstallment } from "@/types";
 import {
-  recordSavingsCollection,
+  recordGeneralCollection,
   recordEMICollection,
   getActiveLoanForCustomer,
   getNextPendingInstallment,
 } from "@/lib/services";
 import ReceiptModal, { ReceiptData } from "@/components/ReceiptModal";
 import FieldError from "@/components/ui/FieldError";
+
+type PaymentMode = "CASH" | "UPI" | "BANK_TRANSFER";
 
 type CollectMode = "LOAN_EMI" | "GENERAL" | null;
 
@@ -45,6 +47,8 @@ export default function CollectDialog({
   const [loadingDetails,  setLoadingDetails]  = useState(false);
   const [amount,          setAmount]          = useState("");
   const [amountError,     setAmountError]     = useState("");
+  const [paymentMode,     setPaymentMode]     = useState<PaymentMode>("CASH");
+  const [notes,           setNotes]           = useState("");
   const [submitting,      setSubmitting]      = useState(false);
   const [receipt,         setReceipt]         = useState<ReceiptData | null>(null);
 
@@ -60,6 +64,8 @@ export default function CollectDialog({
     setLoadingDetails(true);
     setAmount("");
     setAmountError("");
+    setPaymentMode("CASH");
+    setNotes("");
     setActiveLoan(null);
     setNextInstallment(null);
 
@@ -125,9 +131,10 @@ export default function CollectDialog({
     setAmountError("");
     setSubmitting(true);
     try {
-      const result = await recordSavingsCollection({
+      const result = await recordGeneralCollection({
         organizationId: orgId, organizationName: orgName,
         customerId: customer.id, agentId, agentName, amount: num,
+        paymentMode, notes: notes.trim() || undefined,
         ...(collectedByRole ? { collectedByRole } : {}),
         ...(collectedById   ? { collectedById   } : {}),
       });
@@ -251,6 +258,32 @@ export default function CollectDialog({
                       autoFocus disabled={submitting}
                     />
                     <FieldError error={amountError} />
+                  </div>
+                  {/* Payment Mode */}
+                  <div className="space-y-1.5">
+                    <Label>Payment Mode</Label>
+                    <div className="flex gap-1.5">
+                      {(["CASH", "UPI", "BANK_TRANSFER"] as PaymentMode[]).map((m) => (
+                        <button key={m} type="button"
+                          onClick={() => setPaymentMode(m)}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold border transition-colors ${
+                            paymentMode === m
+                              ? "bg-emerald-600 text-white border-emerald-600"
+                              : "bg-white text-slate-600 border-slate-200 hover:border-emerald-400"
+                          }`}
+                        >
+                          {m === "BANK_TRANSFER" ? "Bank" : m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Notes */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cd-gen-notes">Notes <span className="text-slate-400 font-normal text-xs">(optional)</span></Label>
+                    <Input id="cd-gen-notes" type="text" placeholder="e.g. advance, late fee…"
+                      value={notes} onChange={(e) => setNotes(e.target.value.slice(0, 200))}
+                      className="h-9 text-sm" disabled={submitting}
+                    />
                   </div>
                   <div className="flex gap-3">
                     <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>

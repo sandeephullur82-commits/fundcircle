@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useCollectionRealtimeRaw } from "@/lib/firestore-hooks";
-import { Collection, SavingsAccount, Loan, Membership } from "@/types";
+import { Collection, Loan, Membership } from "@/types";
 import { where, orderBy, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@clerk/clerk-react";
@@ -66,10 +66,6 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
     where("customerId", "==", custId),
     where("organizationId", "==", orgId),
     orderBy("collectedAt", "desc"),
-  ]);
-  const { data: savingsAccounts } = useCollectionRealtimeRaw<SavingsAccount>("savings_accounts", [
-    where("customerId", "==", custId),
-    where("organizationId", "==", orgId),
   ]);
   const { data: loans } = useCollectionRealtimeRaw<Loan>("loans", [
     where("customerId", "==", custId),
@@ -146,14 +142,11 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
     loans.filter((l) => ["ACTIVE", "OVERDUE", "PARTIALLY_PAID"].includes((l.status || "").toUpperCase())),
     [loans]
   );
-  const totalSavings = useMemo(() => savingsAccounts.reduce((s, a) => s + (a.totalBalance || 0), 0), [savingsAccounts]);
   const totalLoanPrincipal = useMemo(() => activeLoans.reduce((s, l) => s + (l.principalAmount || (l as any).principal || 0), 0), [activeLoans]);
   const totalLoanOutstanding = useMemo(() => activeLoans.reduce((s, l) => s + (l.outstandingBalance || (l as any).balanceRemaining || 0), 0), [activeLoans]);
   const totalLoanPaid = totalLoanPrincipal - totalLoanOutstanding;
-  const totalAmount = totalSavings + totalLoanPrincipal;
-  const totalPaid = totalSavings + totalLoanPaid;
-  const totalPending = totalLoanOutstanding;
-  const collectionPct = totalAmount > 0 ? Math.min(100, Math.round((totalPaid / totalAmount) * 100)) : 0;
+  const totalCollected = useMemo(() => collections.reduce((s, c) => s + (Number(c.amount) || 0), 0), [collections]);
+  const collectionPct = totalLoanPrincipal > 0 ? Math.min(100, Math.round((totalLoanPaid / totalLoanPrincipal) * 100)) : 0;
 
   const thisMonthCollections = useMemo(() => collections.filter((c) => isThisMonth(toDate(c.collectedAt || (c as any).timestamp))), [collections]);
   const thisWeekCollections = useMemo(() => { const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7); return collections.filter((c) => toDate(c.collectedAt || (c as any).timestamp) >= cutoff); }, [collections]);
@@ -316,10 +309,10 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
       {/* ── Financial Overview ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: "Total Amount", value: fmtCurrency(totalAmount), sub: "Savings + Loans", color: "text-slate-900", icon: <IndianRupee className="w-4 h-4 text-slate-400" /> },
-          { label: "Paid Amount", value: fmtCurrency(totalPaid), sub: "All time collected", color: "text-emerald-700", icon: <TrendingUp className="w-4 h-4 text-emerald-400" /> },
-          { label: "Outstanding", value: fmtCurrency(totalPending), sub: "Remaining balance", color: totalPending > 0 ? "text-rose-600" : "text-slate-400", icon: <TrendingDown className="w-4 h-4 text-rose-400" /> },
-          { label: "Collection %", value: `${collectionPct}%`, sub: "Overall progress", color: collectionPct >= 80 ? "text-emerald-700" : collectionPct >= 50 ? "text-amber-600" : "text-rose-600", icon: <Activity className="w-4 h-4 text-sky-400" /> },
+          { label: "Loan Principal", value: fmtCurrency(totalLoanPrincipal), sub: `${activeLoans.length} active loan${activeLoans.length !== 1 ? "s" : ""}`, color: "text-slate-900", icon: <IndianRupee className="w-4 h-4 text-slate-400" /> },
+          { label: "Total Collected", value: fmtCurrency(totalCollected), sub: "All time receipts", color: "text-emerald-700", icon: <TrendingUp className="w-4 h-4 text-emerald-400" /> },
+          { label: "Outstanding", value: fmtCurrency(totalLoanOutstanding), sub: "Remaining balance", color: totalLoanOutstanding > 0 ? "text-rose-600" : "text-slate-400", icon: <TrendingDown className="w-4 h-4 text-rose-400" /> },
+          { label: "EMI Progress", value: `${collectionPct}%`, sub: "Loan repaid", color: collectionPct >= 80 ? "text-emerald-700" : collectionPct >= 50 ? "text-amber-600" : "text-rose-600", icon: <Activity className="w-4 h-4 text-sky-400" /> },
         ].map((card) => (
           <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 space-y-1.5">
             <div className="flex items-center justify-between">
@@ -332,50 +325,52 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
         ))}
       </div>
 
-      {/* ── Progress Ring & Bar ── */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-          <div className="relative shrink-0">
-            <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-              <circle cx="40" cy="40" r="32" fill="none" stroke="#f1f5f9" strokeWidth="8" />
-              <circle cx="40" cy="40" r="32" fill="none"
-                stroke={collectionPct >= 80 ? "#10b981" : collectionPct >= 50 ? "#f59e0b" : "#ef4444"}
-                strokeWidth="8" strokeDasharray={`${2 * Math.PI * 32}`}
-                strokeDashoffset={`${2 * Math.PI * 32 * (1 - collectionPct / 100)}`}
-                strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.8s ease" }} />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-base font-bold text-slate-900">{collectionPct}%</span>
-            </div>
-          </div>
-          <div className="flex-1 space-y-3 w-full">
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="font-semibold text-slate-700">Overall Collection Progress</span>
-                <span className="text-slate-500">{fmtCurrency(totalPaid)} / {fmtCurrency(totalAmount)}</span>
-              </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${collectionPct}%`, background: collectionPct >= 80 ? "#10b981" : collectionPct >= 50 ? "#f59e0b" : "#ef4444" }} />
+      {/* ── Loan Repayment Progress ── */}
+      {totalLoanPrincipal > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="relative shrink-0">
+              <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                <circle cx="40" cy="40" r="32" fill="none" stroke="#f1f5f9" strokeWidth="8" />
+                <circle cx="40" cy="40" r="32" fill="none"
+                  stroke={collectionPct >= 80 ? "#10b981" : collectionPct >= 50 ? "#f59e0b" : "#ef4444"}
+                  strokeWidth="8" strokeDasharray={`${2 * Math.PI * 32}`}
+                  strokeDashoffset={`${2 * Math.PI * 32 * (1 - collectionPct / 100)}`}
+                  strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.8s ease" }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-base font-bold text-slate-900">{collectionPct}%</span>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-xl bg-slate-50 p-2.5 text-center">
-                <p className="text-[10px] text-slate-500">Savings</p>
-                <p className="text-sm font-bold text-emerald-700 mt-0.5">{fmtCurrency(totalSavings)}</p>
+            <div className="flex-1 space-y-3 w-full">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="font-semibold text-slate-700">Loan Repayment Progress</span>
+                  <span className="text-slate-500">{fmtCurrency(totalLoanPaid)} / {fmtCurrency(totalLoanPrincipal)}</span>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${collectionPct}%`, background: collectionPct >= 80 ? "#10b981" : collectionPct >= 50 ? "#f59e0b" : "#ef4444" }} />
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-50 p-2.5 text-center">
-                <p className="text-[10px] text-slate-500">Loan Principal</p>
-                <p className="text-sm font-bold text-indigo-700 mt-0.5">{fmtCurrency(totalLoanPrincipal)}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2.5 text-center">
-                <p className="text-[10px] text-slate-500">Outstanding</p>
-                <p className={`text-sm font-bold mt-0.5 ${totalLoanOutstanding > 0 ? "text-rose-600" : "text-slate-400"}`}>{fmtCurrency(totalLoanOutstanding)}</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-slate-50 p-2.5 text-center">
+                  <p className="text-[10px] text-slate-500">Principal</p>
+                  <p className="text-sm font-bold text-indigo-700 mt-0.5">{fmtCurrency(totalLoanPrincipal)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2.5 text-center">
+                  <p className="text-[10px] text-slate-500">Paid</p>
+                  <p className="text-sm font-bold text-emerald-700 mt-0.5">{fmtCurrency(totalLoanPaid)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-2.5 text-center">
+                  <p className="text-[10px] text-slate-500">Outstanding</p>
+                  <p className={`text-sm font-bold mt-0.5 ${totalLoanOutstanding > 0 ? "text-rose-600" : "text-slate-400"}`}>{fmtCurrency(totalLoanOutstanding)}</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Collection Analytics ── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -620,31 +615,6 @@ export default function OrgCustomerProfile({ customer, orgId, orgName, onBack, c
               </div>
             )}
           </div>
-
-          {/* Savings Accounts */}
-          {savingsAccounts.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <Activity className="w-3.5 h-3.5 text-emerald-500" /> Savings Accounts
-              </h3>
-              <div className="space-y-2.5">
-                {savingsAccounts.map((sa) => (
-                  <div key={sa.id} className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-emerald-800 truncate">{sa.planName || sa.planType}</p>
-                        <p className="text-base font-bold text-emerald-900 mt-0.5">₹{(sa.totalBalance || 0).toLocaleString()}</p>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${sa.status === "ACTIVE" ? "bg-emerald-200 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                        {sa.status}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-emerald-600 mt-1">₹{(sa.scheduledAmount || 0).toLocaleString()}/instalment · {(sa.planType || "").replace(/_/g, " ")}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Active Loans */}
           {activeLoans.length > 0 && (

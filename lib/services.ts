@@ -145,7 +145,73 @@ export async function updateSavingsAccountPlan(savingsAccountId: string, params:
   });
 }
 
-// ── Savings Collection ────────────────────────────────────────────────────────
+// ── General (Cash/UPI) Collection ─────────────────────────────────────────────
+
+export interface GeneralCollectionResult {
+  receiptNo: string;
+  collectionId: string;
+  organizationName: string;
+}
+
+/**
+ * Record a general pigmy collection (cash/UPI) for any customer.
+ * Does NOT require a savings account — writes only to the `collections` collection.
+ */
+export async function recordGeneralCollection(params: {
+  organizationId: string;
+  organizationName: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  amount: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  notes?: string;
+  collectedByRole?: string;
+  collectedById?: string;
+}): Promise<GeneralCollectionResult> {
+  if (!params.amount || params.amount <= 0) {
+    throw new Error("Collection amount must be greater than zero.");
+  }
+
+  const receiptNo = await generateReceiptNo(params.organizationId);
+  const _collectedByRole = params.collectedByRole || "AGENT";
+  const _collectedById   = params.collectedById   || params.agentId;
+
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    collectedById: _collectedById,
+    customerId: params.customerId,
+    collectionType: "GENERAL",
+    amount: params.amount,
+    paymentMode: params.paymentMode || "CASH",
+    notes: params.notes || "",
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: _collectedByRole,
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: _collectedById,
+    actorRole: _collectedByRole,
+    actorName: params.agentName,
+    action: "GENERAL_COLLECTION_RECORDED",
+    entityType: "Collection",
+    entityId: collRef.id,
+    metadata: { amount: params.amount, receiptNo, paymentMode: params.paymentMode || "CASH", customerId: params.customerId },
+  });
+
+  return { receiptNo, collectionId: collRef.id, organizationName: params.organizationName };
+}
+
+// ── Savings Collection (legacy — savings module removed from UI) ───────────────
 
 export interface SavingsCollectionResult {
   receiptNo: string;

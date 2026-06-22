@@ -41,7 +41,13 @@ const BOTTOM_NAV_ADMIN = [
 export default function OrgDashboard() {
   const { isLoaded: isUserLoaded, user, isSignedIn } = useUser();
   const { isLoaded: isOrgLoaded, organization, membership: clerkOrgMembership } = useOrganization();
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTabRaw] = useState(() => {
+    try { return sessionStorage.getItem("fc_org_active_tab") || "overview"; } catch { return "overview"; }
+  });
+  const setActiveTab = (tab: string) => {
+    setActiveTabRaw(tab);
+    try { sessionStorage.setItem("fc_org_active_tab", tab); } catch {}
+  };
   const [fabOpen, setFabOpen] = useState(false);
 
   useEffect(() => {
