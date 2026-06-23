@@ -1,0 +1,277 @@
+FUNDCIRCLE AGENT PROFILE PAGE - COMPLETE BUG FIX & IMPROVEMENT
+
+CRITICAL ISSUES TO FIX
+
+====================================================
+
+1. DUPLICATE EDIT STATES
+   ====================================================
+
+Current Issue:
+
+The page switches between:
+
+• Save + Cancel Mode
+• Edit Profile Button Mode
+
+causing inconsistent UI states.
+
+Fix:
+
+Default State:
+• View Only
+• Edit Profile button visible
+
+Edit State:
+• Save button visible
+• Cancel button visible
+
+Never show both states simultaneously.
+
+====================================================
+2. PROFILE HEADER LAYOUT
+
+Current Issue:
+
+Green header occupies excessive space.
+
+Fix:
+
+Reduce header height by 40%.
+
+Keep:
+
+• Avatar centered
+• Name
+• Verification badge
+
+Compact mobile-first layout.
+
+====================================================
+3. AVATAR MANAGEMENT
+
+Current Issue:
+
+Avatar controls appear cluttered.
+
+Fix:
+
+Show:
+
+Profile Photo
+
+[ Change ]
+[ Remove ]
+
+Only.
+
+Remove excessive spacing.
+
+Align buttons horizontally.
+
+====================================================
+4. REALTIME CLERK SYNC
+
+Avatar updates must sync with:
+
+• Header avatar
+• Customer lists
+• Agent lists
+• Collection lists
+• Reports
+• Notifications
+
+No page refresh.
+
+No logout.
+
+No re-login.
+
+====================================================
+5. EDIT PROFILE FORM
+
+Current Issue:
+
+Edit form appears awkwardly.
+
+Fix:
+
+Open modal or slide-up drawer.
+
+Editable:
+
+• Full Name
+• Phone Number
+
+Read Only:
+
+• Email
+• Role
+• Organization
+
+====================================================
+6. CHANGE PASSWORD
+
+Current Issue:
+
+Section visible but inconsistent.
+
+Fix:
+
+Use Clerk Password Reset.
+
+Workflow:
+
+Change Password
+
+→ Current Password
+→ New Password
+→ Confirm Password
+
+or
+
+Send Reset Link
+
+Use Clerk APIs only.
+
+Never store passwords.
+
+====================================================
+7. ACTIVE SESSIONS
+
+Display:
+
+Current Device
+
+Device Name
+Browser
+Login Time
+
+Allow:
+
+Sign Out Other Devices
+
+using Clerk session management.
+
+====================================================
+8. ORGANIZATION DETAILS
+
+Show:
+
+Organization Logo
+Organization Name
+Role
+Member Since
+
+Remove duplicate organization data.
+
+====================================================
+9. ONLINE STATUS CARD
+
+Current Issue:
+
+Card consumes too much space.
+
+Fix:
+
+Compact card.
+
+Example:
+
+● Online
+Synced with Firestore
+
+Last Sync:
+2 seconds ago
+
+====================================================
+10. MOBILE RESPONSIVENESS
+
+Fix:
+
+• Button overflow
+• Avatar overlap
+• Text wrapping
+• Card padding
+• Header spacing
+
+Test:
+
+320px
+360px
+390px
+412px
+480px
+
+====================================================
+11. DATA VALIDATION
+
+Phone Number:
+
+• 10 digits only
+• Numeric only
+
+Name:
+
+• Required
+• 3–50 characters
+
+Prevent invalid saves.
+
+====================================================
+12. REMOVE UI FLICKERING
+
+Current Issue:
+
+Profile re-renders after save.
+
+Fix:
+
+Optimistic update.
+
+Update UI immediately.
+
+Sync Firestore in background.
+
+No full-page reload.
+
+====================================================
+13. LOADING STATES
+
+Show skeleton loaders for:
+
+• Avatar
+• Profile data
+• Organization data
+
+Never show blank content.
+
+====================================================
+14. ERROR HANDLING
+
+If image upload fails:
+
+Show:
+
+"Unable to upload profile photo. Please try again."
+
+If save fails:
+
+Show:
+
+"Profile update failed."
+
+Do not lose user changes.
+
+====================================================
+FINAL REQUIREMENT
+
+The Agent Profile page must feel like a modern banking application:
+
+• Fast
+• Realtime
+• Mobile-first
+• Clerk-integrated
+• No refreshes
+• No duplicate states
+• Consistent avatar synchronization across the entire platform.
