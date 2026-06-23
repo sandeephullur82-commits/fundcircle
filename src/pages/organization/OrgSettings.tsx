@@ -7,6 +7,7 @@ import { membershipIdFor, createAuditLog } from "@/lib/services";
 import { toast } from "sonner";
 import ProfileAvatarEditor from "@/components/ui/ProfileAvatarEditor";
 import OrgLogoEditor from "@/components/ui/OrgLogoEditor";
+import AppSwitch from "@/components/ui/AppSwitch";
 
 import {
   Settings,
@@ -17,7 +18,6 @@ import {
   Loader2,
   ChevronRight,
   CheckCircle2,
-  Check,
   Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,55 +28,6 @@ import { sanitizeName, validatePhone10 } from "@/lib/validation";
 
 type SectionId = "organization" | "profile" | "notifications";
 
-// ── Premium Toggle ─────────────────────────────────────────────────────────────
-function Toggle({ value, onChange, ariaLabel, disabled = false }: {
-  value: boolean; onChange: (v: boolean) => void; ariaLabel?: string; disabled?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={value}
-        aria-label={ariaLabel}
-        disabled={disabled}
-        onClick={() => !disabled && onChange(!value)}
-        onKeyDown={(e) => {
-          if ((e.key === " " || e.key === "Enter") && !disabled) { e.preventDefault(); onChange(!value); }
-        }}
-        className={[
-          "relative shrink-0 rounded-full transition-all duration-200 outline-none",
-          "focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500",
-          "min-w-[56px] h-7",
-          disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
-          value
-            ? "bg-gradient-to-r from-sky-500 to-sky-600 shadow-[0_0_0_1px_rgba(14,165,233,0.3),0_2px_8px_rgba(14,165,233,0.3)]"
-            : "bg-slate-200 hover:bg-slate-300",
-        ].join(" ")}
-        style={{ minHeight: 48, minWidth: 56, display: "flex", alignItems: "center" }}
-      >
-        <span
-          className={[
-            "absolute top-1/2 -translate-y-1/2 flex items-center justify-center",
-            "h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200",
-            value ? "translate-x-[calc(56px-24px)]" : "translate-x-1",
-          ].join(" ")}
-        >
-          {value && <Check className="w-2.5 h-2.5 text-sky-600" strokeWidth={3} aria-hidden="true" />}
-        </span>
-      </button>
-      <span
-        className={[
-          "text-xs font-semibold tracking-wide select-none transition-colors duration-200 min-w-[52px]",
-          value ? "text-sky-600" : "text-slate-400",
-        ].join(" ")}
-        aria-hidden="true"
-      >
-        {value ? "Enabled" : "Disabled"}
-      </span>
-    </div>
-  );
-}
 
 // ── Save button ────────────────────────────────────────────────────────────────
 type SaveState = "idle" | "saving" | "saved";
@@ -570,7 +521,7 @@ export default function OrgSettings() {
                         {notifSavingKey === item.key ? (
                           <Loader2 className="h-5 w-5 text-slate-400 animate-spin shrink-0" />
                         ) : (
-                          <Toggle
+                          <AppSwitch
                             value={item.value}
                             ariaLabel={`${item.label}: ${item.value ? "enabled" : "disabled"}`}
                             onChange={(v) => handleNotifToggle(item.key, v)}

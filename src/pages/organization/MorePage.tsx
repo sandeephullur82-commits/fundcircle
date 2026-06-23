@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useUser, useOrganization, SignOutButton } from "@clerk/clerk-react";
+import AppSwitch from "@/components/ui/AppSwitch";
 import {
   doc, setDoc, serverTimestamp, getCountFromServer,
   collection as fsCollection, query, where,
@@ -29,32 +30,6 @@ function switchTab(tab: string) {
   window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: tab }));
 }
 
-// ── Premium Toggle ─────────────────────────────────────────────────────────────
-function Toggle({ value, onChange, disabled = false }: {
-  value: boolean; onChange: (v: boolean) => void; disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      disabled={disabled}
-      onClick={() => !disabled && onChange(!value)}
-      className={[
-        "relative flex-shrink-0 rounded-full transition-all duration-200",
-        "focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-sky-500",
-        "w-[52px] h-7",
-        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
-        value ? "bg-sky-500 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" : "bg-slate-200 hover:bg-slate-300",
-      ].join(" ")}
-    >
-      <span className={[
-        "absolute top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200",
-        value ? "translate-x-[28px]" : "translate-x-1",
-      ].join(" ")} />
-    </button>
-  );
-}
 
 // ── Sub-page back header ───────────────────────────────────────────────────────
 function SubPageHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -423,7 +398,7 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
     setSavingKey(key);
     try {
       await setDoc(doc(db, "organizations", orgId!), {
-        settings: { [FS_KEY_MAP[key]]: value },
+        settings: { [FS_KEY_MAP[key as string]]: value },
         updatedAt: serverTimestamp(),
       }, { merge: true });
       toast.success("Preferences updated.");
@@ -464,7 +439,7 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
               </div>
               {savingKey === item.key
                 ? <Loader2 className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
-                : <Toggle value={notifs[item.key]} onChange={(v) => handleToggle(item.key, v)} />
+                : <AppSwitch value={notifs[item.key]} onChange={(v) => handleToggle(item.key, v)} />
               }
             </div>
           ))
