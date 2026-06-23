@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { useUser, useOrganization, SignOutButton } from "@clerk/clerk-react";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import ProfileAvatarEditor from "@/components/ui/ProfileAvatarEditor";
 import {
   LogOut, Mail, Phone, BadgeCheck, Building2, Wifi, WifiOff,
   RefreshCw, Shield, Eye, EyeOff, CheckCircle2, AlertTriangle,
+  Edit3, Save, X,
 } from "lucide-react";
 import { membershipIdFor } from "@/lib/services";
 import { toast } from "sonner";
+
+const nameRx = /^[A-Za-z\s.]*$/;
 
 function safeN(v: any) { const n = Number(v); return isFinite(n) ? n : 0; }
 
@@ -234,38 +240,158 @@ function SyncStatus() {
   );
 }
 
+// ── Inline Profile Editor ─────────────────────────────────────────────────────
+function InlineProfileEditor({ membershipId, membershipDoc, userId }: {
+  membershipId: string | null;
+  membershipDoc: any;
+  userId: string;
+}) {
+  const { user } = useUser();
+  const [editing, setEditing] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone]     = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [errors, setErrors]   = useState<Record<string,string>>({});
+
+  const open = () => {
+    setFullName(membershipDoc?.fullName || user?.fullName || "");
+    setPhone(membershipDoc?.phone || "");
+    setErrors({});
+    setEditing(true);
+  };
+
+  const cancel = () => setEditing(false);
+
+  const save = async () => {
+    const errs: Record<string,string> = {};
+    const name = fullName.trim();
+    if (!name || name.length < 2) errs.fullName = "Name must be at least 2 characters.";
+    else if (!nameRx.test(name))   errs.fullName = "Only letters, spaces, and periods allowed.";
+    if (phone && !/^\d{10}$/.test(phone)) errs.phone = "Enter a valid 10-digit number.";
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+
+    setSaving(true);
+    try {
+      if (membershipId) {
+        await setDoc(doc(db, "organizationMembers", membershipId), {
+          fullName: name, phone, updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      await setDoc(doc(db, "users", userId), {
+        name, phone, updatedAt: serverTimestamp(),
+      }, { merge: true });
+      toast.success("Profile updated!");
+      setEditing(false);
+    } catch {
+      toast.error("Failed to update profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button
+        onClick={open}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold transition-colors hover:bg-emerald-100"
+      >
+        <Edit3 className="w-3.5 h-3.5" /> Edit Profile
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Full Name</p>
+        <input
+          type="text"
+          value={fullName}
+          onChange={e => setFullName(e.target.value.replace(/[^A-Za-z\s.]/g, ""))}
+          placeholder="Your full name"
+          className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 ${errors.fullName ? "border-red-400 bg-red-50 focus:ring-red-400/30" : "border-slate-200 bg-slate-50 focus:ring-emerald-400/30"}`}
+        />
+        {errors.fullName && <p className="text-[11px] text-red-500">{errors.fullName}</p>}
+      </div>
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Phone Number</p>
+        <input
+          type="tel"
+          inputMode="numeric"
+          maxLength={10}
+          value={phone}
+          onChange={e => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          placeholder="10 digit mobile number"
+          className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 ${errors.phone ? "border-red-400 bg-red-50 focus:ring-red-400/30" : "border-slate-200 bg-slate-50 focus:ring-emerald-400/30"}`}
+        />
+        {errors.phone && <p className="text-[11px] text-red-500">{errors.phone}</p>}
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex-1 h-10 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors"
+        >
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={cancel}
+          className="h-10 px-4 rounded-xl border border-slate-200 text-slate-500 text-sm font-semibold hover:bg-slate-50 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main More/Profile Page ────────────────────────────────────────────────────
 export default function AgentProfile() {
   const { user }         = useUser();
   const { organization } = useOrganization();
 
   const agentId = user?.id    || "";
-  const orgId   = organization?.id || "";
+  const membershipId = user && organization ? membershipIdFor(organization.id, user.id) : null;
 
   const { data: membershipDoc } = useDocumentRealtime<any>(
     "organizationMembers",
-    user && organization ? membershipIdFor(organization.id, user.id) : null
+    membershipId
   );
 
   const shortId = agentId ? `FC-${agentId.slice(-6).toUpperCase()}` : "—";
+  const displayName = membershipDoc?.fullName || user?.fullName || "Agent";
+  const displayPhone = membershipDoc?.phone || "";
 
   return (
     <div className="space-y-4 max-w-xl mx-auto">
       {/* ── Profile Card ──────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {/* Green banner */}
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 h-16" />
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 h-20" />
 
-        <div className="px-5 pb-5 -mt-8">
-          <Avatar className="h-16 w-16 ring-4 ring-white shadow-lg">
-            <AvatarImage src={user?.imageUrl} />
-            <AvatarFallback className="bg-emerald-100 text-emerald-700 text-2xl font-black">
-              {user?.firstName?.charAt(0) || "A"}
-            </AvatarFallback>
-          </Avatar>
+        <div className="px-5 pb-5">
+          {/* Avatar — floated up over the banner */}
+          <div className="-mt-10 mb-4 flex items-end justify-between">
+            <ProfileAvatarEditor
+              fallbackLetter={user?.firstName?.charAt(0) || "A"}
+              accentColor="emerald"
+              size="lg"
+              membershipId={membershipId}
+              userId={user?.id}
+              className="ring-white"
+            />
+            {user && (
+              <InlineProfileEditor
+                membershipId={membershipId}
+                membershipDoc={membershipDoc}
+                userId={user.id}
+              />
+            )}
+          </div>
 
-          <div className="mt-3 mb-4">
-            <p className="text-xl font-black text-slate-900">{user?.fullName || "Agent"}</p>
+          <div className="mb-3">
+            <p className="text-xl font-black text-slate-900">{displayName}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
               <BadgeCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span className="text-xs font-semibold text-emerald-600">Verified Collector</span>
@@ -281,10 +407,10 @@ export default function AgentProfile() {
                 </span>
               </div>
             )}
-            {membershipDoc?.phone && (
+            {displayPhone && (
               <div className="flex items-center gap-2.5">
                 <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="text-sm text-slate-700">{membershipDoc.phone}</span>
+                <span className="text-sm text-slate-700">{displayPhone}</span>
               </div>
             )}
             <div className="flex items-center gap-2.5">

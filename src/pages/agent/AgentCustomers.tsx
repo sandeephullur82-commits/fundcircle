@@ -232,8 +232,12 @@ const CustomerCard = memo(function CustomerCard({
           <div className="flex items-center gap-3 px-3 py-3 min-h-[90px]">
             {/* Avatar + status dot */}
             <div className="relative shrink-0">
-              <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-black select-none ${avatarColor(customer.id)}`}>
-                {initials(name)}
+              <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center text-sm font-black select-none ${(customer as any).imageUrl ? "bg-slate-100" : avatarColor(customer.id)}`}>
+                {(customer as any).imageUrl ? (
+                  <img src={(customer as any).imageUrl} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  initials(name)
+                )}
               </div>
               <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
                 isDone ? "bg-emerald-500" : "bg-amber-400"

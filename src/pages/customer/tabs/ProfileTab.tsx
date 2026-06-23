@@ -122,9 +122,18 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
       dateOfBirth, gender, aadhaarLast4, nomineeName, nomineeRelation,
       nomineePhone, nomineeAddress]);
 
+  // ── Sync Clerk imageUrl to Firestore ─────────────────────────────────────
+  const syncImageUrl = async (imageUrl: string | null) => {
+    if (!clerkUser) return;
+    try {
+      if (membershipId) {
+        await updateDoc(doc(db, "organizationMembers", membershipId), { imageUrl: imageUrl || "", updatedAt: serverTimestamp() });
+      }
+      await updateDoc(doc(db, "users", clerkUser.id), { imageUrl: imageUrl || "", updatedAt: serverTimestamp() }).catch(() => {});
+    } catch (_) {}
+  };
+
   // ── Clerk avatar upload ──────────────────────────────────────────────────
-  // Uploads to Clerk CDN via setProfileImage(); user.imageUrl auto-updates
-  // everywhere (header, sidebar, profile card) without any manual sync.
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -142,10 +151,28 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
     setAvatarUploading(true);
     try {
       await clerkUser.setProfileImage({ file });
+      await clerkUser.reload();
+      await syncImageUrl(clerkUser.imageUrl);
       toast.success("Profile photo updated!");
     } catch (err: any) {
       console.error("[ProfileAvatar] Clerk upload error:", err);
       toast.error(err?.errors?.[0]?.longMessage || err?.message || "Upload failed. Please try again.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  // ── Clerk avatar remove ──────────────────────────────────────────────────
+  const handleAvatarRemove = async () => {
+    if (!clerkUser || !clerkAvatar) return;
+    setAvatarUploading(true);
+    try {
+      await clerkUser.setProfileImage({ file: null as any });
+      await clerkUser.reload();
+      await syncImageUrl(null);
+      toast.success("Profile photo removed.");
+    } catch (err: any) {
+      toast.error(err?.errors?.[0]?.longMessage || err?.message || "Remove failed.");
     } finally {
       setAvatarUploading(false);
     }
@@ -329,6 +356,18 @@ export default function ProfileTab({ user, membershipId, membershipDoc, nomineeL
                 <Camera className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {/* Remove photo link — only shown when photo exists */}
+            {clerkAvatar && !avatarUploading && (
+              <button
+                type="button"
+                onClick={handleAvatarRemove}
+                className="mt-2 text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                aria-label="Remove profile photo"
+              >
+                Remove photo
+              </button>
+            )}
 
             <div className="flex-1 min-w-0">
               <p className="font-bold text-slate-900 dark:text-white text-lg leading-tight truncate">{displayName || "—"}</p>

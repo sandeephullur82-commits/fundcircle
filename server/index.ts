@@ -963,6 +963,30 @@ app.get("/api/clerk-user/:userId", authMiddleware, async (req: Request, res: Res
   }
 });
 
+// ─── Remove Organization Logo ─────────────────────────────────────────────────
+app.post("/api/remove-org-logo", authMiddleware, async (req, res) => {
+  const { organizationId } = req.body as { organizationId: string };
+  const callerClerkId = (req as any).clerkUserId as string;
+
+  if (!organizationId) {
+    return res.status(400).json({ error: "organizationId is required." });
+  }
+
+  const isAdmin = await verifyIsOrgAdmin(callerClerkId, organizationId);
+  if (!isAdmin) {
+    return res.status(403).json({ error: "Only organization owners or managers can remove the logo." });
+  }
+
+  try {
+    await clerkClient.organizations.deleteOrganizationLogo(organizationId);
+    return res.json({ success: true });
+  } catch (err: any) {
+    const msg = err?.errors?.[0]?.longMessage || err?.message || "Failed to remove logo";
+    console.error("[FC RemoveLogo] Error:", msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
 // ─── 404 catch-all ────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {
   console.warn(`[FC API] 404 — unmatched route: ${req.method} ${req.path}`);

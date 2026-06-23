@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   createDirectMember, validateCustomerEmail, reassignCustomer,
   createAuditLog, migrateCustomerAssignments,
@@ -793,11 +792,18 @@ export default function OrgCustomers() {
                 <div className="p-5 flex flex-col gap-4 flex-1">
                   {/* Top row: Avatar + Name + Status */}
                   <div className="flex items-start gap-3">
-                    <Avatar className="w-11 h-11 shrink-0">
-                      <AvatarFallback className="bg-gradient-to-br from-indigo-100 to-violet-100 text-indigo-700 font-bold text-sm">
-                        {initials}
-                      </AvatarFallback>
-                    </Avatar>
+                    <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden ring-1 ring-black/5 flex items-center justify-center bg-gradient-to-br from-indigo-100 to-violet-100">
+                      {(customer as any).imageUrl ? (
+                        <img
+                          src={(customer as any).imageUrl}
+                          alt={custName}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="text-indigo-700 font-bold text-sm select-none">{initials}</span>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">

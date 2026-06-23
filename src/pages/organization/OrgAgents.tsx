@@ -571,11 +571,22 @@ export default function OrgAgents() {
                     return (
                       <TableRow key={collector.id}>
                         <TableCell>
-                          <div>
-                            <p className="font-semibold text-slate-900">
-                              {collector.fullName || (collector as any).name || <span className="text-slate-400 italic text-xs">Pending</span>}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-0.5">{collector.email}</p>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full shrink-0 overflow-hidden ring-1 ring-black/5 flex items-center justify-center bg-sky-100">
+                              {(collector as any).imageUrl ? (
+                                <img src={(collector as any).imageUrl} alt={collector.fullName || ""} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <span className="text-sky-700 font-bold text-xs select-none">
+                                  {(collector.fullName || (collector as any).name || "A").charAt(0).toUpperCase()}
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-slate-900">
+                                {collector.fullName || (collector as any).name || <span className="text-slate-400 italic text-xs">Pending</span>}
+                              </p>
+                              <p className="text-xs text-slate-400 mt-0.5">{collector.email}</p>
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -638,6 +649,16 @@ export default function OrgAgents() {
                   const custCount = customersByAgent[collector.id] || 0;
                   return (
                     <div key={collector.id} className="px-4 py-3 flex items-center gap-3">
+                      {/* Avatar */}
+                      <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden ring-1 ring-black/5 flex items-center justify-center bg-sky-100">
+                        {(collector as any).imageUrl ? (
+                          <img src={(collector as any).imageUrl} alt={collector.fullName || ""} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="text-sky-700 font-bold text-sm select-none">
+                            {(collector.fullName || (collector as any).name || "A").charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-slate-900 text-sm truncate">
                           {collector.fullName || (collector as any).name || <span className="text-slate-400 italic">Pending</span>}

@@ -5,6 +5,8 @@ import { db } from "@/lib/firebase";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
 import { membershipIdFor, createAuditLog } from "@/lib/services";
 import { toast } from "sonner";
+import ProfileAvatarEditor from "@/components/ui/ProfileAvatarEditor";
+import OrgLogoEditor from "@/components/ui/OrgLogoEditor";
 
 import {
   Settings,
@@ -359,6 +361,21 @@ export default function OrgSettings() {
 
           {/* ── Organization ─────────────────────────────────────────── */}
           {activeSection === "organization" && (
+            <>
+            {/* Organization Logo Card */}
+            <Card className="border-slate-200 shadow-sm rounded-2xl">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-sky-500" />
+                  Organization Logo
+                </CardTitle>
+                <CardDescription>Upload or update your organization's logo. This appears across all dashboards.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center py-4">
+                <OrgLogoEditor size="lg" />
+              </CardContent>
+            </Card>
+
             <Card className="border-slate-200 shadow-sm rounded-2xl">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -415,6 +432,7 @@ export default function OrgSettings() {
                 )}
               </CardContent>
             </Card>
+            </>
           )}
 
           {/* ── Profile ──────────────────────────────────────────────── */}
@@ -436,6 +454,17 @@ export default function OrgSettings() {
                   </div>
                 ) : (
                   <>
+                    {/* Profile Photo */}
+                    <div className="flex flex-col items-center pb-2 border-b border-slate-100">
+                      <p className="text-sm font-medium text-slate-700 mb-3 self-start">Profile Photo</p>
+                      <ProfileAvatarEditor
+                        fallbackLetter={user?.firstName?.charAt(0) || "O"}
+                        accentColor="sky"
+                        size="lg"
+                        membershipId={membershipId}
+                        userId={user?.id}
+                      />
+                    </div>
                     <div className="grid gap-2">
                       <Label htmlFor="full-name" className="text-slate-700 font-medium">Full Name</Label>
                       <Input
