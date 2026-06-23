@@ -429,8 +429,10 @@ export default function OrgLoans() {
   const filteredLoans = useMemo(() => {
     const baseLoans = loans.filter((l) => {
       const st = (l.status || "").toUpperCase();
-      if (activeTab === "active")   return st === "ACTIVE";
-      if (activeTab === "closed")   return st === "CLOSED";
+      const outstanding = l.outstandingBalance ?? (l as any).balanceRemaining ?? 0;
+      // Active tab: only show ACTIVE loans with balance remaining
+      if (activeTab === "active")   return st === "ACTIVE" && outstanding > 0;
+      if (activeTab === "closed")   return st === "CLOSED" || (st === "ACTIVE" && outstanding <= 0);
       if (activeTab === "rejected") return st === "REJECTED";
       if (activeTab === "all")      return true;
       return false;
@@ -446,7 +448,11 @@ export default function OrgLoans() {
   // Tab counts
   const counts = useMemo(() => ({
     pending:  loanApplications.filter((a) => a.status === "PENDING" || a.status === "DOCUMENTS_REQUESTED").length,
-    active:   loans.filter((l) => (l.status || "").toUpperCase() === "ACTIVE").length,
+    active:   loans.filter((l) => {
+      const st = (l.status || "").toUpperCase();
+      const outstanding = l.outstandingBalance ?? (l as any).balanceRemaining ?? 0;
+      return st === "ACTIVE" && outstanding > 0;
+    }).length,
     rejected: loanApplications.filter((a) => a.status === "REJECTED").length + loans.filter((l) => (l.status || "").toUpperCase() === "REJECTED").length,
     closed:   loans.filter((l) => (l.status || "").toUpperCase() === "CLOSED").length,
     all:      loans.length + loanApplications.length,

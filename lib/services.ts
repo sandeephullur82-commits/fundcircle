@@ -605,6 +605,56 @@ export interface EMICollectionResult {
   collectionId: string;
 }
 
+// ── Installment Status Sync ───────────────────────────────────────────────────
+/**
+ * Syncs UPCOMING/DUE/OVERDUE statuses on all non-PAID/non-PARTIAL installments
+ * for a given loan based on their dueDate relative to today.
+ *   - dueDate < today (past)  → OVERDUE (was PENDING/DUE/UPCOMING)
+ *   - dueDate === today       → DUE
+ *   - dueDate > today (future)→ UPCOMING
+ * Idempotent — safe to call anytime.
+ */
+export async function syncInstallmentStatuses(loanId: string): Promise<void> {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTs = Timestamp.fromDate(today);
+    const tomorrowTs = Timestamp.fromDate(new Date(today.getTime() + 86_400_000));
+
+    const snap = await getDocs(query(
+      collection(db, "loan_installments"),
+      where("loanId", "==", loanId)
+    ));
+    const updates: Promise<any>[] = [];
+    for (const d of snap.docs) {
+      const inst = d.data() as LoanInstallment;
+      const st = (inst.status || "").toUpperCase();
+      if (st === "PAID" || st === "PARTIAL") continue;
+
+      const due = inst.dueDate;
+      if (!due) continue;
+      const dueSec = (due as any).seconds ?? 0;
+      const todaySec   = todayTs.seconds;
+      const tomorrowSec = tomorrowTs.seconds;
+
+      let newStatus: LoanInstallment["status"];
+      if (dueSec < todaySec) {
+        newStatus = "OVERDUE";
+      } else if (dueSec < tomorrowSec) {
+        newStatus = "DUE";
+      } else {
+        newStatus = "UPCOMING";
+      }
+      if (newStatus !== st) {
+        updates.push(updateDoc(d.ref, { status: newStatus, updatedAt: serverTimestamp() }));
+      }
+    }
+    if (updates.length > 0) await Promise.all(updates);
+  } catch (e) {
+    console.error("[syncInstallmentStatuses] Failed:", e);
+  }
+}
+
 export async function recordEMICollection(params: {
   organizationId: string;
   organizationName: string;
@@ -626,6 +676,15 @@ export async function recordEMICollection(params: {
   if (!installmentSnap.exists()) throw new Error("Installment not found.");
   const installment = installmentSnap.data() as LoanInstallment;
   if (installment.status === "PAID") throw new Error("This installment has already been paid.");
+
+  // Strict amount check: regular EMI must match scheduled emiAmount (±₹1 rounding tolerance)
+  const emiAmt = installment.emiAmount ?? 0;
+  if (emiAmt > 0 && Math.abs(params.amount - emiAmt) > 1) {
+    throw new Error(
+      `Regular EMI requires the exact EMI amount (₹${Math.round(emiAmt).toLocaleString("en-IN")}). ` +
+      `Use Partial payment for a lesser amount or Advance for multiple EMIs.`
+    );
+  }
 
   const receiptNo = await generateReceiptNo(params.organizationId);
   const _emiCollectedByRole = params.collectedByRole || "AGENT";
@@ -711,6 +770,9 @@ export async function recordEMICollection(params: {
     // Sync nominee lock — loan is now CLOSED, unlock if no other active loans
     try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
   }
+
+  // Sync installment statuses after payment
+  try { await syncInstallmentStatuses(params.loanId); } catch (_) {}
 
   return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id };
 }
@@ -828,6 +890,9 @@ export async function recordPartialPayment(params: {
     });
     try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
   }
+
+  // Sync installment statuses after payment
+  try { await syncInstallmentStatuses(params.loanId); } catch (_) {}
 
   return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id, remainingAmount: remaining };
 }
@@ -974,6 +1039,9 @@ export async function recordAdvancePayment(params: {
     try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
   }
 
+  // Sync installment statuses after payment
+  try { await syncInstallmentStatuses(params.loanId); } catch (_) {}
+
   return { receiptNo, loanClosed, emisCleared, collectionId: collRef.id };
 }
 
@@ -1079,6 +1147,20 @@ export async function recordForeclosure(params: {
   });
 
   try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
+
+  // Notify org — loan foreclosed and closed
+  try {
+    await createNotification(
+      params.organizationId,
+      params.agentId,
+      "Loan Foreclosed & Closed",
+      `Loan fully settled via foreclosure. ₹${outstanding.toLocaleString("en-IN")} collected · Receipt ${receiptNo}`,
+      { type: "LOAN_FORECLOSED", category: "loans", actorName: params.agentName, metadata: { loanId: params.loanId, customerId: params.customerId, amountPaid: outstanding, receiptNo } }
+    );
+  } catch (_) {}
+
+  // Sync installment statuses after foreclosure (all should be PAID already)
+  try { await syncInstallmentStatuses(params.loanId); } catch (_) {}
 
   return { receiptNo, amountPaid: outstanding, collectionId: collRef.id };
 }

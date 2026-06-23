@@ -15,6 +15,7 @@ import {
   recordPartialPayment,
   recordAdvancePayment,
   recordForeclosure,
+  syncInstallmentStatuses,
   getActiveLoanForCustomer,
   getNextPendingInstallment,
 } from "@/lib/services";
@@ -93,6 +94,8 @@ export default function CollectDialog({
           setCollectMode("GENERAL");
         } else if (loan) {
           setActiveLoan(loan);
+          // Sync installment statuses on load so DUE/OVERDUE/UPCOMING are current
+          try { await syncInstallmentStatuses(loan.id); } catch (_) {}
           const inst = await getNextPendingInstallment(loan.id);
           setNextInstallment(inst);
           if (inst) setAmount(String(Math.round(inst.emiAmount || 0)));
@@ -408,18 +411,20 @@ export default function CollectDialog({
                         id="cd-emi-amt"
                         type="number" inputMode="decimal" min="1"
                         placeholder={
-                          repaymentType === "REGULAR"  ? `e.g. ${Math.round(nextInstallment?.emiAmount || 0)}` :
                           repaymentType === "PARTIAL"  ? `Less than ₹${Math.round(nextInstallment?.emiAmount || 0)}` :
-                          `e.g. ${Math.round((nextInstallment?.emiAmount || 0) * 3)}`
+                          repaymentType === "ADVANCE"  ? `e.g. ${Math.round((nextInstallment?.emiAmount || 0) * 3)}` :
+                          `₹${Math.round(nextInstallment?.emiAmount || 0)}`
                         }
                         value={amount}
                         onChange={(e) => {
+                          if (repaymentType === "REGULAR") return;
                           setAmount(e.target.value.replace(/[^0-9.]/g, ""));
                           setAmountError("");
                         }}
-                        className={`text-xl h-12 font-bold ${amountError ? "border-red-400" : ""}`}
-                        autoFocus disabled={submitting}
-                        readOnly={repaymentType === "FORECLOSURE"}
+                        className={`text-xl h-12 font-bold ${amountError ? "border-red-400" : ""} ${repaymentType === "REGULAR" ? "bg-slate-50 cursor-default" : ""}`}
+                        autoFocus={repaymentType !== "REGULAR"}
+                        disabled={submitting}
+                        readOnly={repaymentType === "REGULAR"}
                       />
                       <FieldError error={amountError} />
 
