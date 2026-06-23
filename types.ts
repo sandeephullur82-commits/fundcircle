@@ -342,25 +342,45 @@ export interface AuditLog {
 
 // ── Notification ──────────────────────────────────────────────────────────────
 export type NotificationType =
-  | "DEPOSIT_COLLECTED"
-  | "EMI_DUE"
-  | "EMI_OVERDUE"
+  | "NEW_CUSTOMER"
+  | "NEW_COLLECTOR"
+  | "COLLECTION_RECORDED"
+  | "COLLECTION_UPDATED"
+  | "LOAN_APPLIED"
   | "LOAN_APPROVED"
   | "LOAN_REJECTED"
+  | "EMI_DUE"
+  | "EMI_MISSED"
+  | "EMI_COLLECTED"
+  | "REPORT_EXPORTED"
+  | "PROFILE_UPDATED"
+  | "ORGANIZATION_UPDATED"
+  | "DEPOSIT_COLLECTED"
+  | "EMI_OVERDUE"
   | "LOAN_DISBURSED"
   | "ACCOUNT_UPDATE"
   | "GENERAL";
+
+export type NotificationCategory =
+  | "collections"
+  | "customers"
+  | "collectors"
+  | "loans"
+  | "system";
 
 export interface Notification {
   id: string;
   organizationId: string;
   userId: string;
   type?: NotificationType;
+  category?: NotificationCategory;
   title: string;
   message: string;
   read: boolean;
   timestamp: FSTimestamp;
   createdAt?: FSTimestamp;
+  actorName?: string;
+  metadata?: Record<string, any>;
 }
 
 // ── Support Ticket ────────────────────────────────────────────────────────────

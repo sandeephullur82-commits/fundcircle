@@ -218,26 +218,40 @@ export default function OrgDashboard() {
         {/* Left — Org identity */}
         <div className="flex items-center gap-2 shrink-0 min-w-0">
           <OrgAvatar imageUrl={organization?.imageUrl} name={orgName} size="sm" />
-          <span className="font-extrabold text-slate-900 text-sm tracking-tight truncate max-w-[140px]">{orgName}</span>
+          <span className="font-extrabold text-slate-900 text-sm tracking-tight truncate max-w-[120px]">{orgName}</span>
         </div>
-        {/* Right — profile avatar */}
-        <button
-          onClick={() => setProfileOpen(true)}
-          aria-label="Profile menu"
-          className="relative flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
-        >
-          <Avatar className="h-8 w-8">
-            <AvatarImage src={user?.imageUrl} />
-            <AvatarFallback className="bg-sky-100 text-sky-700 text-sm font-bold">
-              {(user?.firstName?.charAt(0) || user?.fullName?.charAt(0) || "O").toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-0.5">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
-        </button>
+        {/* Right — Bell + profile avatar */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Notification Bell */}
+          <button
+            onClick={() => {
+              setActiveTab("more");
+              setTimeout(() => window.dispatchEvent(new CustomEvent("fundcircle:morePage", { detail: "notifications" })), 80);
+            }}
+            aria-label="Notifications"
+            className="relative flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          >
+            <Bell className="h-4 w-4 text-slate-600" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-0.5 shadow-sm">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+          {/* Profile avatar */}
+          <button
+            onClick={() => setProfileOpen(true)}
+            aria-label="Profile menu"
+            className="relative flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2"
+          >
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={user?.imageUrl} />
+              <AvatarFallback className="bg-sky-100 text-sky-700 text-sm font-bold">
+                {(user?.firstName?.charAt(0) || user?.fullName?.charAt(0) || "O").toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+        </div>
       </div>
 
       {/* Desktop Sidebar */}
@@ -436,7 +450,7 @@ export default function OrgDashboard() {
             <div className="flex-1 overflow-y-auto py-2 px-2">
               {[
                 { label: "My Profile",      icon: User,     sub: "Edit name & phone",       morePage: "profile"       },
-                { label: "Notifications",   icon: Bell,     sub: "Alert preferences",        morePage: "notifications", badge: unreadCount || 0 },
+                { label: "Notifications",   icon: Bell,     sub: "Inbox & alert preferences", morePage: "notifications", badge: unreadCount || 0 },
                 { label: "Support",         icon: UserCog,  sub: "Help & contact us",        morePage: "support"       },
               ].map((item, idx) => {
                 const Icon = item.icon;

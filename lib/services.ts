@@ -1377,16 +1377,54 @@ export async function attachClerkIdToPendingUsers(email: string, clerkUserId: st
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
-export async function createNotification(organizationId: string, userId: string, title: string, message: string) {
+export async function createNotification(
+  organizationId: string,
+  userId: string,
+  title: string,
+  message: string,
+  options?: {
+    type?: string;
+    category?: "collections" | "customers" | "collectors" | "loans" | "system";
+    actorName?: string;
+    metadata?: Record<string, any>;
+  }
+) {
   return await addDoc(collection(db, "notifications"), {
-    organizationId, userId, title, message,
+    organizationId,
+    userId,
+    title,
+    message,
     read: false,
+    type: options?.type || "GENERAL",
+    category: options?.category || "system",
+    actorName: options?.actorName || "",
+    metadata: options?.metadata || {},
     timestamp: serverTimestamp(),
+    createdAt: serverTimestamp(),
   });
 }
 
 export async function markNotificationRead(notificationId: string) {
-  await updateDoc(doc(db, "notifications", notificationId), { read: true });
+  await updateDoc(doc(db, "notifications", notificationId), { read: true, updatedAt: serverTimestamp() });
+}
+
+export async function markAllNotificationsRead(notificationIds: string[]) {
+  if (!notificationIds.length) return;
+  const batch = notificationIds.map(id =>
+    updateDoc(doc(db, "notifications", id), { read: true, updatedAt: serverTimestamp() })
+  );
+  await Promise.all(batch);
+}
+
+export async function deleteNotification(notificationId: string) {
+  const { deleteDoc } = await import("firebase/firestore");
+  await deleteDoc(doc(db, "notifications", notificationId));
+}
+
+export async function clearAllNotifications(notificationIds: string[]) {
+  if (!notificationIds.length) return;
+  const { deleteDoc } = await import("firebase/firestore");
+  await Promise.all(notificationIds.map(id => deleteDoc(doc(db, "notifications", id))));
 }
 
 // ── Subscription / Upgrade requests ──────────────────────────────────────────

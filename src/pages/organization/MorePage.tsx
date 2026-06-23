@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useUser, useOrganization, SignOutButton } from "@clerk/clerk-react";
 import AppSwitch from "@/components/ui/AppSwitch";
 import {
   doc, setDoc, serverTimestamp, getCountFromServer,
   collection as fsCollection, query, where,
+  updateDoc, writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useDocumentRealtime } from "@/lib/firestore-hooks";
+import { useDocumentRealtime, useCollectionRealtime } from "@/lib/firestore-hooks";
 import { membershipIdFor } from "@/lib/services";
 import { toast } from "sonner";
 import {
@@ -15,7 +16,11 @@ import {
   MessageCircle, Info, ClipboardList, LogOut, Phone, Mail,
   Edit2, Loader2, Lock, Shield, HelpCircle, Flag,
   FileText, Star, ExternalLink, Check,
+  IndianRupee, UserPlus, UserCheck, AlertCircle, BellOff,
+  CheckCheck, Trash2, TrendingDown, CheckCircle2,
+  SlidersHorizontal, Settings,
 } from "lucide-react";
+import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +30,7 @@ import { BrandMark } from "@/components/BrandLogo";
 import ProfileAvatarEditor from "@/components/ui/ProfileAvatarEditor";
 import OrgLogoEditor from "@/components/ui/OrgLogoEditor";
 
-type MoreSubPage = "list" | "profile" | "organization" | "notifications" | "support" | "about";
+type MoreSubPage = "list" | "profile" | "organization" | "notifications" | "notifSettings" | "support" | "about";
 
 function switchTab(tab: string) {
   window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: tab }));
@@ -355,8 +360,256 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-// ── NOTIFICATIONS SUB-PAGE ────────────────────────────────────────────────────
-function NotificationsSubPage({ onBack }: { onBack: () => void }) {
+// ── Notification helpers ───────────────────────────────────────────────────────
+type NotifCategory2 = "all" | "collections" | "customers" | "collectors" | "loans" | "system";
+interface NotifItem {
+  id: string; title: string; message: string; read: boolean;
+  timestamp: any; userId: string; organizationId: string;
+  type?: string; category?: string; actorName?: string;
+}
+const NOTIF_FILTERS = [
+  { id: "all" as NotifCategory2, label: "All" },
+  { id: "collections" as NotifCategory2, label: "Collections" },
+  { id: "customers" as NotifCategory2, label: "Customers" },
+  { id: "collectors" as NotifCategory2, label: "Collectors" },
+  { id: "loans" as NotifCategory2, label: "Loans" },
+  { id: "system" as NotifCategory2, label: "System" },
+];
+function getNotifCategory(n: NotifItem): NotifCategory2 {
+  if (n.category) return n.category as NotifCategory2;
+  const t = (n.type || "").toUpperCase();
+  if (t.includes("COLLECTION") || t.includes("DEPOSIT") || t === "EMI_COLLECTED") return "collections";
+  if (t.includes("CUSTOMER") || t === "NEW_CUSTOMER") return "customers";
+  if (t.includes("COLLECTOR") || t === "NEW_COLLECTOR") return "collectors";
+  if (t.includes("LOAN") || t.includes("EMI")) return "loans";
+  return "system";
+}
+const NOTIF_TYPE_META: Record<string, { icon: React.FC<any>; bg: string; iconColor: string; dot: string }> = {
+  collections: { icon: IndianRupee, bg: "bg-emerald-50", iconColor: "text-emerald-600", dot: "bg-emerald-500" },
+  customers:   { icon: UserPlus,    bg: "bg-sky-50",     iconColor: "text-sky-600",     dot: "bg-sky-500"     },
+  collectors:  { icon: UserCheck,   bg: "bg-violet-50",  iconColor: "text-violet-600",  dot: "bg-violet-500"  },
+  loans:       { icon: CreditCard,  bg: "bg-indigo-50",  iconColor: "text-indigo-600",  dot: "bg-indigo-500"  },
+  system:      { icon: AlertCircle, bg: "bg-amber-50",   iconColor: "text-amber-600",   dot: "bg-amber-500"   },
+};
+const NOTIF_ICON_MAP: Record<string, React.FC<any>> = {
+  NEW_CUSTOMER: UserPlus, NEW_COLLECTOR: UserCheck,
+  COLLECTION_RECORDED: IndianRupee, COLLECTION_UPDATED: IndianRupee,
+  DEPOSIT_COLLECTED: IndianRupee, EMI_COLLECTED: IndianRupee,
+  LOAN_APPLIED: CreditCard, LOAN_APPROVED: CheckCircle2,
+  LOAN_REJECTED: TrendingDown, EMI_DUE: AlertCircle,
+  EMI_MISSED: AlertCircle, EMI_OVERDUE: AlertCircle,
+  REPORT_EXPORTED: FileText, PROFILE_UPDATED: User,
+  ORGANIZATION_UPDATED: Building2,
+};
+function tsToDate2(ts: any): Date {
+  if (!ts) return new Date();
+  if (typeof ts.toDate === "function") return ts.toDate();
+  return new Date(ts);
+}
+function groupByDay2(items: NotifItem[]): { label: string; items: NotifItem[] }[] {
+  const today: NotifItem[] = [], yesterday: NotifItem[] = [], earlier: NotifItem[] = [];
+  for (const n of items) {
+    const d = tsToDate2(n.timestamp);
+    if (isToday(d)) today.push(n);
+    else if (isYesterday(d)) yesterday.push(n);
+    else earlier.push(n);
+  }
+  const groups = [];
+  if (today.length)     groups.push({ label: "Today",     items: today });
+  if (yesterday.length) groups.push({ label: "Yesterday", items: yesterday });
+  if (earlier.length)   groups.push({ label: "Earlier",   items: earlier });
+  return groups;
+}
+
+// ── NOTIFICATIONS INBOX SUB-PAGE ──────────────────────────────────────────────
+function NotificationsSubPage({ onBack, onSettings }: { onBack: () => void; onSettings: () => void }) {
+  const { data: rawNotifs, loading } = useCollectionRealtime<NotifItem>("notifications");
+  const [filter, setFilter] = useState<NotifCategory2>("all");
+  const [clearing, setClearing] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const sorted = useMemo(() =>
+    [...rawNotifs].sort((a, b) => tsToDate2(b.timestamp).valueOf() - tsToDate2(a.timestamp).valueOf()),
+    [rawNotifs]
+  );
+  const filtered = useMemo(() =>
+    filter === "all" ? sorted : sorted.filter(n => getNotifCategory(n) === filter),
+    [sorted, filter]
+  );
+  const groups = useMemo(() => groupByDay2(filtered), [filtered]);
+  const unreadCount = useMemo(() => sorted.filter(n => !n.read).length, [sorted]);
+  const filteredUnread = useMemo(() => filtered.filter(n => !n.read).length, [filtered]);
+
+  const markRead = async (id: string) => {
+    try { await updateDoc(doc(db, "notifications", id), { read: true, updatedAt: serverTimestamp() }); }
+    catch { toast.error("Could not mark as read."); }
+  };
+
+  const markAllRead = async () => {
+    const unread = filtered.filter(n => !n.read);
+    if (!unread.length) return;
+    setMarkingAll(true);
+    try {
+      const batch = writeBatch(db);
+      unread.forEach(n => batch.update(doc(db, "notifications", n.id), { read: true, updatedAt: serverTimestamp() }));
+      await batch.commit();
+      toast.success("All marked as read.");
+    } catch { toast.error("Failed to update."); }
+    finally { setMarkingAll(false); }
+  };
+
+  const clearAll = async () => {
+    if (!filtered.length) return;
+    setClearing(true);
+    try {
+      const batch = writeBatch(db);
+      filtered.forEach(n => batch.delete(doc(db, "notifications", n.id)));
+      await batch.commit();
+      toast.success("Notifications cleared.");
+    } catch { toast.error("Failed to clear."); }
+    finally { setClearing(false); }
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onBack}
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 transition-colors">
+          <ChevronLeft className="w-5 h-5 text-slate-600" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-900">Notifications</h2>
+            {unreadCount > 0 && (
+              <span className="inline-flex items-center justify-center h-5 min-w-5 rounded-full bg-red-500 text-white text-[10px] font-bold px-1.5">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </div>
+        </div>
+        <button onClick={onSettings}
+          className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors">
+          <Settings className="w-4 h-4 text-slate-600" />
+        </button>
+      </div>
+
+      {/* Action bar */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex gap-2 mb-4">
+          {filteredUnread > 0 && (
+            <button onClick={markAllRead} disabled={markingAll}
+              className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+              {markingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+              Mark all read
+            </button>
+          )}
+          <button onClick={clearAll} disabled={clearing}
+            className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-xl border border-red-100 bg-red-50 text-xs font-semibold text-red-500 hover:bg-red-100 transition-colors disabled:opacity-50">
+            {clearing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* Filter chips */}
+      <div className="flex gap-2 overflow-x-auto pb-3 -mx-1 px-1 scrollbar-none">
+        {NOTIF_FILTERS.map(f => {
+          const cnt = f.id === "all"
+            ? sorted.filter(n => !n.read).length
+            : sorted.filter(n => !n.read && getNotifCategory(n) === f.id).length;
+          const isActive = filter === f.id;
+          return (
+            <button key={f.id} onClick={() => setFilter(f.id)}
+              className={[
+                "flex items-center gap-1 shrink-0 h-7 px-3 rounded-full text-xs font-semibold transition-all border",
+                isActive ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+              ].join(" ")}>
+              {f.label}
+              {cnt > 0 && (
+                <span className={["inline-flex h-4 min-w-4 items-center justify-center rounded-full text-[10px] font-bold px-0.5",
+                  isActive ? "bg-white/20 text-white" : "bg-red-500 text-white"].join(" ")}>{cnt}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="space-y-2.5">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="flex gap-3 p-4 rounded-2xl bg-white border border-slate-100 animate-pulse">
+              <div className="h-10 w-10 rounded-full bg-slate-100 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 bg-slate-100 rounded-full w-3/4" />
+                <div className="h-3 bg-slate-100 rounded-full w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="h-14 w-14 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <BellOff className="h-7 w-7 text-slate-300" />
+          </div>
+          <p className="text-sm font-semibold text-slate-600 mb-1">
+            {filter === "all" ? "No notifications yet" : `No ${filter} notifications`}
+          </p>
+          <p className="text-xs text-slate-400 max-w-[220px]">
+            {filter === "all" ? "Alerts will show up here as activity happens." : "Switch to All to see everything."}
+          </p>
+          {filter !== "all" && (
+            <button onClick={() => setFilter("all")} className="mt-3 text-xs font-semibold text-sky-600">View all</button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {groups.map(group => (
+            <div key={group.label}>
+              <div className="flex items-center gap-2 mb-2.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{group.label}</p>
+                <div className="flex-1 h-px bg-slate-100" />
+              </div>
+              <div className="space-y-2">
+                {group.items.map(n => {
+                  const cat = getNotifCategory(n);
+                  const base = NOTIF_TYPE_META[cat] || NOTIF_TYPE_META.system;
+                  const SpecificIcon = NOTIF_ICON_MAP[(n.type || "").toUpperCase()];
+                  const Icon = SpecificIcon || base.icon;
+                  const ts = tsToDate2(n.timestamp);
+                  return (
+                    <div key={n.id} onClick={() => !n.read && markRead(n.id)}
+                      className={[
+                        "relative flex items-start gap-3 rounded-2xl border p-3.5 transition-all",
+                        n.read ? "bg-white border-slate-100" : `${base.bg} border-transparent shadow-sm cursor-pointer active:scale-[0.99]`,
+                      ].join(" ")}>
+                      {!n.read && <span className={`absolute top-3.5 right-3.5 h-2 w-2 rounded-full ${base.dot}`} />}
+                      <div className={[
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border",
+                        n.read ? "bg-slate-50 border-slate-100" : `${base.bg} border-white/60`,
+                      ].join(" ")}>
+                        <Icon className={`h-4 w-4 ${n.read ? "text-slate-400" : base.iconColor}`} />
+                      </div>
+                      <div className="flex-1 min-w-0 pr-4">
+                        <p className={`text-sm font-semibold leading-snug ${n.read ? "text-slate-500" : "text-slate-900"}`}>{n.title}</p>
+                        <p className={`mt-0.5 text-xs leading-relaxed ${n.read ? "text-slate-400" : "text-slate-600"}`}>{n.message}</p>
+                        <p className="mt-1.5 text-[10px] text-slate-400">{formatDistanceToNow(ts, { addSuffix: true })}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── NOTIFICATION SETTINGS SUB-PAGE ────────────────────────────────────────────
+function NotifSettingsSubPage({ onBack }: { onBack: () => void }) {
   const { organization } = useOrganization();
   const orgId = organization?.id || null;
   const { data: orgDoc, loading } = useDocumentRealtime<any>("organizations", orgId);
@@ -365,7 +618,10 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
     newCollection:    true,
     newCustomer:      true,
     newCollector:     true,
+    loanApproval:     true,
     missedCollection: false,
+    emiDue:           true,
+    reportExported:   false,
     systemAlerts:     true,
   });
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -377,7 +633,10 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
       newCollection:    orgDoc.settings?.notifNewCollection    ?? true,
       newCustomer:      orgDoc.settings?.notifNewMember        ?? true,
       newCollector:     orgDoc.settings?.notifNewMember        ?? true,
+      loanApproval:     orgDoc.settings?.notifLoanApproval     ?? true,
       missedCollection: orgDoc.settings?.notifMissedCollection ?? false,
+      emiDue:           orgDoc.settings?.notifEmiDue           ?? true,
+      reportExported:   orgDoc.settings?.notifReportExported   ?? false,
       systemAlerts:     orgDoc.settings?.notifSystemAlerts     ?? true,
     });
     initRef.current = true;
@@ -389,7 +648,10 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
     newCollection:    "notifNewCollection",
     newCustomer:      "notifNewMember",
     newCollector:     "notifNewMember",
+    loanApproval:     "notifLoanApproval",
     missedCollection: "notifMissedCollection",
+    emiDue:           "notifEmiDue",
+    reportExported:   "notifReportExported",
     systemAlerts:     "notifSystemAlerts",
   };
 
@@ -401,49 +663,96 @@ function NotificationsSubPage({ onBack }: { onBack: () => void }) {
         settings: { [FS_KEY_MAP[key as string]]: value },
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      toast.success("Preferences updated.");
     } catch {
       setNotifs(prev => ({ ...prev, [key]: !value }));
       toast.error("Failed to save preference.");
     } finally { setSavingKey(null); }
   };
 
-  const ITEMS = [
-    { key: "newCollection"    as const, label: "New Collection",    desc: "When any agent records a collection"      },
-    { key: "newCustomer"      as const, label: "New Customer",      desc: "When a customer joins your organization"  },
-    { key: "newCollector"     as const, label: "New Collector",     desc: "When a new collector is added"            },
-    { key: "missedCollection" as const, label: "Collection Missed", desc: "When an EMI installment is past due"      },
-    { key: "systemAlerts"     as const, label: "System Alerts",     desc: "Platform updates & important notices"     },
+  const SECTIONS = [
+    {
+      label: "Collections",
+      icon: IndianRupee,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50",
+      items: [
+        { key: "newCollection"    as const, label: "New Collection",    desc: "When any agent records a collection"  },
+        { key: "missedCollection" as const, label: "Collection Missed", desc: "When an EMI installment is past due"  },
+      ],
+    },
+    {
+      label: "Members",
+      icon: Users,
+      color: "text-sky-600",
+      bg: "bg-sky-50",
+      items: [
+        { key: "newCustomer"  as const, label: "New Customer",   desc: "When a customer joins"              },
+        { key: "newCollector" as const, label: "New Collector",  desc: "When a new collector is added"      },
+      ],
+    },
+    {
+      label: "Loans & EMI",
+      icon: CreditCard,
+      color: "text-indigo-600",
+      bg: "bg-indigo-50",
+      items: [
+        { key: "loanApproval" as const, label: "Loan Approved/Rejected", desc: "Loan application status changes" },
+        { key: "emiDue"       as const, label: "EMI Due Reminders",      desc: "When an EMI payment is due"      },
+      ],
+    },
+    {
+      label: "System",
+      icon: AlertCircle,
+      color: "text-amber-600",
+      bg: "bg-amber-50",
+      items: [
+        { key: "reportExported" as const, label: "Report Exported", desc: "When a report is generated"        },
+        { key: "systemAlerts"   as const, label: "System Alerts",   desc: "Platform updates & notices"         },
+      ],
+    },
   ];
 
   return (
     <div>
-      <SubPageHeader title="Notifications" onBack={onBack} />
-      <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+      <SubPageHeader title="Notification Settings" onBack={onBack} />
+      <p className="text-sm text-slate-500 mb-5 leading-relaxed">
         Choose which events send you alerts. Changes save instantly.
       </p>
-      <div className="space-y-2.5">
-        {loading
-          ? [...Array(5)].map((_, i) => <div key={i} className="h-[72px] bg-slate-100 rounded-2xl animate-pulse" />)
-          : ITEMS.map((item) => (
-            <div
-              key={item.key}
-              className={[
-                "flex items-center justify-between gap-4 px-4 py-4 rounded-2xl border transition-all",
-                notifs[item.key] ? "bg-sky-50/80 border-sky-100" : "bg-white border-slate-100",
-              ].join(" ")}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800">{item.label}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
+      <div className="space-y-4">
+        {SECTIONS.map(section => {
+          const SectionIcon = section.icon;
+          return (
+            <div key={section.label}>
+              <div className="flex items-center gap-2 mb-2.5 px-1">
+                <div className={`flex h-6 w-6 items-center justify-center rounded-lg ${section.bg} shrink-0`}>
+                  <SectionIcon className={`w-3.5 h-3.5 ${section.color}`} />
+                </div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{section.label}</p>
               </div>
-              {savingKey === item.key
-                ? <Loader2 className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
-                : <AppSwitch value={notifs[item.key]} onChange={(v) => handleToggle(item.key, v)} />
-              }
+              <div className="space-y-2">
+                {loading
+                  ? section.items.map((_, i) => <div key={i} className="h-16 bg-slate-100 rounded-2xl animate-pulse" />)
+                  : section.items.map(item => (
+                    <div key={item.key}
+                      className={[
+                        "flex items-center justify-between gap-4 px-4 py-3.5 rounded-2xl border transition-all",
+                        notifs[item.key] ? "bg-sky-50/60 border-sky-100" : "bg-white border-slate-100",
+                      ].join(" ")}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
+                      </div>
+                      {savingKey === item.key
+                        ? <Loader2 className="w-5 h-5 text-slate-400 animate-spin shrink-0" />
+                        : <AppSwitch value={notifs[item.key]} onChange={(v) => handleToggle(item.key, v)} />
+                      }
+                    </div>
+                  ))
+                }
+              </div>
             </div>
-          ))
-        }
+          );
+        })}
       </div>
     </div>
   );
@@ -540,7 +849,7 @@ const MORE_ITEMS = [
   { id: "agents",        label: "Collectors",        sub: "Manage your field team",          icon: Users,         color: "violet",  internal: false },
   { id: "loans",         label: "Loans & EMI",       sub: "Loan book & installments",       icon: CreditCard,    color: "emerald", internal: false },
   { id: "auditLogs",     label: "Audit Logs",        sub: "Full activity history",           icon: ClipboardList, color: "amber",   internal: false },
-  { id: "notifications", label: "Notifications",     sub: "Alert preferences",               icon: Bell,          color: "orange",  internal: true  },
+  { id: "notifications", label: "Notifications",     sub: "Inbox & alert preferences",       icon: Bell,          color: "orange",  internal: true  },
   { id: "billing",       label: "Billing",           sub: "Plan, usage & invoices",          icon: Wallet,        color: "rose",    internal: false },
   { id: "support",       label: "Support",           sub: "Get help & contact us",           icon: MessageCircle, color: "teal",    internal: true  },
   { id: "about",         label: "About FundCircle",  sub: "Version, privacy & terms",        icon: Info,          color: "slate",   internal: true  },
@@ -585,11 +894,12 @@ export default function MorePage() {
   if (page !== "list") {
     return (
       <div className="max-w-lg mx-auto px-1">
-        {page === "profile"       && <ProfileSubPage       onBack={() => setPage("list")} />}
-        {page === "organization"  && <OrganizationSubPage  onBack={() => setPage("list")} />}
-        {page === "notifications" && <NotificationsSubPage onBack={() => setPage("list")} />}
-        {page === "support"       && <SupportSubPage       onBack={() => setPage("list")} />}
-        {page === "about"         && <AboutSubPage         onBack={() => setPage("list")} />}
+        {page === "profile"       && <ProfileSubPage        onBack={() => setPage("list")} />}
+        {page === "organization"  && <OrganizationSubPage   onBack={() => setPage("list")} />}
+        {page === "notifications" && <NotificationsSubPage  onBack={() => setPage("list")} onSettings={() => setPage("notifSettings")} />}
+        {page === "notifSettings" && <NotifSettingsSubPage  onBack={() => setPage("notifications")} />}
+        {page === "support"       && <SupportSubPage        onBack={() => setPage("list")} />}
+        {page === "about"         && <AboutSubPage          onBack={() => setPage("list")} />}
       </div>
     );
   }
