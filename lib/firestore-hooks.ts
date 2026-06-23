@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { collection, query, where, orderBy, QueryConstraint, doc } from "firebase/firestore";
 import { db } from "./firebase";
 import { useOrganization } from "@clerk/clerk-react";
@@ -30,6 +30,18 @@ function constraintKey(constraints: QueryConstraint[]): string {
     .join("|");
 }
 
+/**
+ * Subscribes to a Firestore collection scoped to the active Clerk organization.
+ *
+ * Uses a stable org-ID ref so that transient Clerk org reloads (which occur
+ * server-side whenever a new member is added via the Admin API) never tear down
+ * and rebuild the onSnapshot listener. Without this guard, every member-creation
+ * would reset all Firestore listeners to loading:true simultaneously, producing
+ * what looks like a full-page app reload.
+ *
+ * The listener is only re-created when the org ID changes to a genuinely
+ * different valid value (e.g. the user switches organizations).
+ */
 export function useCollectionRealtime<T>(collectionName: string, queryConstraints: QueryConstraint[] = []) {
   const { organization } = useOrganization();
   const [data, setData] = useState<T[]>([]);
@@ -40,15 +52,25 @@ export function useCollectionRealtime<T>(collectionName: string, queryConstraint
   // re-subscribes when the query actually changes, not on every render.
   const constraintsKey = constraintKey(queryConstraints);
 
+  // Stable org ID — only advance to a new value when a valid (non-null) org ID
+  // arrives. This prevents the listener from being torn down during the brief
+  // window when Clerk sets organization→undefined while refreshing org state
+  // after a server-side membership change.
+  const stableOrgIdRef = useRef<string | null>(null);
+  if (organization?.id && organization.id !== stableOrgIdRef.current) {
+    stableOrgIdRef.current = organization.id;
+  }
+  const stableOrgId = stableOrgIdRef.current;
+
   useEffect(() => {
-    if (!organization?.id) {
+    if (!stableOrgId) {
       setLoading(false);
       return;
     }
 
     const q = query(
       collection(db, collectionName),
-      where("organizationId", "==", organization.id),
+      where("organizationId", "==", stableOrgId),
       ...queryConstraints
     );
 
@@ -68,7 +90,7 @@ export function useCollectionRealtime<T>(collectionName: string, queryConstraint
 
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionName, organization?.id, constraintsKey]);
+  }, [collectionName, stableOrgId, constraintsKey]);
 
   return { data, loading, error };
 }

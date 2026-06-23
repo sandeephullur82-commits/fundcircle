@@ -54,6 +54,14 @@ export default function OrgDashboard() {
   const [orgActionsOpen, setOrgActionsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  // Track whether Clerk has successfully loaded at least once.
+  // After the first successful load we never return the full skeleton again —
+  // Clerk briefly sets isOrgLoaded=false whenever it reloads org state after a
+  // server-side membership change (e.g. adding a new customer/collector), which
+  // would otherwise flash the entire screen back to a blank skeleton state.
+  const hasLoadedOnceRef = useRef(false);
+  if (isUserLoaded && isOrgLoaded) hasLoadedOnceRef.current = true;
+
   useEffect(() => {
     const handler = (e: Event) => setActiveTab((e as CustomEvent).detail);
     window.addEventListener("fundcircle:switchTab", handler);
@@ -151,8 +159,11 @@ export default function OrgDashboard() {
     }
   }, [user?.id, organization?.id]);
 
-  // Show shimmer only for initial Clerk load — not for Firestore membership fetch
-  if (!isUserLoaded || !isOrgLoaded) {
+  // Show shimmer only on the very first load — never again after that.
+  // Clerk transiently sets isOrgLoaded=false when refreshing org membership
+  // (e.g. after a new customer/collector is added server-side). Without this
+  // guard that would flash the full skeleton, looking like a page reload.
+  if (!hasLoadedOnceRef.current && (!isUserLoaded || !isOrgLoaded)) {
     return (
       <div className="min-h-screen bg-slate-50 flex">
         <div className="hidden md:flex flex-col w-64 bg-white border-r border-slate-100 h-screen">
