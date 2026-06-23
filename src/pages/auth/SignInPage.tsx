@@ -1,28 +1,43 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useSignIn, useUser, useClerk } from "@clerk/clerk-react";
 import { useNavigate, Link } from "react-router-dom";
-import { Eye, EyeOff, Loader2, AlertCircle, KeyRound, ShieldOff, ExternalLink } from "lucide-react";
+import { Eye, EyeOff, Loader2, AlertCircle, KeyRound, ShieldOff, Lock } from "lucide-react";
 import AuthLayout from "./AuthLayout";
 
-const IS_DEV =
-  import.meta.env.DEV ||
-  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "").startsWith("pk_test_");
+const MAX_ATTEMPTS  = 5;
+const COOLDOWN_SEC  = 30;
 
-// ── Extracts the best human-readable message from a Clerk error ──────────────
-// Priority: Clerk longMessage → Clerk message → code-based fallback → generic
-function clerkErrorMessage(err: any): { message: string; code: string } {
-  const code       = err?.errors?.[0]?.code       ?? "unknown";
-  const longMsg    = err?.errors?.[0]?.longMessage ?? "";
-  const shortMsg   = err?.errors?.[0]?.message     ?? "";
-  const jsMsg      = err?.message                  ?? "";
-
-  // Use Clerk's own long message first — it is always accurate and specific
-  const message = longMsg || shortMsg || jsMsg || "Sign-in failed. Please try again.";
-
-  return { message, code };
+function friendlySignInError(err: any): string {
+  const code = err?.errors?.[0]?.code ?? "";
+  switch (code) {
+    case "form_password_incorrect":
+    case "form_identifier_not_found":
+    case "user_not_found":
+      return "Incorrect email or password. Please try again.";
+    case "too_many_requests":
+      return "Too many sign-in attempts. Please wait a moment and try again.";
+    case "account_transfer_invalid":
+    case "not_allowed_access":
+      return "Sign-in is not available for this account. Please contact your administrator.";
+    case "session_exists":
+      return "";
+    case "strategy_for_user_invalid":
+      return "Password sign-in is not set up for this account. Use Forgot Password to create one.";
+    case "form_param_format_invalid":
+      return "Please enter a valid email address.";
+    case "form_identifier_missing":
+    case "form_param_nil":
+      return "Please enter your email and password.";
+    case "form_param_nil_password":
+      return "Please enter your password.";
+    default: {
+      const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || "";
+      if (msg) return msg;
+      return "Sign-in failed. Please check your credentials and try again.";
+    }
+  }
 }
 
-// ── Returns true when the error means "no password strategy set up" ──────────
 function isNoPasswordStrategy(code: string) {
   return code === "strategy_for_user_invalid" || code === "not_allowed_access";
 }
@@ -39,101 +54,75 @@ export default function SignInPage() {
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
-  const [errorCode, setErrorCode] = useState("");
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const [needsMfa, setNeedsMfa] = useState(false);
   const [mfaResetting, setMfaResetting] = useState(false);
 
+  const [failCount, setFailCount]       = useState(0);
+  const [cooldownLeft, setCooldownLeft] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const isLocked = cooldownLeft > 0;
+
+  const startCooldown = () => {
+    setCooldownLeft(COOLDOWN_SEC);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldownLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current!);
+          cooldownRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => () => { if (cooldownRef.current) clearInterval(cooldownRef.current); }, []);
+
   useEffect(() => {
-    if (userLoaded && isSignedIn) {
-      console.log("[FC SignIn] Already signed in — redirecting to /router");
-      navigate("/router", { replace: true });
-    }
+    if (userLoaded && isSignedIn) navigate("/router", { replace: true });
   }, [userLoaded, isSignedIn, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isLoaded || !signIn || !setActive || loading) return;
+    if (!isLoaded || !signIn || !setActive || loading || isLocked) return;
 
     setError("");
-    setErrorCode("");
     setNeedsPasswordSetup(false);
     setNeedsMfa(false);
     setLoading(true);
 
     const identifier = email.trim().toLowerCase();
 
-    console.log("════════════════════════════════════════════════");
-    console.log("[FC SignIn] ▶ Sign-in attempt");
-    console.log("[FC SignIn]   identifier :", identifier);
-    console.log("[FC SignIn]   timestamp  :", new Date().toISOString());
-    console.log("════════════════════════════════════════════════");
-
     try {
-      if (isSignedIn) {
-        console.log("[FC SignIn] Clearing stale Clerk session before new sign-in…");
-        await clerk.signOut();
-      }
+      if (isSignedIn) await clerk.signOut();
 
-      console.log("[FC SignIn] Calling signIn.create({ identifier, password })…");
       const result = await signIn.create({ identifier, password });
       const status = result.status as string;
 
-      // ── Full result dump for debugging ──────────────────────────────────
-      console.log("[FC SignIn] signIn.create() FULL result:");
-      console.log("[FC SignIn]   status                 :", status);
-      console.log("[FC SignIn]   createdSessionId        :", result.createdSessionId ?? "null");
-      console.log("[FC SignIn]   firstFactorVerification :", (result as any).firstFactorVerification?.status ?? "—");
-      console.log("[FC SignIn]   supportedFirstFactors   :", JSON.stringify((result as any).supportedFirstFactors?.map((f: any) => f.strategy) ?? []));
-      console.log("[FC SignIn]   supportedSecondFactors  :", JSON.stringify((result as any).supportedSecondFactors?.map((f: any) => f.strategy) ?? []));
-      console.log("[FC SignIn]   identifier              :", identifier);
-      console.log("[FC SignIn]   VITE_CLERK_PUBLISHABLE_KEY prefix:", (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "").slice(0, 12));
-      // ────────────────────────────────────────────────────────────────────
-
       if (status === "complete") {
-        console.log("[FC SignIn] ▶ Session creation — calling setActive()");
-        if (result.createdSessionId) {
-          await setActive({ session: result.createdSessionId });
-          console.log("[FC SignIn] ✓ Session activated:", result.createdSessionId);
-        } else {
-          console.warn("[FC SignIn] status=complete, sessionId=null — session already active");
-        }
-        console.log("[FC SignIn] → Redirecting to /router");
+        setFailCount(0);
+        if (result.createdSessionId) await setActive({ session: result.createdSessionId });
         navigate("/router", { replace: true });
         return;
       }
 
-      // Recovery: if session exists despite non-complete status
       if (result.createdSessionId) {
-        console.log("[FC SignIn] Recovery: activating session despite status:", status);
+        setFailCount(0);
         await setActive({ session: result.createdSessionId });
         navigate("/router", { replace: true });
         return;
       }
 
-      // ── needs_second_factor ─────────────────────────────────────────────
-      // Clerk requires a second factor. Strategy:
-      //   1st attempt  → call server to strip enrolled MFA factors, retry sign-in.
-      //   2nd attempt  → instance-level MFA is "Required" in Clerk Dashboard;
-      //                  nothing more we can do from app code — show fix instructions.
       if (status === "needs_second_factor") {
         const secondFactors: any[] = (result as any).supportedSecondFactors ?? [];
         const strategies = secondFactors.map((f: any) => f.strategy);
 
-        console.error("════════════════════════════════════════════════");
-        console.error("[FC SignIn] ✗ needs_second_factor");
-        console.error("[FC SignIn]   session status   :", status);
-        console.error("[FC SignIn]   user id          :", identifier);
-        console.error("[FC SignIn]   MFA requirement  : ON (Clerk Dashboard setting)");
-        console.error("[FC SignIn]   enrolled factors :", strategies.length ? JSON.stringify(strategies) : "NONE");
-        console.error("[FC SignIn]   reset attempted  :", mfaResetAttempted.current);
-        console.error("════════════════════════════════════════════════");
-
-        // First attempt: auto-strip enrolled factors via server, then retry
         if (!mfaResetAttempted.current) {
           mfaResetAttempted.current = true;
           setMfaResetting(true);
-          console.log("[FC SignIn] → Calling /api/clerk/reset-user-mfa for:", identifier);
           try {
             const resetRes = await fetch("/api/clerk/reset-user-mfa", {
               method: "POST",
@@ -141,63 +130,42 @@ export default function SignInPage() {
               body: JSON.stringify({ email: identifier }),
             });
             const resetData = await resetRes.json();
-            console.log("[FC SignIn] reset-user-mfa response:", JSON.stringify(resetData));
-
             if (resetData.cleared) {
-              // Factors cleared — retry sign-in immediately
-              console.log("[FC SignIn] → Retrying signIn.create() after MFA factor removal…");
               setMfaResetting(false);
-              // Recurse: call signIn.create again — this time MFA optional mode will pass
               const retry = await signIn.create({ identifier, password });
               const retryStatus = retry.status as string;
-              console.log("[FC SignIn] Retry status:", retryStatus, "sessionId:", retry.createdSessionId ?? "null");
-
               if (retryStatus === "complete" || retry.createdSessionId) {
+                setFailCount(0);
                 if (retry.createdSessionId) await setActive({ session: retry.createdSessionId });
                 navigate("/router", { replace: true });
                 return;
               }
-              // Still blocked — fall through to show Dashboard instructions
-              console.error("[FC SignIn] Still blocked after factor removal — MFA is Required at instance level");
             }
-          } catch (resetErr: any) {
-            console.error("[FC SignIn] reset-user-mfa call failed:", resetErr?.message);
-          }
+          } catch {}
           setMfaResetting(false);
         }
 
-        // Second pass or reset failed — show Dashboard fix instructions
         setNeedsMfa(true);
         setLoading(false);
         return;
       }
 
-      // ── needs_first_factor: first factor not yet satisfied (e.g. no password strategy)
       if (status === "needs_first_factor") {
-        const firstFactors = (result as any).supportedFirstFactors?.map((f: any) => f.strategy) ?? [];
-        console.error("[FC SignIn] needs_first_factor — available strategies:", JSON.stringify(firstFactors));
+        const newCount = failCount + 1;
+        setFailCount(newCount);
+        if (newCount >= MAX_ATTEMPTS) startCooldown();
         setError("Password sign-in is not available for this account. Please contact your administrator.");
-        setErrorCode(status);
         setLoading(false);
         return;
       }
 
-      // ── Any other non-complete, non-error status Clerk may return in future
-      console.warn("[FC SignIn] Unhandled status:", status);
-      setError(`Sign-in is incomplete (status: ${status}). Please try again.`);
-      setErrorCode(status);
+      const newCount = failCount + 1;
+      setFailCount(newCount);
+      if (newCount >= MAX_ATTEMPTS) startCooldown();
+      setError("Sign-in could not be completed. Please try again.");
 
     } catch (err: any) {
-      const { message, code } = clerkErrorMessage(err);
-
-      console.error("════════════════════════════════════════════════");
-      console.error("[FC SignIn] ✗ signIn.create() error");
-      console.error("[FC SignIn]   error.code    :", code);
-      console.error("[FC SignIn]   error.message :", message);
-      console.error("[FC SignIn]   error.errors  :", JSON.stringify(err?.errors ?? null, null, 2));
-      console.error("[FC SignIn]   full error    :", err);
-      console.error("════════════════════════════════════════════════");
-
+      const code = err?.errors?.[0]?.code ?? "";
       if (code === "session_exists") {
         navigate("/router", { replace: true });
         return;
@@ -205,75 +173,68 @@ export default function SignInPage() {
 
       if (isNoPasswordStrategy(code)) {
         setNeedsPasswordSetup(true);
-        setError(message);
-        setErrorCode(code);
+        setError("Password sign-in is not set up for this account. Use Forgot Password to create one.");
         setLoading(false);
         return;
       }
 
+      const message = friendlySignInError(err);
       setError(message);
-      setErrorCode(code);
+
+      const newCount = failCount + 1;
+      setFailCount(newCount);
+      if (newCount >= MAX_ATTEMPTS) startCooldown();
     } finally {
       setLoading(false);
     }
   };
+
+  const inputClass =
+    "w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25 disabled:opacity-60";
 
   return (
     <AuthLayout>
       <div className="rounded-3xl border border-white/[0.14] bg-white/[0.07] p-8 backdrop-blur-2xl shadow-2xl shadow-black/70 ring-1 ring-inset ring-white/[0.05]">
         <div className="mb-7">
           <h2 className="text-[1.6rem] font-bold text-white leading-tight">Welcome back</h2>
-          <p className="mt-1.5 text-sm text-white/85">Sign in to your FundCircle account</p>
+          <p className="mt-1.5 text-sm text-white/70">Sign in to your FundCircle account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* ── MFA resetting (auto-fix in progress) ────────────────────────── */}
-          {mfaResetting && (
-            <div className="rounded-xl border border-violet-500/25 bg-violet-500/[0.08] px-4 py-3 flex items-center gap-3">
-              <Loader2 className="h-4 w-4 shrink-0 text-violet-400 animate-spin" />
+
+          {/* ── Rate limit lockout ─────────────────────────────────────────── */}
+          {isLocked && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.09] px-4 py-3 flex items-center gap-3">
+              <Lock className="h-4 w-4 shrink-0 text-amber-400" />
               <div>
-                <p className="text-sm font-semibold text-violet-200">Removing MFA factors…</p>
-                <p className="text-xs text-violet-300/70 mt-0.5">Attempting automatic fix. Please wait.</p>
+                <p className="text-sm font-semibold text-amber-200">Too many failed attempts</p>
+                <p className="text-xs text-amber-300/80 mt-0.5">
+                  Please wait <span className="font-bold">{cooldownLeft}s</span> before trying again.
+                </p>
               </div>
             </div>
           )}
 
-          {/* ── MFA required — Dashboard fix needed ─────────────────────────── */}
+          {/* ── MFA auto-fix in progress ───────────────────────────────────── */}
+          {mfaResetting && (
+            <div className="rounded-xl border border-violet-500/25 bg-violet-500/[0.08] px-4 py-3 flex items-center gap-3">
+              <Loader2 className="h-4 w-4 shrink-0 text-violet-400 animate-spin" />
+              <p className="text-sm text-violet-200">Verifying account configuration…</p>
+            </div>
+          )}
+
+          {/* ── MFA required — simplified message ─────────────────────────── */}
           {needsMfa && !mfaResetting && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.09] px-4 py-4 space-y-3">
               <div className="flex items-start gap-2.5">
                 <ShieldOff className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-200">
-                    MFA is required in your Clerk Dashboard
-                  </p>
+                  <p className="text-sm font-semibold text-amber-200">Additional verification required</p>
                   <p className="mt-0.5 text-xs text-amber-300/80">
-                    Automatic factor removal did not bypass the block — your Clerk instance
-                    has MFA set to <strong>Required</strong>. Disable it in the Dashboard
-                    to allow email + password sign-in only.
+                    Your account requires multi-factor authentication which is not supported in this app.
+                    Please contact your administrator to resolve this.
                   </p>
                 </div>
-              </div>
-              <div className="rounded-lg border border-amber-500/20 bg-amber-900/20 px-3 py-2.5 space-y-1.5">
-                <p className="text-[11px] font-semibold text-amber-300 uppercase tracking-wider">
-                  One-time fix — Clerk Dashboard
-                </p>
-                <ol className="text-xs text-amber-200/80 space-y-0.5 list-decimal list-inside">
-                  <li>Open <strong>dashboard.clerk.com</strong></li>
-                  <li>Select your application → <strong>Configure</strong></li>
-                  <li>Click <strong>Multi-factor authentication</strong></li>
-                  <li>Set the mode to <strong>Off</strong> and save</li>
-                  <li>Return here and sign in normally</li>
-                </ol>
-                <a
-                  href="https://dashboard.clerk.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
-                >
-                  Open Clerk Dashboard
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               </div>
               <button
                 type="button"
@@ -285,67 +246,63 @@ export default function SignInPage() {
             </div>
           )}
 
-          {/* ── Error block ─────────────────────────────────────────────────── */}
-          {error && !needsMfa && (
+          {/* ── Error block ────────────────────────────────────────────────── */}
+          {error && !needsMfa && !isLocked && (
             <div className="rounded-xl border border-red-500/25 bg-red-500/12 px-4 py-3 space-y-2">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
                 <span className="text-sm text-red-300">{error}</span>
               </div>
-
-              {/* Dev-mode error code badge */}
-              {IS_DEV && errorCode && errorCode !== "unknown" && (
-                <div className="ml-6">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-red-900/50 border border-red-700/40 px-2 py-0.5 text-[10px] font-mono text-red-400">
-                    Clerk code: {errorCode}
-                  </span>
-                </div>
-              )}
-
-              {/* Inline "Set up password" prompt for no-password accounts */}
               {needsPasswordSetup && (
                 <div className="ml-6 flex items-center gap-2 pt-1">
                   <KeyRound className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                   <p className="text-xs text-amber-300">
-                    This account has no password set.{" "}
                     <Link
                       to="/auth/forgot-password"
                       className="font-semibold text-amber-200 underline underline-offset-2 hover:text-white transition-colors"
                     >
-                      Click here to create one.
+                      Click here to set up your password.
                     </Link>
                   </p>
                 </div>
               )}
+              {failCount >= 2 && failCount < MAX_ATTEMPTS && (
+                <p className="ml-6 text-[11px] text-white/35">
+                  {MAX_ATTEMPTS - failCount} attempt{MAX_ATTEMPTS - failCount !== 1 ? "s" : ""} remaining before temporary lockout.
+                </p>
+              )}
             </div>
           )}
 
-          {/* ── Email ──────────────────────────────────────────────────────── */}
+          {/* ── Email ─────────────────────────────────────────────────────── */}
           <div className="space-y-1.5">
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/95">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/70">
               Email address
             </label>
             <input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={e => { setEmail(e.target.value); if (error) setError(""); }}
               placeholder="you@example.com"
               required
               autoFocus
               autoComplete="email"
-              className="w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25"
+              inputMode="email"
+              disabled={loading || isLocked}
+              className={inputClass}
             />
           </div>
 
-          {/* ── Password ───────────────────────────────────────────────────── */}
+          {/* ── Password ──────────────────────────────────────────────────── */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/95">
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-white/70">
                 Password
               </label>
               <Link
                 to="/auth/forgot-password"
                 className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                tabIndex={-1}
               >
                 Forgot password?
               </Link>
@@ -354,46 +311,42 @@ export default function SignInPage() {
               <input
                 type={showPw ? "text" : "password"}
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={e => { setPassword(e.target.value); if (error) setError(""); }}
                 placeholder="••••••••"
                 required
                 autoComplete="current-password"
-                className="w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 pr-11 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25"
+                disabled={loading || isLocked}
+                className={`${inputClass} pr-11`}
               />
               <button
                 type="button"
                 onClick={() => setShowPw(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
                 tabIndex={-1}
+                aria-label={showPw ? "Hide password" : "Show password"}
               >
                 {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
           </div>
 
-          {/* ── Submit ─────────────────────────────────────────────────────── */}
+          {/* ── Submit ────────────────────────────────────────────────────── */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isLocked}
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition hover:from-violet-500 hover:to-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
           >
             {loading ? (
               <><Loader2 className="h-4 w-4 animate-spin" />Signing in…</>
+            ) : isLocked ? (
+              <>
+                <Lock className="h-4 w-4" />Locked ({cooldownLeft}s)
+              </>
             ) : (
               "Sign in"
             )}
           </button>
         </form>
-
-        <p className="mt-6 text-center text-sm text-white/65">
-          Don&apos;t have an account?{" "}
-          <Link
-            to="/auth/sign-up"
-            className="font-semibold text-violet-400 hover:text-violet-300 transition-colors"
-          >
-            Create account
-          </Link>
-        </p>
       </div>
     </AuthLayout>
   );

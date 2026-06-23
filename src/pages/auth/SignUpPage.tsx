@@ -12,7 +12,27 @@ function recordOtpSent(type: "signup_verify" | "reset_password") {
   sessionStorage.removeItem("fc_otp_errors");
   const count = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0") + 1;
   sessionStorage.setItem("fc_otp_request_count", String(count));
-  console.log("[FC OTP] ✉ OTP dispatched | type:", type, "| sent_at:", sentAt, "| request_count:", count);
+}
+
+function friendlySignUpError(code: string, fallback: string): string {
+  switch (code) {
+    case "form_identifier_exists":
+      return "An account with this email already exists. Please sign in instead.";
+    case "form_param_format_invalid":
+    case "form_identifier_invalid":
+      return "Please enter a valid email address.";
+    case "too_many_requests":
+      return "Too many attempts. Please wait a moment and try again.";
+    case "form_password_pwned":
+    case "form_password_size_check_failed":
+    case "form_password_length_too_short":
+      return "Please choose a stronger password (at least 8 characters, avoid common passwords).";
+    case "form_param_nil":
+    case "form_param_missing":
+      return "Please fill in all required fields.";
+    default:
+      return "Sign-up could not be completed. Please try again.";
+  }
 }
 
 export default function SignUpPage() {
@@ -23,17 +43,7 @@ export default function SignUpPage() {
   const [searchParams] = useSearchParams();
 
   const invitationTicket = searchParams.get("__clerk_ticket") || "";
-
-  // When the user clicks "Edit Email" on the OTP screen, they arrive here with
-  // this flag set. It tells the resume-detection useEffect to stand down and let
-  // the user interact with the form instead of bouncing them back to verify-email.
   const isEditingEmail = (location.state as any)?.editingEmail === true;
-
-  // Guard the resume-detection useEffect from firing while handleSubmit is in
-  // progress. After signUp.create() resolves, Clerk pushes a reactive state update
-  // (status → "missing_requirements") which would normally trigger the useEffect
-  // and navigate to /auth/verify-email before prepareEmailAddressVerification()
-  // is called. This ref blocks that premature redirect.
   const submittingRef = useRef(false);
 
   const [firstName, setFirstName]             = useState("");
@@ -47,26 +57,16 @@ export default function SignUpPage() {
   const [loading, setLoading]                 = useState(false);
   const [error, setError]                     = useState("");
 
-  // Redirect already-signed-in users immediately.
   useEffect(() => {
-    if (userLoaded && isSignedIn) {
-      console.log("[FC SignUp] Already signed in — redirecting to /router");
-      navigate("/router", { replace: true });
-    }
+    if (userLoaded && isSignedIn) navigate("/router", { replace: true });
   }, [userLoaded, isSignedIn, navigate]);
 
-  // Resume-detection: if an in-progress (non-submitted) signUp session exists,
-  // send the user back to the verify screen so they can complete it.
-  // Skipped when:
-  //   - submittingRef is true (we are in the middle of handleSubmit)
-  //   - isEditingEmail is true (user deliberately came back to change their email)
   useEffect(() => {
     if (!isLoaded) return;
     if (submittingRef.current) return;
     if (isEditingEmail) return;
 
     if (signUp?.status === "complete" && signUp.createdSessionId && setActive) {
-      console.log("[FC SignUp] Complete signUp on mount — activating session:", signUp.createdSessionId);
       setActive({ session: signUp.createdSessionId }).then(() => {
         navigate("/auth/callback", { replace: true });
       });
@@ -77,11 +77,8 @@ export default function SignUpPage() {
       if (signUp.unverifiedFields?.includes("email_address")) {
         const otpCount = parseInt(sessionStorage.getItem("fc_otp_request_count") || "0");
         if (otpCount > 0) {
-          console.log("[FC SignUp] Resuming incomplete signUp — OTP already sent, returning to verify screen");
           sessionStorage.setItem("fc_signup_email", signUp.emailAddress || "");
           navigate("/auth/verify-email", { replace: true });
-        } else {
-          console.log("[FC SignUp] Incomplete signUp found but OTP not yet sent — staying on sign-up page");
         }
       }
     }
@@ -106,12 +103,7 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      // ── Invitation ticket flow ──────────────────────────────────────────
       if (invitationTicket) {
-        console.log("[FC SignUp] ▶ Invitation ticket flow | firstName:", firstName, "| lastName:", lastName);
-        console.log("[FC SignUp] ▶ signUp.create({ strategy: 'ticket', password })…");
-
-        const t0 = Date.now();
         const result = await signUp.create({
           strategy: "ticket",
           ticket: invitationTicket,
@@ -119,16 +111,9 @@ export default function SignUpPage() {
           firstName: firstName || undefined,
           lastName:  lastName  || undefined,
         });
-        console.log("[FC SignUp] signUp.create() (invitation) done in", `${Date.now() - t0}ms`);
-        console.log("[FC SignUp]   status           :", result.status);
-        console.log("[FC SignUp]   createdSessionId :", result.createdSessionId ?? "null");
-        console.log("[FC SignUp]   emailAddress     :", result.emailAddress ?? "—");
-        console.log("[FC SignUp]   unverifiedFields :", result.unverifiedFields ?? []);
 
         if (result.status === "complete" && result.createdSessionId) {
-          console.log("[FC SignUp] ▶ Activating session:", result.createdSessionId);
           await setActive!({ session: result.createdSessionId });
-          console.log("[FC SignUp] ✓ Session activated — redirecting to /auth/callback");
           sessionStorage.removeItem("fc_signup_email");
           navigate("/auth/callback", { replace: true });
           return;
@@ -136,10 +121,7 @@ export default function SignUpPage() {
 
         if (result.status === "missing_requirements") {
           if (result.unverifiedFields?.includes("email_address")) {
-            console.log("[FC SignUp] ▶ Email verification required — calling prepareEmailAddressVerification…");
-            const t1 = Date.now();
             await result.prepareEmailAddressVerification({ strategy: "email_code" });
-            console.log("[FC SignUp] ✓ prepareEmailAddressVerification done in", `${Date.now() - t1}ms`);
             recordOtpSent("signup_verify");
             sessionStorage.setItem("fc_signup_email", result.emailAddress || "");
             navigate("/auth/verify-email", { replace: true });
@@ -147,57 +129,23 @@ export default function SignUpPage() {
           return;
         }
 
-        console.error("[FC SignUp] ✗ Unexpected invitation sign-up status:", result.status);
-        setError("Invitation sign-up returned an unexpected state. Please try again.");
+        setError("Unable to complete sign-up. Please try again.");
         return;
       }
 
-      // ── Normal sign-up flow ─────────────────────────────────────────────
       const emailKey = email.trim().toLowerCase();
-
-      const payload = {
-        emailAddress: emailKey,
-        password:     password.replace(/./g, "*"),
-        firstName:    firstName || "(empty)",
-        lastName:     lastName  || "(empty)",
-      };
-      console.log("════════════════════════════════════════════════");
-      console.log("[FC SignUp] ▶ Signup payload (password masked):", JSON.stringify(payload));
-      console.log("[FC SignUp]   isLoaded     :", isLoaded);
-      console.log("[FC SignUp]   signUp.id    :", signUp?.id ?? "null (fresh)");
-      console.log("[FC SignUp]   signUp.status:", signUp?.status ?? "null");
-      console.log("════════════════════════════════════════════════");
-
-      console.log("[FC SignUp] ▶ Calling signUp.create…");
-      const t0 = Date.now();
       const created = await signUp.create({ emailAddress: emailKey, password, firstName, lastName });
-      console.log("[FC SignUp] ✓ signUp.create() done in", `${Date.now() - t0}ms`);
-      console.log("[FC SignUp]   status          :", created.status);
-      console.log("[FC SignUp]   unverifiedFields:", created.unverifiedFields ?? []);
 
       if (created.status === "complete" && created.createdSessionId) {
-        console.log("[FC SignUp] ▶ Signup already complete — activating session:", created.createdSessionId);
         await setActive!({ session: created.createdSessionId });
         navigate("/auth/callback", { replace: true });
         return;
       }
 
-      console.log("[FC SignUp] ▶ Step 2: prepareEmailAddressVerification({ strategy: 'email_code' })…");
-      const t1 = Date.now();
       try {
         await created.prepareEmailAddressVerification({ strategy: "email_code" });
-        console.log("[FC SignUp] ✓ prepareEmailAddressVerification done in", `${Date.now() - t1}ms`);
-        console.log("[FC SignUp] ✓ OTP email dispatched to:", emailKey);
-      } catch (prepareErr: any) {
-        const pCode = prepareErr?.errors?.[0]?.code ?? "unknown";
-        const pMsg  = prepareErr?.errors?.[0]?.longMessage ?? prepareErr?.errors?.[0]?.message ?? prepareErr?.message ?? "unknown";
-        console.error("════════════════════════════════════════════════");
-        console.error("[FC SignUp] ✗ prepareEmailAddressVerification FAILED");
-        console.error("[FC SignUp]   code   :", pCode);
-        console.error("[FC SignUp]   message:", pMsg);
-        console.error("Clerk Error:", JSON.stringify(prepareErr, null, 2));
-        console.error("════════════════════════════════════════════════");
-        setError(`Could not send verification email: [${pCode}] ${pMsg}`);
+      } catch {
+        setError("Could not send verification email. Please try again.");
         return;
       }
 
@@ -207,28 +155,7 @@ export default function SignUpPage() {
 
     } catch (err: any) {
       const code = err?.errors?.[0]?.code ?? "unknown";
-      const msg  = err?.errors?.[0]?.longMessage ?? err?.errors?.[0]?.message ?? err?.message ?? String(err);
-
-      console.error("════════════════════════════════════════════════");
-      console.error("[FC SignUp] ✗ signUp.create() FAILED");
-      console.error("[FC SignUp]   code   :", code);
-      console.error("[FC SignUp]   message:", msg);
-      console.error("[FC SignUp]   errors :", JSON.stringify(err?.errors ?? null, null, 2));
-      console.error("Clerk Error:", JSON.stringify(err, null, 2));
-      console.error("════════════════════════════════════════════════");
-
-      if (code === "form_identifier_exists")
-        setError("An account with this email already exists. Please sign in instead.");
-      else if (code === "form_param_format_invalid")
-        setError("Please enter a valid email address.");
-      else if (code === "too_many_requests")
-        setError("Too many attempts. Please wait a moment and try again.");
-      else if (code === "form_password_pwned" || code === "form_password_size_check_failed")
-        setError("Please choose a stronger password (min. 8 characters).");
-      else if (code === "form_param_nil" || code === "form_param_missing")
-        setError(`Missing required field: ${msg}`);
-      else
-        setError(`Sign-up failed: [${code}] ${msg}`);
+      setError(friendlySignUpError(code, err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || ""));
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -236,8 +163,8 @@ export default function SignUpPage() {
   };
 
   const inputClass =
-    "w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25";
-  const labelClass = "block text-[11px] font-semibold uppercase tracking-wider text-white/95";
+    "w-full rounded-xl border border-white/[0.13] bg-white/[0.07] px-4 py-3 text-sm text-white placeholder-white/50 outline-none transition focus:border-violet-500/70 focus:bg-white/[0.11] focus:ring-2 focus:ring-violet-500/25 disabled:opacity-60";
+  const labelClass = "block text-[11px] font-semibold uppercase tracking-wider text-white/70";
 
   return (
     <AuthLayout>
@@ -246,12 +173,12 @@ export default function SignUpPage() {
           {invitationTicket ? (
             <>
               <h2 className="text-[1.6rem] font-bold text-white leading-tight">Accept your invitation</h2>
-              <p className="mt-1.5 text-sm text-white/85">Set a password to join your organization on FundCircle</p>
+              <p className="mt-1.5 text-sm text-white/70">Set a password to join your organization on FundCircle</p>
             </>
           ) : (
             <>
               <h2 className="text-[1.6rem] font-bold text-white leading-tight">Create your account</h2>
-              <p className="mt-1.5 text-sm text-white/85">Start managing your savings circle today</p>
+              <p className="mt-1.5 text-sm text-white/70">Start managing your savings circle today</p>
             </>
           )}
         </div>
@@ -259,7 +186,7 @@ export default function SignUpPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <div className="flex items-start gap-2.5 rounded-xl border border-red-500/25 bg-red-500/12 px-4 py-3 text-sm text-red-300">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
               <span>{error}</span>
             </div>
           )}
@@ -275,6 +202,7 @@ export default function SignUpPage() {
                   placeholder="Raj"
                   required
                   autoFocus
+                  disabled={loading}
                   className={inputClass}
                 />
               </div>
@@ -286,6 +214,7 @@ export default function SignUpPage() {
                   onChange={(e) => setLastName(e.target.value)}
                   placeholder="Kumar"
                   required
+                  disabled={loading}
                   className={inputClass}
                 />
               </div>
@@ -294,13 +223,15 @@ export default function SignUpPage() {
 
           {!invitationTicket && (
             <div className="space-y-1.5">
-              <label className={labelClass}>Email address</label>
+              <label className={labelClass}>Email address <span className="text-red-400">*</span></label>
               <input
                 type="email"
+                inputMode="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value.toLowerCase())}
                 placeholder="you@example.com"
                 required
+                disabled={loading}
                 className={inputClass}
               />
             </div>
@@ -308,7 +239,7 @@ export default function SignUpPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className={labelClass}>Password</label>
+              <label className={labelClass}>Password <span className="text-red-400">*</span></label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -317,13 +248,15 @@ export default function SignUpPage() {
                   placeholder="Min. 8 chars"
                   required
                   autoComplete="new-password"
+                  disabled={loading}
                   className={`${inputClass} pr-10`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
                   tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -331,7 +264,7 @@ export default function SignUpPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className={labelClass}>Confirm</label>
+              <label className={labelClass}>Confirm <span className="text-red-400">*</span></label>
               <div className="relative">
                 <input
                   type={showConfirm ? "text" : "password"}
@@ -340,13 +273,15 @@ export default function SignUpPage() {
                   placeholder="Repeat"
                   required
                   autoComplete="new-password"
+                  disabled={loading}
                   className={`${inputClass} pr-10`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirm(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/45 hover:text-white/75 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
                   tabIndex={-1}
+                  aria-label={showConfirm ? "Hide confirm password" : "Show confirm password"}
                 >
                   {showConfirm ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -360,9 +295,10 @@ export default function SignUpPage() {
                 type="checkbox"
                 checked={agreedToTerms}
                 onChange={(e) => setAgreedToTerms(e.target.checked)}
+                disabled={loading}
                 className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/25 bg-white/10 accent-violet-500"
               />
-              <span className="text-sm text-white/75 leading-relaxed">
+              <span className="text-sm text-white/70 leading-relaxed">
                 I agree to the{" "}
                 <Link to="/terms" target="_blank" className="text-violet-400 hover:text-violet-300 transition-colors underline underline-offset-2">
                   Terms of Service
@@ -392,7 +328,7 @@ export default function SignUpPage() {
         </form>
 
         {!invitationTicket && (
-          <p className="mt-6 text-center text-sm text-white/65">
+          <p className="mt-6 text-center text-sm text-white/50">
             Already have an account?{" "}
             <Link to="/auth/sign-in" className="font-semibold text-violet-400 hover:text-violet-300 transition-colors">
               Sign in
