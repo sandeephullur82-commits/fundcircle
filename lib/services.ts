@@ -506,6 +506,27 @@ export async function approveLoan(params: {
     },
   });
 
+  // Write disbursement record
+  try {
+    const disbRef = doc(collection(db, "loan_disbursements"));
+    await setDoc(disbRef, {
+      id: disbRef.id,
+      loanId: params.loanId,
+      loanAccountNumber: params.loanAccountNumber || "",
+      organizationId: loan.organizationId,
+      customerId: loan.customerId,
+      approvedAmount: effectivePrincipal,
+      disbursementDate: disbursedAt,
+      disbursementMethod: params.disbursementMethod || "CASH",
+      disbursementReference: params.disbursementReference || "",
+      recordedBy: params.actorId,
+      recordedByName: params.actorName,
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error("[approveLoan] Failed to write disbursement record:", e);
+  }
+
   // Sync nominee lock — loan is now ACTIVE, so lock the nominee
   try { await syncNomineeLock(loan.customerId, loan.organizationId); } catch (_) {}
 }
@@ -675,6 +696,7 @@ export async function recordEMICollection(params: {
   });
 
   if (loanClosed) {
+    await updateDoc(loanRef, { closedAt: serverTimestamp(), updatedAt: serverTimestamp() });
     await createAuditLog({
       organizationId: params.organizationId,
       actorId: _emiCollectedById,
@@ -691,6 +713,374 @@ export async function recordEMICollection(params: {
   }
 
   return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id };
+}
+
+// ── Partial Payment ───────────────────────────────────────────────────────────
+
+export interface PartialPaymentResult {
+  receiptNo: string;
+  loanClosed: boolean;
+  installmentId: string;
+  collectionId: string;
+  remainingAmount: number;
+}
+
+export async function recordPartialPayment(params: {
+  organizationId: string;
+  organizationName: string;
+  loanId: string;
+  installmentId: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  amount: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  collectedByRole?: string;
+  collectedById?: string;
+}): Promise<PartialPaymentResult> {
+  if (!params.amount || params.amount <= 0) throw new Error("Payment amount must be greater than zero.");
+
+  const installmentRef = doc(db, "loan_installments", params.installmentId);
+  const installmentSnap = await getDoc(installmentRef);
+  if (!installmentSnap.exists()) throw new Error("Installment not found.");
+  const installment = installmentSnap.data() as LoanInstallment;
+  if (installment.status === "PAID") throw new Error("This installment has already been paid.");
+
+  const loanRef = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+
+  const outstanding = loan.outstandingBalance ?? loan.balanceRemaining ?? 0;
+  if (params.amount > outstanding + 0.05) {
+    throw new Error(`Collection exceeds outstanding balance of ₹${outstanding.toLocaleString("en-IN")}.`);
+  }
+
+  const alreadyPaid = installment.paidAmount || 0;
+  const totalPaid   = alreadyPaid + params.amount;
+  const remaining   = Math.max(0, (installment.emiAmount ?? 0) - totalPaid);
+  const instClosed  = remaining <= 0.05;
+
+  const receiptNo = await generateReceiptNo(params.organizationId);
+  const _role = params.collectedByRole || "AGENT";
+  const _id   = params.collectedById   || params.agentId;
+
+  await updateDoc(installmentRef, {
+    status: instClosed ? "PAID" : "PARTIAL",
+    paidAmount: Math.round(totalPaid * 100) / 100,
+    remainingAmount: instClosed ? 0 : Math.round(remaining * 100) / 100,
+    paidAt: instClosed ? serverTimestamp() : null,
+    receiptNo,
+    collectedByAgentId: _id,
+    collectedByAgentName: params.agentName,
+    updatedAt: serverTimestamp(),
+  });
+
+  const rawOutstanding = outstanding - params.amount;
+  const loanClosed     = rawOutstanding <= 0.05;
+  const newOutstanding = loanClosed ? 0 : Math.round(rawOutstanding * 100) / 100;
+
+  await updateDoc(loanRef, {
+    outstandingBalance: newOutstanding,
+    balanceRemaining: newOutstanding,
+    ...(loanClosed ? { status: "CLOSED", closedAt: serverTimestamp() } : {}),
+    updatedAt: serverTimestamp(),
+  });
+
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    collectedById: _id,
+    customerId: params.customerId,
+    collectionType: "LOAN_EMI",
+    repaymentType: "PARTIAL",
+    referenceId: params.installmentId,
+    loanId: params.loanId,
+    amount: params.amount,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: _role,
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+    paymentMode: params.paymentMode || "CASH",
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: _id,
+    actorRole: _role,
+    actorName: params.agentName,
+    action: "PARTIAL_PAYMENT_RECORDED",
+    entityType: "LoanInstallment",
+    entityId: params.installmentId,
+    metadata: { amount: params.amount, receiptNo, loanId: params.loanId, remaining, newOutstanding, loanClosed },
+  });
+
+  if (loanClosed) {
+    await createAuditLog({
+      organizationId: params.organizationId, actorId: _id, actorRole: _role, actorName: params.agentName,
+      action: "LOAN_CLOSED", entityType: "Loan", entityId: params.loanId,
+      metadata: { customerId: params.customerId, via: "partial_payment" },
+    });
+    try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
+  }
+
+  return { receiptNo, loanClosed, installmentId: params.installmentId, collectionId: collRef.id, remainingAmount: remaining };
+}
+
+// ── Advance Payment ───────────────────────────────────────────────────────────
+
+export interface AdvancePaymentResult {
+  receiptNo: string;
+  loanClosed: boolean;
+  emisCleared: number;
+  collectionId: string;
+}
+
+export async function recordAdvancePayment(params: {
+  organizationId: string;
+  organizationName: string;
+  loanId: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  amount: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  collectedByRole?: string;
+  collectedById?: string;
+}): Promise<AdvancePaymentResult> {
+  if (!params.amount || params.amount <= 0) throw new Error("Payment amount must be greater than zero.");
+
+  const loanRef  = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+
+  const outstanding = loan.outstandingBalance ?? loan.balanceRemaining ?? 0;
+  if (params.amount > outstanding + 0.05) {
+    throw new Error(`Collection exceeds outstanding balance of ₹${outstanding.toLocaleString("en-IN")}.`);
+  }
+
+  // Fetch all unpaid installments sorted by installmentNo
+  const instSnap = await getDocs(query(
+    collection(db, "loan_installments"),
+    where("loanId", "==", params.loanId)
+  ));
+  const unpaid = instSnap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as LoanInstallment) }))
+    .filter((i) => (i.status || "").toUpperCase() !== "PAID")
+    .sort((a, b) => (a.installmentNo ?? 0) - (b.installmentNo ?? 0));
+
+  if (unpaid.length === 0) throw new Error("No pending installments found.");
+
+  const receiptNo = await generateReceiptNo(params.organizationId);
+  const _role = params.collectedByRole || "AGENT";
+  const _id   = params.collectedById   || params.agentId;
+
+  let remaining = params.amount;
+  let emisCleared = 0;
+  const updatePromises: Promise<any>[] = [];
+
+  for (const inst of unpaid) {
+    if (remaining <= 0.05) break;
+    const emiAmt = inst.emiAmount ?? 0;
+    const alreadyPaid = inst.paidAmount || 0;
+    const stillOwed = emiAmt - alreadyPaid;
+
+    if (remaining >= stillOwed - 0.05) {
+      // Fully pay this installment
+      updatePromises.push(updateDoc(doc(db, "loan_installments", inst.id), {
+        status: "PAID",
+        paidAmount: Math.round((alreadyPaid + stillOwed) * 100) / 100,
+        remainingAmount: 0,
+        paidAt: serverTimestamp(),
+        receiptNo,
+        collectedByAgentId: _id,
+        collectedByAgentName: params.agentName,
+        updatedAt: serverTimestamp(),
+      }));
+      remaining -= stillOwed;
+      emisCleared++;
+    } else {
+      // Partial on last installment
+      const newPaid = alreadyPaid + remaining;
+      updatePromises.push(updateDoc(doc(db, "loan_installments", inst.id), {
+        status: "PARTIAL",
+        paidAmount: Math.round(newPaid * 100) / 100,
+        remainingAmount: Math.round((emiAmt - newPaid) * 100) / 100,
+        receiptNo,
+        collectedByAgentId: _id,
+        collectedByAgentName: params.agentName,
+        updatedAt: serverTimestamp(),
+      }));
+      remaining = 0;
+      break;
+    }
+  }
+
+  await Promise.all(updatePromises);
+
+  const rawOutstanding = outstanding - params.amount;
+  const loanClosed     = rawOutstanding <= 0.05;
+  const newOutstanding = loanClosed ? 0 : Math.round(rawOutstanding * 100) / 100;
+
+  await updateDoc(loanRef, {
+    outstandingBalance: newOutstanding,
+    balanceRemaining: newOutstanding,
+    ...(loanClosed ? { status: "CLOSED", closedAt: serverTimestamp() } : {}),
+    updatedAt: serverTimestamp(),
+  });
+
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    collectedById: _id,
+    customerId: params.customerId,
+    collectionType: "LOAN_EMI",
+    repaymentType: "ADVANCE",
+    loanId: params.loanId,
+    amount: params.amount,
+    emisCleared,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: _role,
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+    paymentMode: params.paymentMode || "CASH",
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: _id, actorRole: _role, actorName: params.agentName,
+    action: "ADVANCE_PAYMENT_RECORDED",
+    entityType: "Loan", entityId: params.loanId,
+    metadata: { amount: params.amount, receiptNo, emisCleared, newOutstanding, loanClosed, customerId: params.customerId },
+  });
+
+  if (loanClosed) {
+    await createAuditLog({
+      organizationId: params.organizationId, actorId: _id, actorRole: _role, actorName: params.agentName,
+      action: "LOAN_CLOSED", entityType: "Loan", entityId: params.loanId,
+      metadata: { customerId: params.customerId, via: "advance_payment" },
+    });
+    try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
+  }
+
+  return { receiptNo, loanClosed, emisCleared, collectionId: collRef.id };
+}
+
+// ── Foreclosure ───────────────────────────────────────────────────────────────
+
+export interface ForeclosureResult {
+  receiptNo: string;
+  amountPaid: number;
+  collectionId: string;
+}
+
+export async function recordForeclosure(params: {
+  organizationId: string;
+  organizationName: string;
+  loanId: string;
+  customerId: string;
+  agentId: string;
+  agentName: string;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  collectedByRole?: string;
+  collectedById?: string;
+}): Promise<ForeclosureResult> {
+  const loanRef  = doc(db, "loans", params.loanId);
+  const loanSnap = await getDoc(loanRef);
+  if (!loanSnap.exists()) throw new Error("Loan not found.");
+  const loan = loanSnap.data() as Loan;
+  if ((loan.status || "").toUpperCase() !== "ACTIVE") throw new Error("Only active loans can be foreclosed.");
+
+  const outstanding = loan.outstandingBalance ?? loan.balanceRemaining ?? 0;
+  if (outstanding <= 0) throw new Error("This loan has no outstanding balance.");
+
+  // Mark all unpaid installments as PAID
+  const instSnap = await getDocs(query(
+    collection(db, "loan_installments"),
+    where("loanId", "==", params.loanId)
+  ));
+
+  const receiptNo = await generateReceiptNo(params.organizationId);
+  const _role = params.collectedByRole || "AGENT";
+  const _id   = params.collectedById   || params.agentId;
+
+  const updatePromises: Promise<any>[] = [];
+  for (const d of instSnap.docs) {
+    const inst = d.data() as LoanInstallment;
+    if ((inst.status || "").toUpperCase() !== "PAID") {
+      updatePromises.push(updateDoc(d.ref, {
+        status: "PAID",
+        paidAmount: inst.emiAmount ?? 0,
+        remainingAmount: 0,
+        paidAt: serverTimestamp(),
+        receiptNo,
+        collectedByAgentId: _id,
+        collectedByAgentName: params.agentName,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  }
+  await Promise.all(updatePromises);
+
+  // Close the loan
+  await updateDoc(loanRef, {
+    outstandingBalance: 0,
+    balanceRemaining: 0,
+    status: "CLOSED",
+    closedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // Collection record
+  const collRef = doc(collection(db, "collections"));
+  await setDoc(collRef, {
+    id: collRef.id,
+    organizationId: params.organizationId,
+    agentId: params.agentId,
+    collectedById: _id,
+    customerId: params.customerId,
+    collectionType: "LOAN_EMI",
+    repaymentType: "FORECLOSURE",
+    loanId: params.loanId,
+    amount: outstanding,
+    receiptNo,
+    collectedAt: serverTimestamp(),
+    collectedByName: params.agentName,
+    collectedByRole: _role,
+    timestamp: serverTimestamp(),
+    status: "completed",
+    assigned_to_user_id: params.agentId,
+    paymentMode: params.paymentMode || "CASH",
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId,
+    actorId: _id, actorRole: _role, actorName: params.agentName,
+    action: "FORECLOSURE_RECORDED",
+    entityType: "Loan", entityId: params.loanId,
+    metadata: { amountPaid: outstanding, receiptNo, customerId: params.customerId },
+  });
+
+  await createAuditLog({
+    organizationId: params.organizationId, actorId: _id, actorRole: _role, actorName: params.agentName,
+    action: "LOAN_CLOSED", entityType: "Loan", entityId: params.loanId,
+    metadata: { customerId: params.customerId, via: "foreclosure" },
+  });
+
+  try { await syncNomineeLock(params.customerId, params.organizationId); } catch (_) {}
+
+  return { receiptNo, amountPaid: outstanding, collectionId: collRef.id };
 }
 
 // ── Loan / Installment Helpers ────────────────────────────────────────────────

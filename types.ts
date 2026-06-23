@@ -216,6 +216,7 @@ export interface Loan {
   loanAccountNumber?: string;
   status: "PENDING" | "ACTIVE" | "CLOSED" | "REJECTED";
   outstandingBalance: number;
+  closedAt?: FSTimestamp;
   rejectionReason?: string;
   loanAssignedCollectorId?: string;
   loanAssignedCollectorName?: string;
@@ -248,11 +249,27 @@ export interface LoanInstallment {
   dueDate: FSTimestamp;
   emiAmount: number;
   paidAmount: number;
+  remainingAmount?: number;
   paidAt: FSTimestamp;
-  status: "PENDING" | "PAID" | "OVERDUE";
+  status: "PENDING" | "UPCOMING" | "DUE" | "PAID" | "PARTIAL" | "OVERDUE";
   receiptNo?: string;
   collectedByAgentId?: string;
   collectedByAgentName?: string;
+}
+
+// ── Loan Disbursements ────────────────────────────────────────────────────────
+export interface LoanDisbursement {
+  id: string;
+  loanId: string;
+  loanAccountNumber: string;
+  organizationId: string;
+  customerId: string;
+  approvedAmount: number;
+  disbursementDate: FSTimestamp;
+  disbursementMethod?: string;
+  recordedBy: string;
+  recordedByName?: string;
+  createdAt: FSTimestamp;
 }
 
 // ── Collections (master ledger) ───────────────────────────────────────────────
@@ -312,7 +329,8 @@ export type AuditAction =
   | "LOAN_APPLICATION_SUBMITTED" | "LOAN_APPLICATION_EDITED"
   | "LOAN_AMOUNT_MODIFIED" | "LOAN_DISBURSED" | "LOAN_WRITTEN_OFF"
   // Collections / EMI
-  | "EMI_COLLECTION_RECORDED" | "COLLECTION_REVERSED" | "RECEIPT_REGENERATED"
+  | "EMI_COLLECTION_RECORDED" | "PARTIAL_PAYMENT_RECORDED" | "ADVANCE_PAYMENT_RECORDED"
+  | "FORECLOSURE_RECORDED" | "COLLECTION_REVERSED" | "RECEIPT_REGENERATED"
   // Reports
   | "REPORT_GENERATED" | "REPORT_EXPORTED" | "EXCEL_EXPORTED" | "PDF_EXPORTED"
   // Auth

@@ -13,11 +13,13 @@ export interface ReceiptData {
   loanAmount?: number;
   newBalance?: number;
   collectionType: "SAVINGS" | "LOAN_EMI" | "BOTH";
+  repaymentType?: "REGULAR" | "PARTIAL" | "ADVANCE" | "FORECLOSURE";
   agentName: string;
   collectedAt: Date;
   loanId?: string;
   installmentNo?: number;
   loanOutstanding?: number;
+  emisCleared?: number;
 }
 
 interface ReceiptModalProps {
@@ -42,12 +44,16 @@ function fmtDate(d: Date) {
  * @page sets size:80mm auto so no blank pages appear.
  */
 function buildPrintHtml(r: ReceiptData): string {
-  const typeLabel =
-    r.collectionType === "SAVINGS"
-      ? "SAVINGS RECEIPT"
-      : r.collectionType === "BOTH"
-      ? "COMBINED RECEIPT"
-      : "EMI PAYMENT RECEIPT";
+  const typeLabel = (() => {
+    if (r.collectionType === "SAVINGS") return "SAVINGS RECEIPT";
+    if (r.collectionType === "BOTH")    return "COMBINED RECEIPT";
+    switch (r.repaymentType) {
+      case "PARTIAL":     return "PARTIAL PAYMENT RECEIPT";
+      case "ADVANCE":     return "ADVANCE PAYMENT RECEIPT";
+      case "FORECLOSURE": return "LOAN FORECLOSURE RECEIPT";
+      default:            return "EMI PAYMENT RECEIPT";
+    }
+  })();
 
   const divider = `<div style="border-top:1px dashed #888;margin:8px 0;"></div>`;
 
@@ -189,12 +195,17 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
   const displayBalance = safeN(receipt.newBalance);
   const displayOutstanding = safeN(receipt.loanOutstanding);
 
-  const typeLabel =
-    receipt.collectionType === "SAVINGS"
-      ? "✓ Savings Receipt"
-      : receipt.collectionType === "BOTH"
-      ? "✓ Combined Receipt"
-      : "✓ EMI Payment Receipt";
+  const repayLabel = (() => {
+    if (receipt.collectionType === "SAVINGS") return "✓ Savings Receipt";
+    if (receipt.collectionType === "BOTH")    return "✓ Combined Receipt";
+    switch (receipt.repaymentType) {
+      case "PARTIAL":     return "✓ Partial Payment";
+      case "ADVANCE":     return "✓ Advance Payment";
+      case "FORECLOSURE": return "✓ Foreclosure — Loan Closed";
+      default:            return "✓ EMI Payment Receipt";
+    }
+  })();
+  const typeLabel = repayLabel;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -269,6 +280,9 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
                 </div>
                 {receipt.collectionType === "SAVINGS" && receipt.newBalance !== undefined && (
                   <ThermalRow label="New Balance" value={`₹${displayBalance.toLocaleString()}`} />
+                )}
+                {receipt.collectionType === "LOAN_EMI" && receipt.emisCleared !== undefined && (
+                  <ThermalRow label="EMIs Cleared" value={`${receipt.emisCleared}`} />
                 )}
                 {receipt.collectionType === "LOAN_EMI" && receipt.loanOutstanding !== undefined && (
                   <ThermalRow
