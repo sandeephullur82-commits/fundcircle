@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,43 +6,37 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { fcToast } from "@/lib/toast";
 import {
-  CheckCircle, Loader2, TrendingUp, Banknote, ShieldCheck,
-  AlertTriangle, ChevronDown, Crown, Calendar, ClipboardCheck,
-  UserCheck, Building2, Smartphone, FileText, ChevronRight,
-  CreditCard, UserPlus, Save,
+  CheckCircle, Loader2, AlertTriangle, ChevronDown,
+  Crown, Shield, UserCheck, FileText, TrendingUp,
+  XCircle, RefreshCw,
 } from "lucide-react";
-import { calculateEMI, approveLoan, createLoan } from "@/lib/services";
+import { calculateEMI, approveLoan, createLoan, createAuditLog } from "@/lib/services";
+import { checkLoanEligibility, EligibilityResult } from "@/lib/loanEligibility";
 import { Loan, LoanApplication, Membership } from "@/types";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import FieldError from "@/components/ui/FieldError";
-import {
-  validateAmount, validateRate, validatePhone10,
-  validateName, sanitizeName, sanitizeMultiline,
-} from "@/lib/validation";
+import SearchSelect from "@/components/ui/SearchSelect";
+import { validateAmount, validateRate, sanitizeMultiline } from "@/lib/validation";
 
-type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 type DisbursementMethod = "CASH" | "UPI" | "BANK_TRANSFER" | "CHEQUE";
-type VerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
-
-const NOMINEE_THRESHOLD = 0; // nominee always required
 
 const CHECKLIST_ITEMS = [
-  { id: "identity",   label: "Customer identity documents verified" },
+  { id: "identity",   label: "Identity documents verified (Aadhaar/PAN)" },
   { id: "income",     label: "Income proof / bank statement reviewed" },
   { id: "nominee",    label: "Nominee details confirmed" },
   { id: "purpose",    label: "Loan purpose valid and documented" },
   { id: "repayment",  label: "Repayment capacity assessed" },
 ];
 
+function toInputDate(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
 function generateLoanAccountNumber(): string {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const rand = Math.floor(100000 + Math.random() * 900000);
   return `FC-LOAN-${datePart}-${rand}`;
-}
-
-function toInputDate(d: Date): string {
-  return d.toISOString().split("T")[0];
 }
 
 interface Props {
@@ -52,11 +46,12 @@ interface Props {
   collectors: Membership[];
   actorId: string;
   actorName: string;
+  organizationId: string;
   onClose: () => void;
 }
 
 export default function LoanApprovalDialog({
-  loan, application, members, collectors, actorId, actorName, onClose,
+  loan, application, members, collectors, actorId, actorName, organizationId, onClose,
 }: Props) {
   const isOpen = !!(loan || application);
   const isApplicationMode = !loan && !!application;
@@ -67,69 +62,60 @@ export default function LoanApprovalDialog({
     (customer as any)?.fullName || (customer as any)?.name ||
     application?.customerName || customerId.slice(-8);
 
-  const nomineeName    = (customer as any)?.nomineeName    || customer?.nominee?.name     || "";
-  const nomineeRelation = (customer as any)?.nomineeRelation || customer?.nominee?.relation || "";
-  const nomineePhone   = (customer as any)?.nomineePhone   || customer?.nominee?.phone    || "";
-  const nomineeAddress = (customer as any)?.nomineeAddress || customer?.nominee?.address  || "";
-  const nomineeComplete = !!(nomineeName && nomineeRelation);
-
   const requestedAmount = loan?.principalAmount ?? (loan as any)?.principal ?? application?.loanAmount ?? 0;
   const requestedTenure = loan?.tenureMonths ?? (loan as any)?.durationMonths ?? application?.tenureMonths ?? 12;
-  const ct = (customer as any)?.customerType as string | undefined;
-  const ctLabel = ct === "SAVINGS" ? "Savings Only" : ct === "LOAN" ? "Loan Only" : ct === "SAVINGS_LOAN" ? "Savings + Loan" : "";
 
   const defaultDisbDate = toInputDate(new Date());
   const defaultFirstEmi = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return toInputDate(d); })();
 
-  const [approvedAmount, setApprovedAmount]     = useState(String(requestedAmount));
-  const [interestRate, setInterestRate]         = useState(String(loan?.interestRate ?? (application as any)?.interestRate ?? 12));
+  const [approvedAmount, setApprovedAmount] = useState(String(requestedAmount));
+  const [interestRate, setInterestRate]     = useState(String(loan?.interestRate ?? (application as any)?.interestRate ?? 12));
   const [disbursementDate, setDisbursementDate] = useState(defaultDisbDate);
-  const [firstEmiDate, setFirstEmiDate]         = useState(defaultFirstEmi);
+  const [firstEmiDate, setFirstEmiDate]     = useState(defaultFirstEmi);
   const [disbursementMethod, setDisbursementMethod] = useState<DisbursementMethod>("CASH");
+  const [collectorId, setCollectorId]       = useState("");
+  const [approvalNotes, setApprovalNotes]   = useState("");
+  const [checklist, setChecklist]           = useState<Record<string, boolean>>({});
+  const [fieldErrors, setFieldErrors]       = useState<Record<string, string>>({});
+  const [processing, setProcessing]         = useState(false);
+
+  // Disbursement reference fields
   const [upiId, setUpiId]         = useState("");
-  const [upiUtr, setUpiUtr]       = useState("");
   const [bankAccNo, setBankAccNo] = useState("");
   const [bankIfsc, setBankIfsc]   = useState("");
-  const [bankUtr, setBankUtr]     = useState("");
   const [chequeNo, setChequeNo]   = useState("");
-  const [chequeBank, setChequeBank] = useState("");
-  const [chequeDate, setChequeDate] = useState("");
-  const [riskLevel, setRiskLevel]   = useState<RiskLevel>("LOW");
-  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>("PENDING");
-  const [checklist, setChecklist]   = useState<Record<string, boolean>>({});
-  const [showGuarantor, setShowGuarantor] = useState(false);
-  const [guarantorName, setGuarantorName]       = useState("");
-  const [guarantorPhone, setGuarantorPhone]     = useState("");
-  const [guarantorRelation, setGuarantorRelation] = useState("");
-  const [collectorId, setCollectorId] = useState("");
-  const [approvalNotes, setApprovalNotes] = useState("");
-  const [processing, setProcessing] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Inline nominee form state
-  const [showInlineNominee, setShowInlineNominee] = useState(false);
-  const [savingInlineNominee, setSavingInlineNominee] = useState(false);
-  const [inlineNomineeName, setInlineNomineeName] = useState("");
-  const [inlineNomineeRelation, setInlineNomineeRelation] = useState("");
-  const [inlineNomineePhone, setInlineNomineePhone] = useState("");
-  const [inlineNomineeAddress, setInlineNomineeAddress] = useState("");
-  // Locally-saved nominee override (enables approval without page reload)
-  const [localNomineeSaved, setLocalNomineeSaved] = useState<{
-    name: string; relation: string; phone: string; address: string;
-  } | null>(null);
+  // Eligibility
+  const [eligibility, setEligibility]   = useState<EligibilityResult | null>(null);
+  const [eligLoading, setEligLoading]   = useState(false);
 
+  const loadEligibility = useCallback(async () => {
+    if (!customerId || !organizationId) return;
+    setEligLoading(true);
+    try {
+      const result = await checkLoanEligibility({
+        customerId,
+        organizationId,
+        customerCreatedAt: (customer as any)?.createdAt,
+        minAccountAgeMonths: 1,
+        minSavingsBalance: 0,
+      });
+      setEligibility(result);
+    } catch {
+      setEligibility(null);
+    } finally {
+      setEligLoading(false);
+    }
+  }, [customerId, organizationId]);
+
+  // Reset + load eligibility when dialog opens
   useEffect(() => {
     if (!isOpen) {
-      setLocalNomineeSaved(null);
-      setShowInlineNominee(false);
-      setInlineNomineeName(""); setInlineNomineeRelation("");
-      setInlineNomineePhone(""); setInlineNomineeAddress("");
+      setEligibility(null);
+      setFieldErrors({});
+      setChecklist({});
       return;
     }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
     const amt = loan?.principalAmount ?? (loan as any)?.principal ?? application?.loanAmount ?? 0;
     const rate = loan?.interestRate ?? (application as any)?.interestRate ?? 12;
     setApprovedAmount(String(amt));
@@ -138,17 +124,14 @@ export default function LoanApprovalDialog({
     const fe = new Date(); fe.setMonth(fe.getMonth() + 1);
     setFirstEmiDate(toInputDate(fe));
     setDisbursementMethod("CASH");
-    setUpiId(""); setUpiUtr(""); setBankAccNo(""); setBankIfsc(""); setBankUtr("");
-    setChequeNo(""); setChequeBank(""); setChequeDate("");
-    setRiskLevel((loan?.riskLevel as RiskLevel) || "LOW");
-    setVerificationStatus("PENDING");
-    setChecklist({});
-    setShowGuarantor(false);
-    setGuarantorName(""); setGuarantorPhone(""); setGuarantorRelation("");
+    setUpiId(""); setBankAccNo(""); setBankIfsc(""); setChequeNo("");
     setApprovalNotes(loan?.approvalNotes || "");
+    setChecklist({});
+    setFieldErrors({});
+
+    // Set collector
     if (loan?.loanAssignedCollectorId) {
-      const stored = loan.loanAssignedCollectorId;
-      const found = collectors.find((c) => c.id === stored || (c as any).clerkUserId === stored);
+      const found = collectors.find((c) => c.id === loan.loanAssignedCollectorId || (c as any).clerkUserId === loan.loanAssignedCollectorId);
       setCollectorId(found?.id || "");
     } else {
       const agentId = (customer as any)?.assignedAgentId || "";
@@ -157,6 +140,8 @@ export default function LoanApprovalDialog({
       else if (collectors.length === 1) setCollectorId(collectors[0].id);
       else setCollectorId("");
     }
+
+    loadEligibility();
   }, [isOpen, loan?.id, application?.id]);
 
   const approvedAmountNum = parseFloat(approvedAmount) || 0;
@@ -167,122 +152,60 @@ export default function LoanApprovalDialog({
   const totalRepayment = liveEMI * requestedTenure;
   const totalInterest  = totalRepayment - approvedAmountNum;
 
-  // Effective nominee — local override takes precedence after inline save
-  const effectiveNomineeName     = localNomineeSaved?.name     ?? nomineeName;
-  const effectiveNomineeRelation = localNomineeSaved?.relation ?? nomineeRelation;
-  const effectiveNomineePhone    = localNomineeSaved?.phone    ?? nomineePhone;
-  const effectiveNomineeAddress  = localNomineeSaved?.address  ?? nomineeAddress;
-  const effectiveNomineeComplete = !!(effectiveNomineeName && effectiveNomineeRelation);
-
-  const requiresNominee = approvedAmountNum > NOMINEE_THRESHOLD;
-  const nomineeBlocked  = requiresNominee && !effectiveNomineeComplete;
-  const checkedCount    = Object.values(checklist).filter(Boolean).length;
-
   const isOwnerMember = (m: any) => (m?.role || "").toUpperCase() === "OWNER";
   const collectorLabel = (c: any) => {
     const name = c.fullName || c.name || c.email || c.id;
     return isOwnerMember(c) ? `${name} (Owner)` : name;
   };
+  const collectorOptions = collectors.map((c) => ({
+    value: c.id,
+    label: collectorLabel(c),
+    sublabel: c.email || "",
+    badge: isOwnerMember(c) ? "Owner" : undefined,
+  }));
 
   const buildDisbRef = (): string => {
-    if (disbursementMethod === "UPI")           return [upiId, upiUtr].filter(Boolean).join(" | ");
-    if (disbursementMethod === "BANK_TRANSFER")  return [bankAccNo, bankIfsc, bankUtr].filter(Boolean).join(" | ");
-    if (disbursementMethod === "CHEQUE")         return [chequeNo, chequeBank, chequeDate].filter(Boolean).join(" | ");
+    if (disbursementMethod === "UPI")           return upiId;
+    if (disbursementMethod === "BANK_TRANSFER")  return [bankAccNo, bankIfsc].filter(Boolean).join(" | ");
+    if (disbursementMethod === "CHEQUE")         return chequeNo;
     return "";
   };
 
-  const handleSaveInlineNominee = async () => {
-    const nameRes = validateName(inlineNomineeName.trim(), { label: "Nominee name", minLength: 2, maxLength: 100 });
-    if (!nameRes.valid) { toast.error(nameRes.error!); return; }
-    if (!inlineNomineeRelation) { toast.error("Nominee relationship is required."); return; }
-    if (inlineNomineePhone.trim()) {
-      const phoneRes = validatePhone10(inlineNomineePhone.trim());
-      if (!phoneRes.valid) { toast.error(phoneRes.error!); return; }
-    }
-    const cleanName    = sanitizeName(inlineNomineeName);
-    const cleanPhone   = inlineNomineePhone.replace(/\D/g, "").slice(0, 10);
-    const cleanAddress = sanitizeMultiline(inlineNomineeAddress, 500);
-    const customerDoc = members.find((m) => m.id === customerId || m.clerkUserId === customerId);
-    if (!customerDoc) { toast.error("Customer profile not found."); return; }
-    setSavingInlineNominee(true);
-    try {
-      const nomineeFields = {
-        nomineeName:     cleanName,
-        nomineeRelation: inlineNomineeRelation,
-        nomineePhone:    cleanPhone,
-        nomineeAddress:  cleanAddress,
-        nominee: {
-          name:     cleanName,
-          relation: inlineNomineeRelation,
-          phone:    cleanPhone,
-          address:  cleanAddress,
-        },
-        updatedAt: serverTimestamp(),
-      };
-      await updateDoc(doc(db, "organizationMembers", customerDoc.id), nomineeFields);
-      try { await updateDoc(doc(db, "customers", customerDoc.id), nomineeFields); } catch (_) {}
-      setLocalNomineeSaved({
-        name:     cleanName,
-        relation: inlineNomineeRelation,
-        phone:    cleanPhone,
-        address:  cleanAddress,
-      });
-      setShowInlineNominee(false);
-      toast.success("Nominee Saved", { description: "Approval is now enabled." });
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to save nominee.");
-    } finally {
-      setSavingInlineNominee(false);
-    }
-  };
-
   const handleApprove = async () => {
-    if (nomineeBlocked) {
-      fcToast.nomineeRequired();
-      return;
-    }
-    // Validate amount and rate
-    const amtRes = validateAmount(approvedAmount, { label: "Approved amount", min: 1000, max: 10_000_000 });
-    if (!amtRes.valid) {
-      setFieldErrors((p) => ({ ...p, approvedAmount: amtRes.error! }));
-      toast.error(amtRes.error!);
-      return;
-    }
-    const rateRes = validateRate(interestRate, { label: "Interest rate", max: 60 });
-    if (!rateRes.valid) {
-      setFieldErrors((p) => ({ ...p, interestRate: rateRes.error! }));
-      toast.error(rateRes.error!);
-      return;
-    }
-    // Validate disbursement reference fields
-    const disbErrors: Record<string, string> = {};
-    if (disbursementMethod === "UPI"          && !upiId.trim())    disbErrors.upiId    = "UPI ID is required for UPI disbursement.";
-    if (disbursementMethod === "BANK_TRANSFER" && !bankAccNo.trim()) disbErrors.bankAccNo = "Account number is required.";
-    if (disbursementMethod === "BANK_TRANSFER" && !bankIfsc.trim()) disbErrors.bankIfsc  = "IFSC code is required.";
-    if (disbursementMethod === "CHEQUE"        && !chequeNo.trim()) disbErrors.chequeNo  = "Cheque number is required.";
-    if (Object.keys(disbErrors).length) {
-      setFieldErrors((p) => ({ ...p, ...disbErrors }));
-      toast.error("Please fill in the required disbursement reference fields.");
-      return;
-    }
-    // Clear any stale field errors before proceeding
-    setFieldErrors({});
-    if (!approvedAmountNum || approvedAmountNum <= 0) {
-      toast.error("Approved amount must be greater than zero.");
+    if (eligibility && !eligibility.eligible) {
+      toast.error("Eligibility Check Failed", {
+        description: eligibility.blockers.join("; "),
+      });
       return;
     }
 
-    const collector      = collectors.find((c) => c.id === collectorId);
+    const errors: Record<string, string> = {};
+    const amtRes = validateAmount(approvedAmount, { label: "Approved amount", min: 1000, max: 10_000_000 });
+    if (!amtRes.valid) errors.approvedAmount = amtRes.error!;
+    const rateRes = validateRate(interestRate, { label: "Interest rate", max: 60 });
+    if (!rateRes.valid) errors.interestRate = rateRes.error!;
+    if (disbursementMethod === "UPI" && !upiId.trim()) errors.disbRef = "UPI ID is required.";
+    if (disbursementMethod === "BANK_TRANSFER" && !bankAccNo.trim()) errors.disbRef = "Account number is required.";
+    if (disbursementMethod === "BANK_TRANSFER" && !bankIfsc.trim()) errors.disbRef2 = "IFSC code is required.";
+    if (disbursementMethod === "CHEQUE" && !chequeNo.trim()) errors.disbRef = "Cheque number is required.";
+
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      fcToast.formError();
+      return;
+    }
+    setFieldErrors({});
+
+    const collector = collectors.find((c) => c.id === collectorId);
     const loanAccountNum = generateLoanAccountNumber();
-    const completedItems = CHECKLIST_ITEMS.filter((i) => checklist[i.id]).map((i) => i.label);
-    const disbDate       = disbursementDate ? new Date(disbursementDate) : new Date();
-    const fEmiDate       = firstEmiDate ? new Date(firstEmiDate) : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; })();
-    const disbRef        = buildDisbRef();
+    const disbDate = disbursementDate ? new Date(disbursementDate) : new Date();
+    const fEmiDate = firstEmiDate ? new Date(firstEmiDate) : (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d; })();
     const collectorParams = {
       loanAssignedCollectorId:   (collector as any)?.clerkUserId || collector?.id || collectorId || "",
       loanAssignedCollectorName: collector ? ((collector.fullName || (collector as any).name) ?? "") : "",
       loanAssignedCollectorRole: collector ? ((collector.role as string) || "AGENT") : "",
     };
+    const completedItems = CHECKLIST_ITEMS.filter((i) => checklist[i.id]).map((i) => i.label);
 
     setProcessing(true);
     try {
@@ -311,15 +234,10 @@ export default function LoanApprovalDialog({
         firstEmiDate: fEmiDate,
         disbursementDate: disbDate,
         loanAccountNumber: loanAccountNum,
-        guarantorName:     guarantorName || undefined,
-        guarantorPhone:    guarantorPhone || undefined,
-        guarantorRelation: guarantorRelation || undefined,
         approvalChecklist: completedItems,
-        riskLevel,
         approvalNotes,
         disbursementMethod,
-        disbursementReference: disbRef,
-        verificationStatus: isApplicationMode ? verificationStatus : undefined,
+        disbursementReference: buildDisbRef(),
         ...collectorParams,
       });
 
@@ -331,13 +249,23 @@ export default function LoanApprovalDialog({
           reviewedByActorName: actorName,
           reviewedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          verificationStatus,
-          riskLevel,
-          approvalNotes,
         });
       }
 
-      const custName = (loan as any)?.customerName || (application as any)?.customerName || "";
+      // Notify customer
+      try {
+        await addDoc(collection(db, "notifications"), {
+          userId: customerId,
+          organizationId,
+          type: "LOAN_APPROVED",
+          title: "Loan Approved! 🎉",
+          message: `Your loan of ₹${approvedAmountNum.toLocaleString()} has been approved. EMI of ₹${Math.round(liveEMI).toLocaleString()}/month starts on ${fEmiDate.toLocaleDateString("en-IN")}.`,
+          metadata: { loanId: finalLoanId, amount: approvedAmountNum, emiAmount: liveEMI },
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      } catch (_) {}
+
       fcToast.loanApproved(custName, approvedAmountNum, loanAccountNum);
       onClose();
     } catch (err: any) {
@@ -347,519 +275,313 @@ export default function LoanApprovalDialog({
     }
   };
 
+  const eligibilityPassed = eligibility?.eligible ?? true;
+  const eligibilityBlockers = eligibility?.blockers ?? [];
+
   return (
     <Dialog open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-emerald-700 flex items-center gap-2">
             <CheckCircle className="w-5 h-5" />
-            {isApplicationMode ? "Approve Loan Application" : "Approve Loan"}
+            Approve Loan {isApplicationMode ? "Application" : ""}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 mt-1">
 
-          {/* ── 1. Customer Profile ──────────────────────────────────────────── */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Customer Profile</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-              {[
-                { label: "Name",    value: custName },
-                { label: "Email",   value: (customer as any)?.email || application?.customerEmail || "" },
-                { label: "Phone",   value: (customer as any)?.phone || "" },
-                { label: "Aadhaar", value: (customer as any)?.aadhaarLast4 ? `XXXX XXXX XXXX ${(customer as any).aadhaarLast4}` : "" },
-              ].filter((r) => r.value).map((row) => (
-                <div key={row.label} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">{row.label}</span>
-                  <span className="font-medium text-slate-900">{row.value}</span>
-                </div>
-              ))}
-              {ctLabel && (
-                <div className="flex items-center justify-between text-sm col-span-2">
-                  <span className="text-slate-500">Customer Type</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    ct === "SAVINGS" ? "bg-emerald-100 text-emerald-700" :
-                    ct === "LOAN"    ? "bg-blue-100 text-blue-700"       :
-                                       "bg-violet-100 text-violet-700"
-                  }`}>{ctLabel}</span>
-                </div>
-              )}
-              {(customer as any)?.address && (
-                <div className="flex items-start justify-between text-sm col-span-2">
-                  <span className="text-slate-500 shrink-0">Address</span>
-                  <span className="text-slate-700 text-right ml-4">{(customer as any).address}</span>
-                </div>
-              )}
+          {/* ── Customer Profile ─────────────────────────────────────────────── */}
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Customer</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-bold text-slate-900">{custName}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {(customer as any)?.email || application?.customerEmail || ""}
+                  {(customer as any)?.phone && ` · ${(customer as any).phone}`}
+                </p>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-xs text-slate-400">Requested</p>
+                <p className="font-bold text-slate-900">₹{Number(requestedAmount).toLocaleString()}</p>
+                <p className="text-xs text-slate-500">{requestedTenure} months</p>
+              </div>
             </div>
           </div>
 
-          {/* ── 2. Nominee Status Card ───────────────────────────────────────── */}
-          <div className={`rounded-xl p-4 border space-y-2 ${
-            effectiveNomineeComplete ? "bg-purple-50 border-purple-100" :
-            showInlineNominee        ? "bg-blue-50 border-blue-200"     :
-                                       "bg-red-50 border-red-200"
+          {/* ── Eligibility Checklist ─────────────────────────────────────────── */}
+          <div className={`rounded-2xl p-4 border space-y-3 ${
+            eligLoading ? "bg-slate-50 border-slate-100" :
+            eligibilityPassed ? "bg-emerald-50 border-emerald-100" :
+            "bg-red-50 border-red-100"
           }`}>
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex-1">Nominee Details</p>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                effectiveNomineeComplete ? "bg-purple-200 text-purple-800" :
-                showInlineNominee        ? "bg-blue-200 text-blue-800"     :
-                                           "bg-red-200 text-red-800"
-              }`}>
-                {effectiveNomineeComplete ? "✓ Complete" : "Required — Missing"}
-              </span>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Eligibility Check</p>
+              <div className="flex items-center gap-2">
+                {eligLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+                {!eligLoading && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    eligibilityPassed ? "bg-emerald-200 text-emerald-800" : "bg-red-200 text-red-800"
+                  }`}>
+                    {eligibilityPassed ? "✓ Eligible" : "✗ Issues Found"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={loadEligibility}
+                  disabled={eligLoading}
+                  className="text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Refresh eligibility"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${eligLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
             </div>
 
-            {effectiveNomineeComplete ? (
-              /* Nominee exists — show details */
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                {[
-                  { label: "Name",     value: effectiveNomineeName },
-                  { label: "Relation", value: effectiveNomineeRelation },
-                  { label: "Phone",    value: effectiveNomineePhone },
-                  { label: "Address",  value: effectiveNomineeAddress },
-                ].filter((r) => r.value).map((row) => (
-                  <div key={row.label} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">{row.label}</span>
-                    <span className="font-medium text-slate-800">{row.value}</span>
+            {eligLoading ? (
+              <div className="space-y-2">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-8 bg-white/60 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : eligibility ? (
+              <div className="space-y-2">
+                {eligibility.checks.map((check) => (
+                  <div
+                    key={check.id}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border ${
+                      check.status === "PASS" ? "bg-white border-emerald-100" :
+                      check.status === "FAIL" ? "bg-white border-red-200" :
+                      check.status === "WARN" ? "bg-white border-amber-200" :
+                      "bg-white border-slate-100"
+                    }`}
+                  >
+                    <span className={`text-base shrink-0 mt-0.5 ${
+                      check.status === "PASS" ? "text-emerald-500" :
+                      check.status === "FAIL" ? "text-red-500" :
+                      check.status === "WARN" ? "text-amber-500" :
+                      "text-slate-300"
+                    }`}>
+                      {check.status === "PASS" ? "✓" :
+                       check.status === "FAIL" ? "✗" :
+                       check.status === "WARN" ? "⚠" : "—"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">{check.label}</p>
+                      {check.detail && <p className="text-xs text-slate-500 mt-0.5">{check.detail}</p>}
+                    </div>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                      check.status === "PASS" ? "bg-emerald-100 text-emerald-700" :
+                      check.status === "FAIL" ? "bg-red-100 text-red-700" :
+                      check.status === "WARN" ? "bg-amber-100 text-amber-700" :
+                      "bg-slate-100 text-slate-500"
+                    }`}>{check.status}</span>
                   </div>
                 ))}
-                {localNomineeSaved && (
-                  <div className="col-span-2 mt-1 text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" /> Nominee added in this session
-                  </div>
-                )}
               </div>
-            ) : showInlineNominee ? (
-              /* Inline add form */
-              <div className="space-y-2.5">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1 col-span-2">
-                    <Label className="text-xs text-slate-500">Full Name *</Label>
-                    <input
-                      value={inlineNomineeName}
-                      onChange={(e) => setInlineNomineeName(e.target.value)}
-                      placeholder="Nominee's full name"
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400/30"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Relationship *</Label>
-                    <select
-                      value={inlineNomineeRelation}
-                      onChange={(e) => setInlineNomineeRelation(e.target.value)}
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400/30"
-                    >
-                      <option value="">Select…</option>
-                      {["Spouse","Father","Mother","Son","Daughter","Sibling","Other"].map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500">Phone</Label>
-                    <input
-                      value={inlineNomineePhone}
-                      onChange={(e) => setInlineNomineePhone(e.target.value)}
-                      placeholder="Contact number"
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400/30"
-                    />
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                    <Label className="text-xs text-slate-500">Address</Label>
-                    <input
-                      value={inlineNomineeAddress}
-                      onChange={(e) => setInlineNomineeAddress(e.target.value)}
-                      placeholder="Nominee's address"
-                      className="w-full h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400/30"
-                    />
-                  </div>
+            ) : null}
+
+            {!eligLoading && eligibilityBlockers.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-bold text-red-700">Approval Blocked</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {eligibilityBlockers.map((b, i) => (
+                      <li key={i} className="text-xs text-red-600">· {b}</li>
+                    ))}
+                  </ul>
                 </div>
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveInlineNominee}
-                    disabled={savingInlineNominee}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    {savingInlineNominee ? (
-                      <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />Saving…</>
-                    ) : (
-                      <><Save className="w-3.5 h-3.5 mr-1" />Save Nominee</>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowInlineNominee(false)}
-                    disabled={savingInlineNominee}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              /* No nominee — show options */
-              <div className="space-y-2">
-                <p className="text-xs text-red-700 font-semibold">
-                  ⚠ Nominee is required to approve this loan.
-                </p>
-                <p className="text-[11px] text-slate-500">Choose one of the options below:</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
-                  onClick={() => setShowInlineNominee(true)}
-                >
-                  <UserPlus className="w-3.5 h-3.5 mr-1.5" />
-                  Option A — Add Nominee Now
-                </Button>
-                <p className="text-[10px] text-slate-400 text-center">— or —</p>
-                <p className="text-[11px] text-slate-500 text-center">
-                  Option B — Close this dialog, open the customer profile and add the nominee there, then come back to approve.
-                </p>
               </div>
             )}
           </div>
 
-          {/* ── 3. Loan Terms ────────────────────────────────────────────────── */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Terms</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-500">Requested Amount</Label>
-                <div className="h-10 rounded-md border border-slate-200 bg-slate-100 px-3 flex items-center text-sm font-semibold text-slate-500 select-none">
-                  ₹{Number(requestedAmount).toLocaleString()}
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-emerald-700">
-                  Approved Amount <span className="text-red-500">*</span>
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500 pointer-events-none">₹</span>
-                  <Input
-                    type="number" min="1" step="1"
-                    value={approvedAmount}
-                    onChange={(e) => {
-                      setApprovedAmount(e.target.value);
-                      const r = validateAmount(e.target.value, { label: "Approved amount", min: 1000, max: 10_000_000 });
-                      setFieldErrors((p) => ({ ...p, approvedAmount: r.valid ? "" : r.error! }));
-                    }}
-                    className="pl-7 font-semibold border-emerald-300 focus-visible:ring-emerald-300"
-                    placeholder={String(requestedAmount)}
-                  />
-                </div>
-                <FieldError error={fieldErrors.approvedAmount} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-500">Interest Rate (% p.a.)</Label>
+          {/* ── Loan Terms ───────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold text-slate-700">
+                Approved Amount <span className="text-red-500">*</span>
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold">₹</span>
                 <Input
-                  type="number" min="0" max="100" step="0.1"
-                  value={interestRate}
-                  onChange={(e) => {
-                    setInterestRate(e.target.value);
-                    const r = validateRate(e.target.value, { label: "Interest rate", max: 60 });
-                    setFieldErrors((p) => ({ ...p, interestRate: r.valid ? "" : r.error! }));
-                  }}
+                  value={approvedAmount}
+                  onChange={(e) => setApprovedAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                  className="pl-7"
+                  inputMode="decimal"
+                  placeholder="Enter amount"
                 />
-                <FieldError error={fieldErrors.interestRate} />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-slate-500">Tenure</Label>
-                <div className="h-10 rounded-md border border-slate-200 bg-slate-100 px-3 flex items-center text-sm font-semibold text-slate-500">
-                  {requestedTenure} months
-                </div>
-              </div>
+              <FieldError error={fieldErrors.approvedAmount} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold text-slate-700">
+                Interest Rate (% p.a.) <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                value={interestRate}
+                onChange={(e) => setInterestRate(e.target.value.replace(/[^0-9.]/g, ""))}
+                inputMode="decimal"
+                placeholder="e.g. 12"
+              />
+              <FieldError error={fieldErrors.interestRate} />
             </div>
           </div>
 
-          {/* ── 4. Live Loan Summary Panel ───────────────────────────────────── */}
-          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-4 border border-emerald-100">
-            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-3">Loan Summary</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* EMI Preview */}
+          {liveEMI > 0 && (
+            <div className="grid grid-cols-3 gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100">
               {[
-                { label: "Monthly EMI",     value: liveEMI > 0 ? `₹${Math.round(liveEMI).toLocaleString()}` : "—",   color: "text-emerald-700" },
-                { label: "Total Interest",  value: liveEMI > 0 ? `₹${Math.round(totalInterest).toLocaleString()}` : "—", color: "text-amber-600" },
-                { label: "Total Repayment", value: liveEMI > 0 ? `₹${Math.round(totalRepayment).toLocaleString()}` : "—", color: "text-slate-700" },
-                { label: "Tenure",          value: `${requestedTenure} mo`,                                             color: "text-slate-700" },
-              ].map((stat) => (
-                <div key={stat.label} className="bg-white rounded-lg p-3 border border-emerald-100">
-                  <p className="text-[10px] text-slate-400 font-medium mb-0.5">{stat.label}</p>
-                  <p className={`text-base font-black ${stat.color}`}>{stat.value}</p>
+                { label: "Monthly EMI", value: `₹${Math.round(liveEMI).toLocaleString()}`, bold: true },
+                { label: "Total Repayment", value: `₹${Math.round(totalRepayment).toLocaleString()}` },
+                { label: "Total Interest", value: `₹${Math.round(totalInterest).toLocaleString()}`, sub: true },
+              ].map((s) => (
+                <div key={s.label} className="text-center">
+                  <p className={`${s.bold ? "text-lg font-black text-emerald-700" : "font-semibold text-slate-700"}`}>{s.value}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{s.label}</p>
                 </div>
               ))}
             </div>
-          </div>
+          )}
 
-          {/* ── 5. Date Pickers ──────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* ── Dates ──────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" /> Disbursement Date
-              </Label>
+              <Label className="text-sm font-medium text-slate-700">Disbursement Date</Label>
               <Input type="date" value={disbursementDate} onChange={(e) => setDisbursementDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" /> First EMI Date
-              </Label>
+              <Label className="text-sm font-medium text-slate-700">First EMI Date</Label>
               <Input type="date" value={firstEmiDate} onChange={(e) => setFirstEmiDate(e.target.value)} />
             </div>
           </div>
 
-          {/* ── 6. Disbursement Method ───────────────────────────────────────── */}
-          <div className="space-y-3">
-            <Label className="flex items-center gap-1.5">
-              <Banknote className="w-3.5 h-3.5 text-slate-400" /> Disbursement Method
-            </Label>
-            <div className="grid grid-cols-4 gap-2">
-              {([
-                { value: "CASH",          label: "Cash",     Icon: Banknote },
-                { value: "UPI",           label: "UPI",      Icon: Smartphone },
-                { value: "BANK_TRANSFER", label: "Bank",     Icon: Building2 },
-                { value: "CHEQUE",        label: "Cheque",   Icon: FileText },
-              ] as { value: DisbursementMethod; label: string; Icon: any }[]).map(({ value, label, Icon }) => (
+          {/* ── Disbursement Method ──────────────────────────────────────────── */}
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold text-slate-700">Disbursement Method</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(["CASH","UPI","BANK_TRANSFER","CHEQUE"] as DisbursementMethod[]).map((m) => (
                 <button
-                  key={value} type="button"
-                  onClick={() => setDisbursementMethod(value)}
-                  className={`py-2.5 rounded-lg border text-xs font-semibold transition-colors flex flex-col items-center gap-1 ${
-                    disbursementMethod === value
-                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-indigo-50"
+                  key={m}
+                  type="button"
+                  onClick={() => setDisbursementMethod(m)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                    disbursementMethod === m
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  {label}
+                  {m.replace("_", " ")}
                 </button>
               ))}
             </div>
 
             {disbursementMethod === "UPI" && (
-              <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">UPI ID</Label>
-                  <Input value={upiId} onChange={(e) => { setUpiId(e.target.value); setFieldErrors((p) => ({ ...p, upiId: "" })); }} placeholder="e.g. user@paytm" className="h-9" />
-                  <FieldError error={fieldErrors.upiId} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">UTR Number</Label>
-                  <Input value={upiUtr} onChange={(e) => setUpiUtr(e.target.value)} placeholder="e.g. UTR1234567890" className="h-9" />
-                </div>
+              <div className="space-y-1.5">
+                <Input value={upiId} onChange={(e) => setUpiId(e.target.value)} placeholder="UPI ID *" />
+                <FieldError error={fieldErrors.disbRef} />
               </div>
             )}
-
             {disbursementMethod === "BANK_TRANSFER" && (
-              <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">Account No.</Label>
-                  <Input value={bankAccNo} onChange={(e) => { setBankAccNo(e.target.value); setFieldErrors((p) => ({ ...p, bankAccNo: "" })); }} placeholder="Account number" className="h-9" />
-                  <FieldError error={fieldErrors.bankAccNo} />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Input value={bankAccNo} onChange={(e) => setBankAccNo(e.target.value)} placeholder="Account Number *" />
+                  <FieldError error={fieldErrors.disbRef} />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">IFSC Code</Label>
-                  <Input value={bankIfsc} onChange={(e) => { setBankIfsc(e.target.value); setFieldErrors((p) => ({ ...p, bankIfsc: "" })); }} placeholder="e.g. SBIN0001234" className="h-9" />
-                  <FieldError error={fieldErrors.bankIfsc} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">UTR / Ref.</Label>
-                  <Input value={bankUtr} onChange={(e) => setBankUtr(e.target.value)} placeholder="NEFT / RTGS ref" className="h-9" />
+                <div>
+                  <Input value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} placeholder="IFSC Code *" />
+                  <FieldError error={fieldErrors.disbRef2} />
                 </div>
               </div>
             )}
-
             {disbursementMethod === "CHEQUE" && (
-              <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">Cheque No.</Label>
-                  <Input value={chequeNo} onChange={(e) => { setChequeNo(e.target.value); setFieldErrors((p) => ({ ...p, chequeNo: "" })); }} placeholder="e.g. 001234" className="h-9" />
-                  <FieldError error={fieldErrors.chequeNo} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Bank Name</Label>
-                  <Input value={chequeBank} onChange={(e) => setChequeBank(e.target.value)} placeholder="e.g. SBI" className="h-9" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Cheque Date</Label>
-                  <Input type="date" value={chequeDate} onChange={(e) => setChequeDate(e.target.value)} className="h-9" />
-                </div>
+              <div>
+                <Input value={chequeNo} onChange={(e) => setChequeNo(e.target.value)} placeholder="Cheque Number *" />
+                <FieldError error={fieldErrors.disbRef} />
               </div>
             )}
           </div>
 
-          {/* ── 7. Verification Status (applications only) ───────────────────── */}
-          {isApplicationMode && (
+          {/* ── Collector ────────────────────────────────────────────────────── */}
+          {collectors.length > 0 && (
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-slate-400" /> Verification Status
-              </Label>
-              <div className="grid grid-cols-3 gap-2">
-                {(["PENDING", "VERIFIED", "REJECTED"] as VerificationStatus[]).map((v) => (
-                  <button key={v} type="button" onClick={() => setVerificationStatus(v)}
-                    className={`py-1.5 rounded-lg border text-xs font-bold transition-colors ${
-                      v === "PENDING"  ? (verificationStatus === v ? "bg-amber-500 text-white border-amber-500"   : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50") :
-                      v === "VERIFIED" ? (verificationStatus === v ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-emerald-50") :
-                                         (verificationStatus === v ? "bg-red-600 text-white border-red-600"         : "bg-white text-slate-600 border-slate-200 hover:bg-red-50")
-                    }`}>{v}</button>
-                ))}
-              </div>
+              <Label className="text-sm font-semibold text-slate-700">Assign Collector</Label>
+              <SearchSelect
+                options={collectorOptions}
+                value={collectorId}
+                onChange={setCollectorId}
+                placeholder="Select collector…"
+                clearable
+              />
             </div>
           )}
 
-          {/* ── 8. Risk Level ────────────────────────────────────────────────── */}
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-slate-400" /> Risk Level
-            </Label>
-            <div className="grid grid-cols-3 gap-2">
-              {(["LOW", "MEDIUM", "HIGH"] as RiskLevel[]).map((r) => (
-                <button key={r} type="button" onClick={() => setRiskLevel(r)}
-                  className={`py-1.5 rounded-lg border text-xs font-bold transition-colors ${
-                    r === "LOW"    ? (riskLevel === r ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-emerald-50") :
-                    r === "MEDIUM" ? (riskLevel === r ? "bg-amber-500 text-white border-amber-500"    : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50")   :
-                                     (riskLevel === r ? "bg-red-600 text-white border-red-600"         : "bg-white text-slate-600 border-slate-200 hover:bg-red-50")
-                  }`}>{r}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── 9. Approval Checklist ────────────────────────────────────────── */}
+          {/* ── Approval Checklist ───────────────────────────────────────────── */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-1.5">
-                <ClipboardCheck className="w-3.5 h-3.5 text-slate-400" /> Approval Checklist
-              </Label>
-              <span className={`text-xs font-semibold ${checkedCount === CHECKLIST_ITEMS.length ? "text-emerald-600" : "text-slate-400"}`}>
-                {checkedCount}/{CHECKLIST_ITEMS.length} completed
+            <Label className="text-sm font-semibold text-slate-700">
+              Approval Checklist
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                {Object.values(checklist).filter(Boolean).length}/{CHECKLIST_ITEMS.length} completed
               </span>
-            </div>
-            <div className="bg-slate-50 rounded-xl border border-slate-100 divide-y divide-slate-100">
+            </Label>
+            <div className="space-y-1.5">
               {CHECKLIST_ITEMS.map((item) => (
                 <button
-                  key={item.id} type="button"
+                  key={item.id}
+                  type="button"
                   onClick={() => setChecklist((p) => ({ ...p, [item.id]: !p[item.id] }))}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-100 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm transition-all ${
+                    checklist[item.id]
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                  }`}
                 >
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                    checklist[item.id] ? "bg-emerald-600 border-emerald-600" : "border-slate-300"
+                  <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                    checklist[item.id] ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300"
                   }`}>
-                    {checklist[item.id] && <CheckCircle className="w-3 h-3 text-white" />}
-                  </div>
-                  <span className={`text-sm ${checklist[item.id] ? "text-slate-400 line-through" : "text-slate-700"}`}>
-                    {item.label}
+                    {checklist[item.id] && <span className="text-[10px] font-bold">✓</span>}
                   </span>
+                  {item.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* ── 10. Guarantor (optional, collapsible) ───────────────────────── */}
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowGuarantor((g) => !g)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-sm font-medium text-slate-700"
-            >
-              <span className="flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-slate-400" />
-                Guarantor
-                <span className="text-xs text-slate-400 font-normal">(Optional)</span>
-                {(guarantorName || guarantorPhone) && (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">Added</span>
-                )}
-              </span>
-              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showGuarantor ? "rotate-90" : ""}`} />
-            </button>
-            {showGuarantor && (
-              <div className="p-4 border-t border-slate-100 grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Full Name</Label>
-                  <Input value={guarantorName} onChange={(e) => setGuarantorName(e.target.value)} placeholder="Guarantor name" className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Phone</Label>
-                  <Input value={guarantorPhone} onChange={(e) => setGuarantorPhone(e.target.value)} placeholder="+91 98765 43210" className="h-9" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Relation</Label>
-                  <Input value={guarantorRelation} onChange={(e) => setGuarantorRelation(e.target.value)} placeholder="e.g. Brother" className="h-9" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── 11. Collection Agent ─────────────────────────────────────────── */}
+          {/* ── Notes ────────────────────────────────────────────────────────── */}
           <div className="space-y-1.5">
-            <Label>Collection Agent</Label>
-            {collectors.length === 0 ? (
-              <div className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm text-slate-400">
-                No active collectors available
-              </div>
-            ) : collectors.length === 1 ? (
-              <div className="h-10 rounded-md border border-emerald-200 bg-emerald-50 px-3 flex items-center gap-2 text-sm text-emerald-800 font-medium">
-                {isOwnerMember(collectors[0]) && <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                <span className="flex-1">{collectorLabel(collectors[0])}</span>
-                <span className="text-xs text-emerald-600 font-normal">Auto-assigned</span>
-              </div>
-            ) : (
-              <div className="relative">
-                <select
-                  value={collectorId}
-                  onChange={(e) => setCollectorId(e.target.value)}
-                  className="w-full appearance-none rounded-md border border-slate-200 bg-white px-3 py-2 pr-8 text-sm h-10 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
-                >
-                  <option value="">Select a collector…</option>
-                  {collectors.map((c) => (
-                    <option key={c.id} value={c.id}>{collectorLabel(c)}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              </div>
-            )}
-          </div>
-
-          {/* ── 12. Approval Notes ───────────────────────────────────────────── */}
-          <div className="space-y-1.5">
-            <Label>Approval Notes</Label>
+            <Label className="text-sm font-medium text-slate-700">Approval Notes</Label>
             <textarea
               value={approvalNotes}
               onChange={(e) => setApprovalNotes(e.target.value)}
+              placeholder="Optional internal notes about this approval…"
               rows={2}
-              placeholder="Internal notes for this approval…"
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 resize-none"
+              maxLength={500}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 resize-none"
             />
           </div>
 
-          {/* ── Loan Account Number preview ──────────────────────────────────── */}
-          <div className="flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-            <CreditCard className="w-4 h-4 text-slate-400 shrink-0" />
-            <div>
-              <p className="text-xs text-slate-400 font-medium">Loan Account Number</p>
-              <p className="text-sm font-mono font-semibold text-slate-700">Auto-generated on approval</p>
-            </div>
-          </div>
-
           {/* ── Action Buttons ───────────────────────────────────────────────── */}
-          <div className="flex gap-3 pt-1 pb-1">
-            <Button variant="outline" className="flex-1" onClick={onClose} disabled={processing}>
+          <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-slate-100">
+            <Button variant="outline" className="sm:flex-1" onClick={onClose} disabled={processing}>
               Cancel
             </Button>
             <Button
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               onClick={handleApprove}
-              disabled={processing || nomineeBlocked || showInlineNominee || Object.values(fieldErrors).some(Boolean)}
-              title={nomineeBlocked ? "Add a nominee above before approving" : undefined}
+              disabled={processing || (!eligLoading && !eligibilityPassed)}
+              className="sm:flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
             >
               {processing
-                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing…</>
-                : nomineeBlocked
-                  ? "Nominee Required"
-                  : "Approve & Activate"}
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
+                : <><CheckCircle className="w-4 h-4" /> Approve & Disburse</>
+              }
             </Button>
           </div>
 
+          {!eligLoading && !eligibilityPassed && (
+            <p className="text-xs text-red-600 text-center -mt-1">
+              Resolve eligibility issues above before approving.
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
