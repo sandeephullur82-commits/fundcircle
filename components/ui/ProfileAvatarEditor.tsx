@@ -47,17 +47,17 @@ interface ProfileAvatarEditorProps {
 }
 
 const sizeMap = {
-  sm:  { container: "w-12 h-12", text: "text-lg",  ring: "ring-2", cam: "w-5 h-5 -bottom-1 -right-1", camIcon: "w-2.5 h-2.5" },
-  md:  { container: "w-16 h-16", text: "text-2xl", ring: "ring-2", cam: "w-6 h-6 -bottom-1 -right-1", camIcon: "w-3 h-3"   },
-  lg:  { container: "w-20 h-20", text: "text-3xl", ring: "ring-4", cam: "w-7 h-7 -bottom-1.5 -right-1.5", camIcon: "w-3.5 h-3.5" },
-  xl:  { container: "w-24 h-24", text: "text-4xl", ring: "ring-4", cam: "w-8 h-8 -bottom-2 -right-2",   camIcon: "w-4 h-4"   },
+  sm: { container: "w-16 h-16", text: "text-xl"  },
+  md: { container: "w-20 h-20", text: "text-2xl" },
+  lg: { container: "w-24 h-24", text: "text-3xl" },
+  xl: { container: "w-28 h-28", text: "text-4xl" },
 };
 
 const accentMap = {
-  sky:     { bg: "bg-sky-600",     ring: "ring-sky-200",     cam: "bg-sky-600 hover:bg-sky-700"     },
-  emerald: { bg: "bg-emerald-600", ring: "ring-emerald-200", cam: "bg-emerald-600 hover:bg-emerald-700" },
-  violet:  { bg: "bg-violet-600",  ring: "ring-violet-200",  cam: "bg-violet-600 hover:bg-violet-700"  },
-  indigo:  { bg: "bg-indigo-600",  ring: "ring-indigo-200",  cam: "bg-indigo-600 hover:bg-indigo-700"  },
+  sky:     { bg: "bg-sky-600",     ring: "ring-sky-100"     },
+  emerald: { bg: "bg-emerald-600", ring: "ring-emerald-100" },
+  violet:  { bg: "bg-violet-600",  ring: "ring-violet-100"  },
+  indigo:  { bg: "bg-indigo-600",  ring: "ring-indigo-100"  },
 };
 
 export default function ProfileAvatarEditor({
@@ -71,18 +71,18 @@ export default function ProfileAvatarEditor({
   const { user } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [removing, setRemoving] = useState(false);
+  const [removing,  setRemoving]  = useState(false);
 
-  const sz = sizeMap[size];
-  const ac = accentMap[accentColor];
+  const sz  = sizeMap[size];
+  const ac  = accentMap[accentColor];
   const hasImage = !!user?.imageUrl;
   const isLoading = uploading || removing;
 
-  async function syncImageUrlToFirestore(imageUrl: string | null) {
+  async function syncFirestore(imageUrl: string | null) {
     const uid = userId || user?.id;
     if (!uid) return;
     try {
-      const updates = { imageUrl: imageUrl || "", updatedAt: serverTimestamp() };
+      const updates = { imageUrl: imageUrl ?? "", updatedAt: serverTimestamp() };
       if (membershipId) {
         await setDoc(doc(db, "organizationMembers", membershipId), updates, { merge: true });
       }
@@ -97,14 +97,8 @@ export default function ProfileAvatarEditor({
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (!file || !user) return;
 
-    if (!ALLOWED.includes(file.type)) {
-      toast.error("Only JPG, PNG, or WebP images are allowed.");
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      toast.error("Image must be smaller than 5 MB.");
-      return;
-    }
+    if (!ALLOWED.includes(file.type)) { toast.error("Only JPG, PNG, or WebP images are allowed."); return; }
+    if (file.size > MAX_BYTES)        { toast.error("Image must be smaller than 5 MB.");            return; }
 
     setUploading(true);
     const t = toast.loading("Uploading photo…");
@@ -112,7 +106,7 @@ export default function ProfileAvatarEditor({
       const compressed = await compressImage(file);
       await user.setProfileImage({ file: compressed });
       await user.reload();
-      await syncImageUrlToFirestore(user.imageUrl);
+      await syncFirestore(user.imageUrl);
       toast.success("Profile photo updated!", { id: t });
     } catch (err: any) {
       toast.error(err?.errors?.[0]?.longMessage || err?.message || "Upload failed.", { id: t });
@@ -128,7 +122,7 @@ export default function ProfileAvatarEditor({
     try {
       await user.setProfileImage({ file: null as any });
       await user.reload();
-      await syncImageUrlToFirestore(null);
+      await syncFirestore(null);
       toast.success("Profile photo removed.", { id: t });
     } catch (err: any) {
       toast.error(err?.errors?.[0]?.longMessage || err?.message || "Remove failed.", { id: t });
@@ -138,60 +132,80 @@ export default function ProfileAvatarEditor({
   };
 
   return (
-    <div className={`flex flex-col items-center gap-3 ${className}`}>
+    <div className={`flex flex-col items-center gap-4 ${className}`}>
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Avatar circle */}
-      <div className="relative">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={handleFileChange}
-        />
+      <div
+        className={`${sz.container} ring-4 ${ac.ring} rounded-full overflow-hidden shrink-0 bg-slate-100 relative cursor-pointer group`}
+        onClick={() => !isLoading && fileInputRef.current?.click()}
+        title="Click to change photo"
+      >
+        {isLoading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
+            <Loader2 className="w-6 h-6 text-white animate-spin" />
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/25 transition-colors z-10">
+            <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+          </div>
+        )}
 
-        <div className={`${sz.container} ${sz.ring} ${ac.ring} rounded-full overflow-hidden shrink-0 bg-slate-100 relative`}>
-          {isLoading ? (
-            <div className={`${sz.container} flex items-center justify-center bg-black/30`}>
-              <Loader2 className="w-5 h-5 text-white animate-spin" />
-            </div>
-          ) : user?.imageUrl ? (
-            <img
-              src={user.imageUrl}
-              alt="Profile"
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className={`${sz.container} ${ac.bg} flex items-center justify-center text-white font-black select-none ${sz.text}`}>
-              {fallbackLetter.toUpperCase()}
-            </div>
-          )}
-        </div>
+        {user?.imageUrl ? (
+          <img
+            src={user.imageUrl}
+            alt="Profile"
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className={`w-full h-full ${ac.bg} flex items-center justify-center text-white font-black select-none ${sz.text}`}>
+            {fallbackLetter.toUpperCase()}
+          </div>
+        )}
+      </div>
 
-        {/* Camera button */}
+      {/* Action buttons */}
+      <div className="flex items-center gap-2">
+        {/* Change / Upload Photo */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isLoading}
-          title="Upload photo (JPG, PNG, WebP · max 5 MB)"
-          aria-label="Change profile photo"
-          className={`absolute ${sz.cam} ${ac.cam} disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full flex items-center justify-center shadow-md ring-2 ring-white transition-colors`}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Camera className={sz.camIcon} />
+          {uploading ? (
+            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…</>
+          ) : (
+            <><Camera className="w-3.5 h-3.5" /> {hasImage ? "Change Photo" : "Upload Photo"}</>
+          )}
         </button>
+
+        {/* Remove Photo — only when a photo exists */}
+        {hasImage && (
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={isLoading}
+            className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-500 text-xs font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {removing ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Removing…</>
+            ) : (
+              <><Trash2 className="w-3.5 h-3.5" /> Remove Photo</>
+            )}
+          </button>
+        )}
       </div>
 
-      {/* Remove button — only shown if user has a photo */}
-      {hasImage && !isLoading && (
-        <button
-          type="button"
-          onClick={handleRemove}
-          className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors"
-          aria-label="Remove profile photo"
-        >
-          <Trash2 className="w-3 h-3" /> Remove photo
-        </button>
-      )}
+      <p className="text-[10px] text-slate-400">JPG, PNG or WebP · max 5 MB</p>
     </div>
   );
 }
