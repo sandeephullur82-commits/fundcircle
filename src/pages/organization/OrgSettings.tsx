@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useOrganization, useUser } from "@clerk/clerk-react";
+import { useOrganization, useUser, SignOutButton } from "@clerk/clerk-react";
+import { useNavigate } from "react-router-dom";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useDocumentRealtime } from "@/lib/firestore-hooks";
@@ -26,6 +27,16 @@ import {
   QrCode,
   ToggleLeft,
   ToggleRight,
+  LogOut,
+  ExternalLink,
+  HelpCircle,
+  FileText,
+  Info,
+  KeyRound,
+  Wallet,
+  ClipboardList,
+  SlidersHorizontal,
+  Globe,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,7 +44,7 @@ import { Label } from "@/components/ui/label";
 import FieldError from "@/components/ui/FieldError";
 import { sanitizeName, validatePhone10 } from "@/lib/validation";
 
-type SectionId = "organization" | "profile" | "notifications" | "security" | "payments";
+type SectionId = "organization" | "profile" | "notifications" | "security" | "payments" | "more";
 
 
 // ── Save button ────────────────────────────────────────────────────────────────
@@ -95,6 +106,7 @@ function SkeletonToggleRow() {
 export default function OrgSettings() {
   const { user } = useUser();
   const { organization } = useOrganization();
+  const navigate = useNavigate();
   const membershipId = user && organization ? membershipIdFor(organization.id, user.id) : null;
 
   const { data: membershipDoc, loading: membershipLoading } = useDocumentRealtime<any>("organizationMembers", membershipId);
@@ -319,11 +331,12 @@ export default function OrgSettings() {
   };
 
   const sections: { id: SectionId; label: string; icon: React.ComponentType<any> }[] = [
-    { id: "organization",  label: "Organization",  icon: Building2 },
-    { id: "payments",      label: "Payments",      icon: CreditCard },
-    { id: "profile",       label: "Profile",       icon: User      },
-    { id: "notifications", label: "Notifications", icon: Bell      },
-    { id: "security",      label: "Security",      icon: Shield    },
+    { id: "organization",  label: "Organization",  icon: Building2       },
+    { id: "payments",      label: "Payments",      icon: CreditCard      },
+    { id: "profile",       label: "Profile",       icon: User            },
+    { id: "notifications", label: "Preferences",   icon: SlidersHorizontal },
+    { id: "security",      label: "Security",      icon: Shield          },
+    { id: "more",          label: "More",          icon: Info            },
   ];
 
   const isLoading = orgLoading || membershipLoading;
@@ -674,21 +687,34 @@ export default function OrgSettings() {
                     </div>
 
                     <SaveButton onClick={saveProfile} state={profileSaveState} label="Save Profile" />
+
+                    {/* Change Password */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <p className="text-sm font-medium text-slate-700 mb-3">Security</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/auth/change-password")}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-sm font-medium text-slate-700 transition-colors"
+                      >
+                        <KeyRound className="h-4 w-4 text-slate-500" />
+                        Change Password
+                      </button>
+                    </div>
                   </>
                 )}
               </CardContent>
             </Card>
           )}
 
-          {/* ── Notifications ────────────────────────────────────────── */}
+          {/* ── Preferences ──────────────────────────────────────────── */}
           {activeSection === "notifications" && (
             <Card className="border-slate-200 shadow-sm rounded-2xl">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Bell className="h-5 w-5 text-sky-500" />
-                  Notification Preferences
+                  <SlidersHorizontal className="h-5 w-5 text-sky-500" />
+                  Preferences
                 </CardTitle>
-                <CardDescription>Changes save automatically when you toggle.</CardDescription>
+                <CardDescription>Manage notifications, theme, and language settings.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {orgLoading ? (
@@ -731,6 +757,32 @@ export default function OrgSettings() {
                     ))}
                   </fieldset>
                 )}
+
+                {/* Theme & Language placeholders */}
+                {!orgLoading && (
+                  <div className="pt-1 space-y-3">
+                    <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Globe className="h-4 w-4 text-slate-400 shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-slate-700">Language</p>
+                          <p className="text-xs text-slate-400">English (default)</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-slate-400 bg-slate-100 rounded-lg px-2 py-1 shrink-0">Coming soon</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Bell className="h-4 w-4 text-slate-400 shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-slate-700">Theme</p>
+                          <p className="text-xs text-slate-400">Light (default)</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-slate-400 bg-slate-100 rounded-lg px-2 py-1 shrink-0">Coming soon</span>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -749,6 +801,87 @@ export default function OrgSettings() {
                 <SecuritySection title={false} />
               </CardContent>
             </Card>
+          )}
+
+          {/* ── More / Supported Features ────────────────────────── */}
+          {activeSection === "more" && (
+            <div className="space-y-4">
+              <Card className="border-slate-200 shadow-sm rounded-2xl">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-sky-500" />
+                    Supported Features
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {[
+                    { label: "Billing",          desc: "Plans, usage & invoices",        icon: Wallet,       action: () => { window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "billing" })); }    },
+                    { label: "Audit Logs",       desc: "Full activity history",           icon: ClipboardList, action: () => { window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: "auditLogs" })); } },
+                    { label: "Support",          desc: "Get help & contact us",          icon: HelpCircle,   action: () => { window.open("mailto:support@fundcircle.app", "_blank"); }                                  },
+                    { label: "About FundCircle", desc: "Version 1.0.0 · Build 2025.1",  icon: Info,         action: () => {}                                                                                           },
+                  ].map((item, idx, arr) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={item.action}
+                        className={`w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-slate-50 active:bg-slate-100 transition-colors ${idx < arr.length - 1 ? "border-b border-slate-100" : ""}`}
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 shrink-0">
+                          <Icon className="h-4 w-4 text-slate-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{item.desc}</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-slate-300 shrink-0" />
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-200 shadow-sm rounded-2xl">
+                <CardContent className="p-0">
+                  {[
+                    { label: "Privacy Policy",     href: "/privacy-policy",         icon: Lock     },
+                    { label: "Terms & Conditions", href: "/terms-and-conditions",   icon: FileText },
+                  ].map((item, idx, arr) => {
+                    const Icon = item.icon;
+                    return (
+                      <a
+                        key={item.label}
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex items-center gap-3 px-5 py-4 hover:bg-slate-50 transition-colors ${idx < arr.length - 1 ? "border-b border-slate-100" : ""}`}
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 shrink-0">
+                          <Icon className="h-4 w-4 text-slate-500" />
+                        </div>
+                        <p className="flex-1 text-sm font-semibold text-slate-800">{item.label}</p>
+                        <ExternalLink className="h-4 w-4 text-slate-300 shrink-0" />
+                      </a>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              <SignOutButton>
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 active:bg-red-200 font-semibold text-sm transition-colors shadow-sm"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </button>
+              </SignOutButton>
+
+              <p className="text-center text-xs text-slate-400">
+                © {new Date().getFullYear()} FundCircle · Version 1.0.0
+              </p>
+            </div>
           )}
 
         </main>
