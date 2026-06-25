@@ -847,10 +847,11 @@ const MORE_ITEMS = [
   { id: "profile",       label: "My Profile",       sub: "Photo, name, phone & role",      icon: User,          color: "sky",     internal: true  },
   { id: "organization",  label: "Organization",      sub: "Business details & statistics",  icon: Building2,     color: "indigo",  internal: true  },
   { id: "agents",        label: "Collectors",        sub: "Manage your field team",          icon: Users,         color: "violet",  internal: false },
+  { id: "customers",     label: "Customers",         sub: "Customer accounts & records",    icon: Users,         color: "sky",     internal: false },
   { id: "loans",         label: "Loans & EMI",       sub: "Loan book & installments",       icon: CreditCard,    color: "emerald", internal: false },
-  { id: "auditLogs",     label: "Audit Logs",        sub: "Full activity history",           icon: ClipboardList, color: "amber",   internal: false },
   { id: "notifications", label: "Notifications",     sub: "Inbox & alert preferences",       icon: Bell,          color: "orange",  internal: true  },
   { id: "billing",       label: "Billing",           sub: "Plan, usage & invoices",          icon: Wallet,        color: "rose",    internal: false },
+  { id: "auditLogs",     label: "Audit Logs",        sub: "Full activity history",           icon: ClipboardList, color: "amber",   internal: false },
   { id: "support",       label: "Support",           sub: "Get help & contact us",           icon: MessageCircle, color: "teal",    internal: true  },
   { id: "about",         label: "About FundCircle",  sub: "Version, privacy & terms",        icon: Info,          color: "slate",   internal: true  },
 ] as const;
@@ -910,6 +911,13 @@ export default function MorePage() {
 
   return (
     <div className="max-w-lg mx-auto space-y-5 pb-6">
+      {/* Debug label — confirms this is the Settings page */}
+      <div className="flex items-center justify-center py-1">
+        <span className="text-[10px] font-bold tracking-widest text-slate-300 uppercase select-none">
+          SETTINGS PAGE LOADED
+        </span>
+      </div>
+
       {/* Profile hero card */}
       <button
         onClick={() => setPage("profile")}
