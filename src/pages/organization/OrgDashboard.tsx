@@ -41,7 +41,7 @@ const BOTTOM_NAV_ADMIN = [
   { id: "customers",    label: "Customers",   icon: Users },
   { id: "collections",  label: "Collections", icon: Wallet },
   { id: "reports",      label: "Reports",     icon: FileText },
-  { id: "more",         label: "Settings",    icon: Settings },
+  { id: "more",         label: "More",         icon: MoreHorizontal },
 ];
 
 export default function OrgDashboard() {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useUser, useOrganization, SignOutButton } from "@clerk/clerk-react";
+import { useNavigate } from "react-router-dom";
 import AppSwitch from "@/components/ui/AppSwitch";
 import {
   doc, setDoc, serverTimestamp, getCountFromServer,
@@ -844,16 +845,17 @@ function AboutSubPage({ onBack }: { onBack: () => void }) {
 
 // ── MAIN MORE PAGE ─────────────────────────────────────────────────────────────
 const MORE_ITEMS = [
-  { id: "profile",       label: "My Profile",       sub: "Photo, name, phone & role",      icon: User,          color: "sky",     internal: true  },
-  { id: "organization",  label: "Organization",      sub: "Business details & statistics",  icon: Building2,     color: "indigo",  internal: true  },
-  { id: "agents",        label: "Collectors",        sub: "Manage your field team",          icon: Users,         color: "violet",  internal: false },
-  { id: "customers",     label: "Customers",         sub: "Customer accounts & records",    icon: Users,         color: "sky",     internal: false },
-  { id: "loans",         label: "Loans & EMI",       sub: "Loan book & installments",       icon: CreditCard,    color: "emerald", internal: false },
-  { id: "notifications", label: "Notifications",     sub: "Inbox & alert preferences",       icon: Bell,          color: "orange",  internal: true  },
-  { id: "billing",       label: "Billing",           sub: "Plan, usage & invoices",          icon: Wallet,        color: "rose",    internal: false },
-  { id: "auditLogs",     label: "Audit Logs",        sub: "Full activity history",           icon: ClipboardList, color: "amber",   internal: false },
-  { id: "support",       label: "Support",           sub: "Get help & contact us",           icon: MessageCircle, color: "teal",    internal: true  },
-  { id: "about",         label: "About FundCircle",  sub: "Version, privacy & terms",        icon: Info,          color: "slate",   internal: true  },
+  { id: "profile",       label: "My Profile",       sub: "Photo, name, phone & role",      icon: User,          color: "sky",     internal: true,  route: null },
+  { id: "organization",  label: "Organization",      sub: "Business details & statistics",  icon: Building2,     color: "indigo",  internal: true,  route: null },
+  { id: "agents",        label: "Collectors",        sub: "Manage your field team",          icon: Users,         color: "violet",  internal: false, route: null },
+  { id: "customers",     label: "Customers",         sub: "Customer accounts & records",    icon: Users,         color: "sky",     internal: false, route: null },
+  { id: "loans",         label: "Loans & EMI",       sub: "Loan book & installments",       icon: CreditCard,    color: "emerald", internal: false, route: null },
+  { id: "auditLogs",     label: "Audit Logs",        sub: "Full activity history",           icon: ClipboardList, color: "amber",   internal: false, route: null },
+  { id: "notifications", label: "Notifications",     sub: "Inbox & alert preferences",       icon: Bell,          color: "orange",  internal: true,  route: null },
+  { id: "billing",       label: "Billing",           sub: "Plan, usage & invoices",          icon: Wallet,        color: "rose",    internal: false, route: null },
+  { id: "support",       label: "Support",           sub: "Get help & contact us",           icon: MessageCircle, color: "teal",    internal: true,  route: null },
+  { id: "about",         label: "About FundCircle",  sub: "Version, privacy & terms",        icon: Info,          color: "slate",   internal: true,  route: null },
+  { id: "settings",      label: "Settings",          sub: "Account, security & preferences", icon: Settings,      color: "violet",  internal: false, route: "/settings" },
 ] as const;
 
 const COLOR_CLS: Record<string, string> = {
@@ -871,6 +873,7 @@ const COLOR_CLS: Record<string, string> = {
 export default function MorePage() {
   const { user } = useUser();
   const { organization } = useOrganization();
+  const navigate = useNavigate();
   const membershipId = user && organization ? membershipIdFor(organization.id, user.id) : null;
   const { data: membershipDoc } = useDocumentRealtime<any>("organizationMembers", membershipId);
 
@@ -911,13 +914,6 @@ export default function MorePage() {
 
   return (
     <div className="max-w-lg mx-auto space-y-5 pb-6">
-      {/* Debug label — confirms this is the Settings page */}
-      <div className="flex items-center justify-center py-1">
-        <span className="text-[10px] font-bold tracking-widest text-slate-300 uppercase select-none">
-          SETTINGS PAGE LOADED
-        </span>
-      </div>
-
       {/* Profile hero card */}
       <button
         onClick={() => setPage("profile")}
@@ -948,7 +944,15 @@ export default function MorePage() {
           return (
             <button
               key={item.id + idx}
-              onClick={() => item.internal ? setPage(item.id as MoreSubPage) : switchTab(item.id)}
+              onClick={() => {
+            if (item.route) {
+              navigate(item.route);
+            } else if (item.internal) {
+              setPage(item.id as MoreSubPage);
+            } else {
+              switchTab(item.id);
+            }
+          }}
               className={`w-full flex items-center gap-3.5 px-4 py-4 text-left hover:bg-slate-50 active:bg-slate-100 transition-colors ${!isLast ? "border-b border-slate-50" : ""}`}
             >
               <div className={`flex h-10 w-10 items-center justify-center rounded-2xl shrink-0 ${colorCls}`}>

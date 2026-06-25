@@ -11,6 +11,7 @@ const PROTECTED_PREFIXES = [
   "/profile",
   "/router",
   "/debug-user",
+  "/settings",
 ];
 
 const isProtectedPath = (pathname: string) =>
