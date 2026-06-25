@@ -21,6 +21,8 @@ export interface ReceiptData {
   installmentNo?: number;
   loanOutstanding?: number;
   emisCleared?: number;
+  paymentMode?: "CASH" | "UPI" | "BANK_TRANSFER";
+  upiRef?: string;
 }
 
 interface ReceiptModalProps {
@@ -121,6 +123,8 @@ function buildPrintHtml(r: ReceiptData): string {
           <span style="font-weight:600;font-size:10px;">${fmtDate(r.collectedAt)}</span>
         </div>
         ${r.collectionType === "LOAN_EMI" && r.installmentNo ? `<div style="display:flex;justify-content:space-between;"><span style="color:#555;">EMI #</span><span style="font-weight:600;">${r.installmentNo}</span></div>` : ""}
+        ${r.paymentMode ? `<div style="display:flex;justify-content:space-between;"><span style="color:#555;">Payment</span><span style="font-weight:600;">${r.paymentMode === "BANK_TRANSFER" ? "Bank Transfer" : r.paymentMode}</span></div>` : ""}
+        ${r.upiRef ? `<div style="display:flex;justify-content:space-between;"><span style="color:#555;">UPI Ref</span><span style="font-weight:600;font-size:10px;">${r.upiRef}</span></div>` : ""}
       </div>
       ${divider}
       <div style="font-size:12px;">
@@ -195,6 +199,8 @@ function generateReceiptPDF(r: ReceiptData): void {
   row("Collector", r.agentName || "—");
   row("Date", fmtDate(r.collectedAt));
   if (r.collectionType === "LOAN_EMI" && r.installmentNo) row("EMI #", String(r.installmentNo));
+  if (r.paymentMode) row("Payment", r.paymentMode === "BANK_TRANSFER" ? "Bank Transfer" : r.paymentMode);
+  if (r.upiRef) row("UPI Ref", r.upiRef);
 
   doc.setLineDashPattern([1, 1], 0);
   doc.line(5, y, W - 5, y);
@@ -339,6 +345,13 @@ export default function ReceiptModal({ receipt, onClose }: ReceiptModalProps) {
             {receipt.collectionType === "LOAN_EMI" && receipt.installmentNo && (
               <ThermalRow label="EMI #" value={`${receipt.installmentNo}`} />
             )}
+            {receipt.paymentMode && (
+              <ThermalRow
+                label="Payment"
+                value={receipt.paymentMode === "BANK_TRANSFER" ? "Bank Transfer" : receipt.paymentMode}
+              />
+            )}
+            {receipt.upiRef && <ThermalRow label="UPI Ref" value={receipt.upiRef} />}
           </div>
 
           <div className="border-t border-dashed border-slate-300 pt-3 mb-3 space-y-1.5 text-xs">

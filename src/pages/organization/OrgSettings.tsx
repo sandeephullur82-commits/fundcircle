@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   Lock,
   Shield,
+  Smartphone,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export default function OrgSettings() {
 
   // ── Organization form ──────────────────────────────────────────────────────
   const [orgName, setOrgName] = useState("");
+  const [upiId,   setUpiId]   = useState("");
   const [orgErrors, setOrgErrors] = useState<Record<string, string>>({});
   const [orgSaveState, setOrgSaveState] = useState<SaveState>("idle");
 
@@ -121,6 +123,7 @@ export default function OrgSettings() {
     if (orgLoading || !orgDoc) return;
     if (orgLoaded.current) return;
     setOrgName(orgDoc.name || organization?.name || "");
+    setUpiId(orgDoc.upiId || "");
     setNotifNewCollection(orgDoc.settings?.notifNewCollection ?? true);
     setNotifNewMember(orgDoc.settings?.notifNewMember ?? true);
     setNotifLoanApproval(orgDoc.settings?.notifLoanApproval ?? true);
@@ -165,8 +168,11 @@ export default function OrgSettings() {
     setOrgSaveState("saving");
     try {
       const sanitized = sanitizeName(trimmed) || trimmed;
+      const cleanUpi  = upiId.trim().toLowerCase();
       await setDoc(doc(db, "organizations", organization.id), {
-        name: sanitized, updatedAt: serverTimestamp(),
+        name: sanitized,
+        upiId: cleanUpi || null,
+        updatedAt: serverTimestamp(),
       }, { merge: true });
       try { await organization.update({ name: sanitized }); } catch (_) {}
       setOrgName(sanitized);
@@ -368,6 +374,34 @@ export default function OrgSettings() {
                         className={`rounded-xl h-11 ${orgErrors.orgName ? "border-red-400 focus-visible:ring-red-300" : ""}`}
                       />
                       <FieldError error={orgErrors.orgName} />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="upi-id" className="text-slate-700 font-medium flex items-center gap-1.5">
+                        <Smartphone className="h-3.5 w-3.5 text-indigo-500" />
+                        Merchant UPI ID
+                        <span className="text-slate-400 font-normal text-xs ml-1">(for EMI collections)</span>
+                      </Label>
+                      <Input
+                        id="upi-id"
+                        type="text"
+                        inputMode="email"
+                        value={upiId}
+                        onChange={(e) => {
+                          setUpiId(e.target.value.toLowerCase());
+                          setOrgErrors((p) => ({ ...p, upiId: "" }));
+                        }}
+                        placeholder="yourorg@upi  or  9876543210@paytm"
+                        maxLength={80}
+                        aria-invalid={!!orgErrors.upiId}
+                        className={`rounded-xl h-11 font-mono text-sm ${orgErrors.upiId ? "border-red-400 focus-visible:ring-red-300" : ""}`}
+                      />
+                      {orgErrors.upiId
+                        ? <FieldError error={orgErrors.upiId} />
+                        : <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Agents will use this UPI ID to generate QR codes and collect EMI payments via PhonePe, Google Pay, Paytm, or BHIM.
+                          </p>
+                      }
                     </div>
 
                     <div className="grid gap-2">

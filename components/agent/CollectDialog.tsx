@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,8 +6,11 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   CreditCard, Banknote, Loader2, AlertTriangle, CheckCircle2,
-  TrendingDown, ChevronRight, ZapOff, Sparkles,
+  TrendingDown, ChevronRight, ZapOff, Sparkles, Smartphone,
+  WifiOff, ExternalLink, XCircle, RefreshCw, QrCode, CheckCheck,
 } from "lucide-react";
+import { getDoc, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { Loan, LoanInstallment } from "@/types";
 import {
   recordGeneralCollection,
@@ -25,6 +28,7 @@ import FieldError from "@/components/ui/FieldError";
 type PaymentMode   = "CASH" | "UPI" | "BANK_TRANSFER";
 type CollectMode   = "LOAN_EMI" | "GENERAL" | null;
 type RepaymentType = "REGULAR_EMI" | "PARTIAL_PAYMENT" | "ADVANCE_PAYMENT" | "FORECLOSURE";
+type UpiStatus     = "idle" | "launched" | "confirming";
 
 export function toDate(ts: any): Date {
   if (!ts) return new Date(0);
@@ -117,6 +121,23 @@ function detectRepaymentType(
   return "PARTIAL_PAYMENT";
 }
 
+function buildUpiString(upiId: string, payeeName: string, amount: number, note: string): string {
+  return (
+    `upi://pay?pa=${encodeURIComponent(upiId)}` +
+    `&pn=${encodeURIComponent(payeeName)}` +
+    `&am=${amount.toFixed(2)}` +
+    `&cu=INR` +
+    `&tn=${encodeURIComponent(note)}`
+  );
+}
+
+function buildQrUrl(upiString: string): string {
+  return (
+    `https://api.qrserver.com/v1/create-qr-code/` +
+    `?size=180x180&data=${encodeURIComponent(upiString)}&bgcolor=ffffff&color=1e1b4b&margin=8&qzone=1`
+  );
+}
+
 export default function CollectDialog({
   customer, orgId, orgName, agentId, agentName, onClose,
   collectedByRole, collectedById,
@@ -132,15 +153,44 @@ export default function CollectDialog({
   const [submitting,      setSubmitting]      = useState(false);
   const [receipt,         setReceipt]         = useState<ReceiptData | null>(null);
 
+  const [orgUpiId,  setOrgUpiId]  = useState<string>("");
+  const [upiTxnRef, setUpiTxnRef] = useState<string>("");
+  const [upiStatus, setUpiStatus] = useState<UpiStatus>("idle");
+  const [isOnline,  setIsOnline]  = useState(navigator.onLine);
+  const [qrError,   setQrError]   = useState(false);
+
+  useEffect(() => {
+    if (!orgId) return;
+    getDoc(doc(db, "organizations", orgId))
+      .then((snap) => { if (snap.exists()) setOrgUpiId(snap.data().upiId || ""); })
+      .catch(() => {});
+  }, [orgId]);
+
+  useEffect(() => {
+    const up   = () => setIsOnline(true);
+    const down = () => setIsOnline(false);
+    window.addEventListener("online",  up);
+    window.addEventListener("offline", down);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
+  }, []);
+
+  useEffect(() => {
+    setUpiStatus("idle");
+    setUpiTxnRef("");
+    setQrError(false);
+  }, [amount, paymentMode]);
+
   useEffect(() => {
     if (!customer) {
       setCollectMode(null); setAmount(""); setAmountError("");
       setActiveLoan(null); setNextInstallment(null);
+      setUpiStatus("idle"); setUpiTxnRef(""); setQrError(false);
       return;
     }
     setLoadingDetails(true);
     setAmount(""); setAmountError(""); setPaymentMode("CASH");
     setNotes(""); setActiveLoan(null); setNextInstallment(null);
+    setUpiStatus("idle"); setUpiTxnRef(""); setQrError(false);
 
     (async () => {
       try {
@@ -193,46 +243,63 @@ export default function CollectDialog({
     return Math.max(0, Math.round((emiAmount - numAmount) * 100) / 100);
   }, [detectedType, numAmount, emiAmount, nextInstallment]);
 
+  const upiNote = useMemo(() => {
+    if (activeLoan && nextInstallment) {
+      return `EMI #${nextInstallment.installmentNo} Loan ${activeLoan.id.slice(-6).toUpperCase()} ${custName}`;
+    }
+    return `Payment ${custName}`;
+  }, [activeLoan, nextInstallment, custName]);
+
+  const upiString = useMemo(() => {
+    if (!orgUpiId || numAmount <= 0) return "";
+    return buildUpiString(orgUpiId, orgName, numAmount, upiNote);
+  }, [orgUpiId, orgName, numAmount, upiNote]);
+
+  const qrCodeUrl = useMemo(() => {
+    if (!upiString) return "";
+    return buildQrUrl(upiString);
+  }, [upiString]);
+
   const handleAmountChange = (val: string) => {
     setAmount(val.replace(/[^0-9.]/g, ""));
     setAmountError("");
   };
 
-  const handleCollectEMI = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeEMICollection = useCallback(async () => {
     if (!customer || !activeLoan || !agentId) return;
+    const num  = numAmount;
+    const type = detectedType;
 
-    const num = numAmount;
     if (!num || isNaN(num) || num <= 0) { setAmountError("Amount must be greater than ₹0"); return; }
     if (num > outstanding + 0.05) {
       setAmountError(`Amount exceeds outstanding balance of ₹${outstanding.toLocaleString("en-IN")}`);
       return;
     }
-
-    const type = detectedType;
     if (!type) { setAmountError("Enter a valid amount"); return; }
-
     if ((type === "REGULAR_EMI" || type === "PARTIAL_PAYMENT") && !nextInstallment) {
       setAmountError("No pending installment found"); return;
     }
 
     setAmountError("");
     setSubmitting(true);
+    if (paymentMode === "UPI") setUpiStatus("confirming");
 
-    const collectorInfo = {
+    const baseInfo = {
       organizationId: orgId, organizationName: orgName,
       loanId: activeLoan.id, customerId: customer.id,
       agentId, agentName, paymentMode,
       ...(collectedByRole ? { collectedByRole } : {}),
       ...(collectedById   ? { collectedById   } : {}),
     };
+    const txnRef = upiTxnRef.trim() || undefined;
 
     try {
       if (type === "REGULAR_EMI") {
         const result = await recordEMICollection({
-          ...collectorInfo,
+          ...baseInfo,
           installmentId: nextInstallment!.id,
           amount: num,
+          ...(txnRef ? { paymentReference: txnRef } : {}),
         });
         setReceipt({
           receiptNo: result.receiptNo, organizationName: orgName,
@@ -240,15 +307,17 @@ export default function CollectDialog({
           collectionType: "LOAN_EMI", repaymentType: "REGULAR",
           loanOutstanding: result.loanClosed ? 0 : Math.max(0, outstanding - num),
           installmentNo: nextInstallment!.installmentNo, agentName, collectedAt: new Date(),
+          paymentMode, upiRef: txnRef,
         });
         onClose();
         toast.success(`EMI ₹${num.toLocaleString("en-IN")} collected · ${result.receiptNo}`);
 
       } else if (type === "PARTIAL_PAYMENT") {
         const result = await recordPartialPayment({
-          ...collectorInfo,
+          ...baseInfo,
           installmentId: nextInstallment!.id,
           amount: num,
+          ...(txnRef ? { paymentReference: txnRef } : {}),
         });
         setReceipt({
           receiptNo: result.receiptNo, organizationName: orgName,
@@ -256,14 +325,16 @@ export default function CollectDialog({
           collectionType: "LOAN_EMI", repaymentType: "PARTIAL",
           loanOutstanding: result.loanClosed ? 0 : Math.max(0, outstanding - num),
           installmentNo: nextInstallment!.installmentNo, agentName, collectedAt: new Date(),
+          paymentMode, upiRef: txnRef,
         });
         onClose();
         toast.success(`Partial ₹${num.toLocaleString("en-IN")} collected · ${result.receiptNo}`);
 
       } else if (type === "ADVANCE_PAYMENT") {
         const result = await recordAdvancePayment({
-          ...collectorInfo,
+          ...baseInfo,
           amount: num,
+          ...(txnRef ? { paymentReference: txnRef } : {}),
         });
         setReceipt({
           receiptNo: result.receiptNo, organizationName: orgName,
@@ -271,6 +342,7 @@ export default function CollectDialog({
           collectionType: "LOAN_EMI", repaymentType: "ADVANCE",
           loanOutstanding: result.loanClosed ? 0 : Math.max(0, outstanding - num),
           emisCleared: result.emisCleared, agentName, collectedAt: new Date(),
+          paymentMode, upiRef: txnRef,
         });
         onClose();
         toast.success(`Advance ₹${num.toLocaleString("en-IN")} · ${result.emisCleared} EMI${result.emisCleared !== 1 ? "s" : ""} cleared · ${result.receiptNo}`);
@@ -280,6 +352,7 @@ export default function CollectDialog({
           organizationId: orgId, organizationName: orgName,
           loanId: activeLoan.id, customerId: customer.id,
           agentId, agentName, paymentMode,
+          ...(txnRef ? { paymentReference: txnRef } : {}),
           ...(collectedByRole ? { collectedByRole } : {}),
           ...(collectedById   ? { collectedById   } : {}),
         });
@@ -288,13 +361,27 @@ export default function CollectDialog({
           customerName: custName, amount: result.amountPaid,
           collectionType: "LOAN_EMI", repaymentType: "FORECLOSURE",
           loanOutstanding: 0, agentName, collectedAt: new Date(),
+          paymentMode, upiRef: upiTxnRef.trim() || undefined,
         });
         onClose();
         toast.success(`Loan foreclosed · ₹${result.amountPaid.toLocaleString("en-IN")} settled · ${result.receiptNo}`);
       }
     } catch (err: any) {
       toast.error(err?.message || "Collection failed.");
-    } finally { setSubmitting(false); }
+      if (paymentMode === "UPI") setUpiStatus("launched");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    customer, activeLoan, agentId, numAmount, detectedType, outstanding,
+    nextInstallment, orgId, orgName, agentName, paymentMode, upiTxnRef,
+    collectedByRole, collectedById, custName,
+  ]);
+
+  const handleCollectEMI = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (paymentMode === "UPI") return;
+    await executeEMICollection();
   };
 
   const handleCollectGeneral = async (e: React.FormEvent) => {
@@ -318,12 +405,19 @@ export default function CollectDialog({
         receiptNo: result.receiptNo, organizationName: orgName,
         customerName: custName, amount: num,
         collectionType: "SAVINGS", agentName, collectedAt: new Date(),
+        paymentMode, upiRef: upiTxnRef.trim() || undefined,
       });
       onClose();
       toast.success(`₹${num.toLocaleString("en-IN")} collected · ${result.receiptNo}`);
     } catch (err: any) {
       toast.error(err?.message || "Collection failed.");
     } finally { setSubmitting(false); }
+  };
+
+  const handleLaunchUpi = () => {
+    if (!upiString) return;
+    setUpiStatus("launched");
+    window.location.href = upiString;
   };
 
   const canSubmit =
@@ -335,6 +429,8 @@ export default function CollectDialog({
 
   const submitBtnColor = detectedType ? SUBMIT_COLORS[detectedType] : "bg-indigo-600 hover:bg-indigo-700";
   const submitLabel    = detectedType ? SUBMIT_LABELS[detectedType] : "Collect";
+
+  const showUpiPanel = paymentMode === "UPI" && collectMode === "LOAN_EMI" && !!detectedType && !exceedsOutstanding && numAmount > 0;
 
   return (
     <>
@@ -396,9 +492,7 @@ export default function CollectDialog({
 
                   {/* Amount input */}
                   <div className="space-y-2">
-                    <Label htmlFor="cd-emi-amt">
-                      Payment Amount (₹)
-                    </Label>
+                    <Label htmlFor="cd-emi-amt">Payment Amount (₹)</Label>
                     <Input
                       id="cd-emi-amt"
                       type="number"
@@ -413,8 +507,6 @@ export default function CollectDialog({
                       autoFocus
                       disabled={submitting}
                     />
-
-                    {/* Exceeds outstanding error */}
                     {exceedsOutstanding && (
                       <div className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
@@ -446,22 +538,16 @@ export default function CollectDialog({
                           </p>
                         </div>
                       </div>
-
-                      {/* REGULAR EMI hint */}
                       {detectedType === "REGULAR_EMI" && nextInstallment && (
                         <p className="text-xs text-indigo-600">
                           EMI #{nextInstallment.installmentNo} will be marked as paid.
                         </p>
                       )}
-
-                      {/* PARTIAL hint */}
                       {detectedType === "PARTIAL_PAYMENT" && partialRemaining !== null && (
                         <p className="text-xs text-amber-700">
                           Remaining balance on this EMI: <strong>₹{partialRemaining.toLocaleString("en-IN")}</strong>. Installment will be marked PARTIAL.
                         </p>
                       )}
-
-                      {/* ADVANCE preview */}
                       {detectedType === "ADVANCE_PAYMENT" && advancePreview && (
                         <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
                           <ChevronRight className="w-3.5 h-3.5 shrink-0" />
@@ -469,8 +555,6 @@ export default function CollectDialog({
                           {advancePreview.partial > 0 && ` + ₹${advancePreview.partial.toLocaleString("en-IN")} partial`}
                         </div>
                       )}
-
-                      {/* FORECLOSURE warning */}
                       {detectedType === "FORECLOSURE" && (
                         <div className="space-y-1.5">
                           <div className="flex items-start gap-1.5">
@@ -514,20 +598,46 @@ export default function CollectDialog({
                     </div>
                   </div>
 
-                  <div className="flex gap-3">
-                    <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={submitting}>
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      className={`flex-1 h-11 text-white ${submitBtnColor}`}
-                      disabled={!canSubmit}
-                    >
-                      {submitting
-                        ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
-                        : submitLabel}
-                    </Button>
-                  </div>
+                  {/* ── UPI PAYMENT PANEL ── */}
+                  {showUpiPanel ? (
+                    <UpiPaymentPanel
+                      isOnline={isOnline}
+                      orgUpiId={orgUpiId}
+                      qrCodeUrl={qrCodeUrl}
+                      upiString={upiString}
+                      amount={numAmount}
+                      custName={custName}
+                      orgName={orgName}
+                      upiNote={upiNote}
+                      loanId={activeLoan.id}
+                      installmentNo={nextInstallment?.installmentNo}
+                      upiStatus={upiStatus}
+                      upiTxnRef={upiTxnRef}
+                      submitting={submitting}
+                      qrError={qrError}
+                      onQrError={() => setQrError(true)}
+                      onLaunch={handleLaunchUpi}
+                      onConfirm={executeEMICollection}
+                      onFailed={() => { setUpiStatus("idle"); setUpiTxnRef(""); }}
+                      onTxnRefChange={setUpiTxnRef}
+                      onCancel={onClose}
+                    />
+                  ) : (
+                    <div className="flex gap-3">
+                      <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={submitting}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        className={`flex-1 h-11 text-white ${submitBtnColor}`}
+                        disabled={!canSubmit}
+                      >
+                        {submitting
+                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing…</>
+                          : submitLabel}
+                      </Button>
+                    </div>
+                  )}
                 </form>
               )}
 
@@ -598,5 +708,242 @@ export default function CollectDialog({
 
       <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
     </>
+  );
+}
+
+interface UpiPanelProps {
+  isOnline: boolean;
+  orgUpiId: string;
+  qrCodeUrl: string;
+  upiString: string;
+  amount: number;
+  custName: string;
+  orgName: string;
+  upiNote: string;
+  loanId: string;
+  installmentNo?: number;
+  upiStatus: UpiStatus;
+  upiTxnRef: string;
+  submitting: boolean;
+  qrError: boolean;
+  onQrError: () => void;
+  onLaunch: () => void;
+  onConfirm: () => void;
+  onFailed: () => void;
+  onTxnRefChange: (v: string) => void;
+  onCancel: () => void;
+}
+
+function UpiPaymentPanel({
+  isOnline, orgUpiId, qrCodeUrl, upiString, amount, custName, orgName,
+  upiNote, loanId, installmentNo, upiStatus, upiTxnRef, submitting,
+  qrError, onQrError, onLaunch, onConfirm, onFailed, onTxnRefChange, onCancel,
+}: UpiPanelProps) {
+
+  if (!isOnline) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 space-y-3">
+        <div className="flex items-center gap-2.5">
+          <WifiOff className="w-5 h-5 text-slate-400" />
+          <p className="text-sm font-semibold text-slate-700">UPI unavailable offline</p>
+        </div>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          UPI payments require an internet connection. Please connect to the internet or switch to Cash payment mode.
+        </p>
+        <div className="flex gap-2 pt-1">
+          <Button type="button" variant="outline" className="flex-1 h-10 text-sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!orgUpiId) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-3">
+        <div className="flex items-center gap-2.5">
+          <AlertTriangle className="w-5 h-5 text-amber-500" />
+          <p className="text-sm font-semibold text-amber-800">UPI not configured</p>
+        </div>
+        <p className="text-xs text-amber-700 leading-relaxed">
+          Your organization hasn't set up a UPI ID yet. Ask the owner to add a merchant UPI ID in Organization Settings.
+        </p>
+        <Button type="button" variant="outline" className="w-full h-10 text-sm border-amber-300" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  if (upiStatus === "idle") {
+    return (
+      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-b from-indigo-50 to-white p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <QrCode className="w-4 h-4 text-indigo-600" />
+            <p className="text-sm font-bold text-indigo-900">UPI Payment</p>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase tracking-wide">
+            Scan or Tap
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-3">
+          {qrError ? (
+            <div className="w-[180px] h-[180px] rounded-xl bg-slate-100 flex flex-col items-center justify-center gap-2 border border-slate-200">
+              <QrCode className="w-8 h-8 text-slate-300" />
+              <p className="text-[10px] text-slate-400 text-center px-2">QR unavailable offline</p>
+            </div>
+          ) : (
+            <div className="p-2 rounded-xl border-2 border-indigo-200 bg-white shadow-sm">
+              <img
+                src={qrCodeUrl}
+                alt="UPI QR Code"
+                width={180}
+                height={180}
+                className="rounded-lg"
+                onError={onQrError}
+              />
+            </div>
+          )}
+
+          <div className="w-full space-y-1.5 text-center">
+            <p className="text-2xl font-black text-indigo-700">₹{amount.toLocaleString("en-IN")}</p>
+            <p className="text-xs font-semibold text-slate-700">{custName}</p>
+            {installmentNo && (
+              <p className="text-[10px] text-slate-500">EMI #{installmentNo} · {loanId.slice(-8).toUpperCase()}</p>
+            )}
+            <div className="inline-flex items-center gap-1.5 mt-1 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200">
+              <Smartphone className="w-3 h-3 text-slate-500 shrink-0" />
+              <span className="text-xs font-mono text-slate-700 font-semibold">{orgUpiId}</span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-[10px] text-slate-400 text-center leading-relaxed">
+          Customer can scan this QR using PhonePe, Google Pay, Paytm, BHIM or any UPI app
+        </p>
+
+        <Button
+          type="button"
+          onClick={onLaunch}
+          className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold gap-2 text-sm"
+        >
+          <ExternalLink className="w-4 h-4" />
+          Pay with UPI App
+        </Button>
+
+        <p className="text-[10px] text-slate-400 text-center">
+          Launches PhonePe / Google Pay / Paytm / BHIM chooser
+        </p>
+
+        <div className="flex gap-2 pt-1 border-t border-indigo-100">
+          <Button type="button" variant="outline" className="flex-1 h-9 text-sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (upiStatus === "launched") {
+    return (
+      <div className="rounded-2xl border border-indigo-200 bg-white p-5 space-y-4">
+        <div className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-amber-800">Waiting for payment…</p>
+            <p className="text-xs text-amber-600">Ask the customer to complete payment on their device</p>
+          </div>
+        </div>
+
+        <div className="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Amount</span>
+            <span className="font-bold text-slate-900">₹{amount.toLocaleString("en-IN")}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Customer</span>
+            <span className="font-semibold text-slate-900">{custName}</span>
+          </div>
+          {installmentNo && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">EMI #</span>
+              <span className="font-semibold text-slate-900">{installmentNo}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-slate-500">UPI ID</span>
+            <span className="font-mono font-semibold text-slate-900">{orgUpiId}</span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-slate-600">
+            UPI Transaction ID <span className="text-slate-400 font-normal">(optional but recommended)</span>
+          </Label>
+          <Input
+            type="text"
+            placeholder="e.g. 423845738902"
+            value={upiTxnRef}
+            onChange={(e) => onTxnRefChange(e.target.value.trim())}
+            className="h-10 text-sm font-mono"
+            maxLength={50}
+          />
+          <p className="text-[10px] text-slate-400">
+            Enter the 12-digit UTR/reference number shown after payment
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Button
+            type="button"
+            onClick={onConfirm}
+            disabled={submitting}
+            className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-2 text-sm"
+          >
+            {submitting
+              ? <><Loader2 className="w-4 h-4 animate-spin" />Saving collection…</>
+              : <><CheckCheck className="w-4 h-4" />Confirm Payment Received</>}
+          </Button>
+
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 h-9 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+              onClick={onFailed}
+              disabled={submitting}
+            >
+              <XCircle className="w-3.5 h-3.5 mr-1.5" />
+              Payment Failed
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 h-9 text-xs"
+              onClick={() => { onFailed(); }}
+              disabled={submitting}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              Retry
+            </Button>
+          </div>
+        </div>
+
+        <p className="text-[10px] text-slate-400 text-center">
+          Only confirm after the customer shows you the payment success screen
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 flex flex-col items-center gap-3">
+      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+      <p className="text-sm font-semibold text-indigo-800">Saving collection…</p>
+      <p className="text-xs text-indigo-600">Please wait, do not close this dialog</p>
+    </div>
   );
 }
