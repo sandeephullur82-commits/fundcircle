@@ -18,7 +18,7 @@ import {
   FileText, Star, ExternalLink, Check,
   IndianRupee, UserPlus, UserCheck, AlertCircle, BellOff,
   CheckCheck, Trash2, TrendingDown, CheckCircle2,
-  SlidersHorizontal, Settings,
+  SlidersHorizontal, Settings, BarChart3, Zap, KeyRound,
 } from "lucide-react";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,8 +29,21 @@ import { sanitizeName } from "@/lib/validation";
 import { BrandMark } from "@/components/BrandLogo";
 import ProfileAvatarEditor from "@/components/ui/ProfileAvatarEditor";
 import OrgLogoEditor from "@/components/ui/OrgLogoEditor";
+import PhonePeSettings from "./PhonePeSettings";
 
-type MoreSubPage = "list" | "profile" | "organization" | "notifications" | "notifSettings" | "support" | "about";
+type MoreSubPage =
+  | "list"
+  | "profile"
+  | "organization"
+  | "orgInfo"
+  | "orgStats"
+  | "paymentGateway"
+  | "orgSecurity"
+  | "orgAdvanced"
+  | "notifications"
+  | "notifSettings"
+  | "support"
+  | "about";
 
 function switchTab(tab: string) {
   window.dispatchEvent(new CustomEvent("fundcircle:switchTab", { detail: tab }));
@@ -216,8 +229,123 @@ function ProfileSubPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-// ── ORGANIZATION SUB-PAGE ──────────────────────────────────────────────────────
-function OrganizationSubPage({ onBack }: { onBack: () => void }) {
+// ── ORGANIZATION NAV HUB ──────────────────────────────────────────────────────
+function OrganizationSubPage({ onBack, onNavigate }: {
+  onBack: () => void;
+  onNavigate: (page: MoreSubPage) => void;
+}) {
+  const { organization } = useOrganization();
+  const orgId = organization?.id || null;
+  const { data: orgDoc, loading: orgLoading } = useDocumentRealtime<any>("organizations", orgId);
+
+  const isConfigured = orgDoc?.phonePeConfigured === true;
+  const pgEnv = (orgDoc?.phonePeEnvironment || "sandbox") as "sandbox" | "production";
+
+  const ORG_NAV = [
+    {
+      id: "orgInfo" as MoreSubPage,
+      label: "Business Information",
+      sub: "Logo, name & owner details",
+      icon: Building2,
+      iconBg: "bg-indigo-100",
+      iconColor: "text-indigo-600",
+    },
+    {
+      id: "orgStats" as MoreSubPage,
+      label: "Statistics",
+      sub: "Customers, collectors & collections",
+      icon: BarChart3,
+      iconBg: "bg-sky-100",
+      iconColor: "text-sky-600",
+    },
+    {
+      id: "paymentGateway" as MoreSubPage,
+      label: "Payment Gateway",
+      sub: isConfigured
+        ? `PhonePe · ${pgEnv === "production" ? "Live" : "Sandbox"}`
+        : "Configure PhonePe UPI payments",
+      icon: Zap,
+      iconBg: "bg-violet-100",
+      iconColor: "text-violet-600",
+      badge: isConfigured
+        ? pgEnv === "production" ? "Live" : "Sandbox"
+        : "Setup",
+      badgeCls: isConfigured
+        ? pgEnv === "production"
+          ? "bg-emerald-100 text-emerald-700"
+          : "bg-amber-100 text-amber-700"
+        : "bg-violet-100 text-violet-600",
+    },
+    {
+      id: "orgSecurity" as MoreSubPage,
+      label: "Security",
+      sub: "Password, sessions & access",
+      icon: KeyRound,
+      iconBg: "bg-amber-100",
+      iconColor: "text-amber-600",
+    },
+    {
+      id: "orgAdvanced" as MoreSubPage,
+      label: "Advanced Settings",
+      sub: "Organization ID & identifiers",
+      icon: SlidersHorizontal,
+      iconBg: "bg-slate-100",
+      iconColor: "text-slate-600",
+    },
+  ];
+
+  return (
+    <div>
+      <SubPageHeader title="Organization" onBack={onBack} />
+
+      {/* Org identity */}
+      <div className="flex flex-col items-center gap-2 mb-8">
+        <OrgLogoEditor size="lg" />
+        {orgLoading
+          ? <div className="h-5 w-32 bg-slate-100 rounded-lg animate-pulse" />
+          : <p className="text-xl font-bold text-slate-900">{orgDoc?.name || organization?.name || "—"}</p>
+        }
+        <span className="text-xs text-slate-400">Organization</span>
+      </div>
+
+      {/* Navigation cards */}
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+        {ORG_NAV.map((item, idx) => {
+          const Icon = item.icon;
+          const isLast = idx === ORG_NAV.length - 1;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={[
+                "w-full flex items-center gap-3.5 px-4 py-4 text-left",
+                "hover:bg-slate-50 active:bg-slate-100 transition-colors",
+                !isLast ? "border-b border-slate-50" : "",
+              ].join(" ")}
+            >
+              <div className={`flex h-10 w-10 items-center justify-center rounded-2xl shrink-0 ${item.iconBg}`}>
+                <Icon className={`w-[18px] h-[18px] ${item.iconColor}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                <p className="text-xs text-slate-400 mt-0.5 truncate">{item.sub}</p>
+              </div>
+              {(item as any).badge && (
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 mr-0.5 ${(item as any).badgeCls}`}>
+                  {(item as any).badge}
+                </span>
+              )}
+              <ChevronRight className="w-4 h-4 text-slate-200 shrink-0" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── ORG INFO SUB-PAGE ─────────────────────────────────────────────────────────
+function OrgInfoSubPage({ onBack }: { onBack: () => void }) {
   const { user } = useUser();
   const { organization } = useOrganization();
   const orgId = organization?.id || null;
@@ -227,8 +355,6 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
   const [orgNameError, setOrgNameError] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [editingName, setEditingName] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [stats, setStats] = useState<{ customers: number; collectors: number; collections: number } | null>(null);
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -238,20 +364,6 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
   }, [orgDoc, orgLoading]);
 
   useEffect(() => { initRef.current = false; }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId) return;
-    (async () => {
-      try {
-        const [custSnap, agentSnap, collSnap] = await Promise.all([
-          getCountFromServer(query(fsCollection(db, "organizationMembers"), where("organizationId", "==", orgId), where("role", "==", "CUSTOMER"))),
-          getCountFromServer(query(fsCollection(db, "organizationMembers"), where("organizationId", "==", orgId), where("role", "==", "AGENT"))),
-          getCountFromServer(query(fsCollection(db, "collections"), where("organizationId", "==", orgId))),
-        ]);
-        setStats({ customers: custSnap.data().count, collectors: agentSnap.data().count, collections: collSnap.data().count });
-      } catch { /* silent — composite index may not exist */ }
-    })();
-  }, [orgId]);
 
   const handleSaveName = async () => {
     const name = orgName.trim();
@@ -273,9 +385,9 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
 
   return (
     <div>
-      <SubPageHeader title="Organization" onBack={onBack} />
+      <SubPageHeader title="Business Information" onBack={onBack} />
 
-      {/* Org identity — logo editor */}
+      {/* Org logo + name */}
       <div className="flex flex-col items-center gap-3 mb-8">
         <OrgLogoEditor size="lg" />
         {editingName ? (
@@ -309,53 +421,240 @@ function OrganizationSubPage({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* Owner info */}
-      <div className="space-y-2.5 mb-6">
+      <div className="space-y-2.5">
         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1">Owner</p>
-        <InfoRow icon={User} label="Name"  value={user?.fullName || "—"} />
-        <InfoRow icon={Mail} label="Email" value={user?.primaryEmailAddress?.emailAddress || "—"} badge="Read-only" />
+        <InfoRow icon={User}     label="Full Name"     value={user?.fullName || "—"} />
+        <InfoRow icon={Mail}     label="Email Address" value={user?.primaryEmailAddress?.emailAddress || "—"} badge="Read-only" />
+        <InfoRow icon={Shield}   label="Role"          value="Owner" badge="Admin" />
         {createdAt && (
           <InfoRow icon={FileText} label="Member Since"
             value={createdAt.toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })} />
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* Stats */}
-      <div className="mb-6">
-        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-1 mb-3">Statistics</p>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Customers",   value: stats?.customers,   from: "from-sky-400",     to: "to-sky-600"     },
-            { label: "Collectors",  value: stats?.collectors,  from: "from-indigo-400",  to: "to-indigo-600"  },
-            { label: "Collections", value: stats?.collections, from: "from-emerald-400", to: "to-emerald-600" },
-          ].map((s) => (
-            <div key={s.label} className={`rounded-2xl p-3 bg-gradient-to-br ${s.from} ${s.to} text-center shadow-sm`}>
-              <p className="text-2xl font-black text-white">
-                {s.value === undefined ? "—" : s.value}
-              </p>
-              <p className="text-[10px] font-semibold text-white/80 mt-0.5 leading-tight">{s.label}</p>
-            </div>
+// ── ORG STATS SUB-PAGE ────────────────────────────────────────────────────────
+function OrgStatsSubPage({ onBack }: { onBack: () => void }) {
+  const { organization } = useOrganization();
+  const orgId = organization?.id || null;
+  const [stats, setStats] = useState<{ customers: number; collectors: number; collections: number; loans: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orgId) return;
+    (async () => {
+      try {
+        const [custSnap, agentSnap, collSnap, loanSnap] = await Promise.all([
+          getCountFromServer(query(fsCollection(db, "organizationMembers"), where("organizationId", "==", orgId), where("role", "==", "CUSTOMER"))),
+          getCountFromServer(query(fsCollection(db, "organizationMembers"), where("organizationId", "==", orgId), where("role", "==", "AGENT"))),
+          getCountFromServer(query(fsCollection(db, "collections"), where("organizationId", "==", orgId))),
+          getCountFromServer(query(fsCollection(db, "loans"), where("organizationId", "==", orgId))),
+        ]);
+        setStats({
+          customers:   custSnap.data().count,
+          collectors:  agentSnap.data().count,
+          collections: collSnap.data().count,
+          loans:       loanSnap.data().count,
+        });
+      } catch { /* silent */ }
+      finally { setLoading(false); }
+    })();
+  }, [orgId]);
+
+  const CARDS = [
+    { label: "Total Customers",   key: "customers",   from: "from-sky-400",     to: "to-sky-600",     icon: Users         },
+    { label: "Collectors",        key: "collectors",  from: "from-indigo-400",  to: "to-indigo-600",  icon: UserCheck     },
+    { label: "Total Collections", key: "collections", from: "from-emerald-400", to: "to-emerald-600", icon: IndianRupee   },
+    { label: "Active Loans",      key: "loans",       from: "from-violet-400",  to: "to-violet-600",  icon: CreditCard    },
+  ];
+
+  return (
+    <div>
+      <SubPageHeader title="Statistics" onBack={onBack} />
+      <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+        Live counts for your organization's activity.
+      </p>
+
+      {loading ? (
+        <div className="grid grid-cols-2 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 rounded-2xl bg-slate-100 animate-pulse" />
           ))}
         </div>
-      </div>
-
-      {/* Advanced (collapsed) */}
-      <button
-        onClick={() => setAdvancedOpen(!advancedOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-600 text-sm font-semibold"
-      >
-        <span>Advanced Settings</span>
-        {advancedOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-      </button>
-      {advancedOpen && (
-        <div className="mt-2 px-4 py-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Organization ID</p>
-            <p className="font-mono text-xs text-slate-600 break-all select-all bg-white border border-slate-200 rounded-xl px-3 py-2">
-              {orgId || "—"}
-            </p>
-          </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {CARDS.map((c) => {
+            const Icon = c.icon;
+            const val = stats ? (stats as any)[c.key] : 0;
+            return (
+              <div key={c.key} className={`rounded-2xl p-4 bg-gradient-to-br ${c.from} ${c.to} shadow-sm`}>
+                <div className="flex items-center justify-between mb-2">
+                  <Icon className="w-4 h-4 text-white/70" />
+                </div>
+                <p className="text-3xl font-black text-white leading-none">{val ?? "—"}</p>
+                <p className="text-[11px] font-semibold text-white/80 mt-1.5 leading-tight">{c.label}</p>
+              </div>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── PAYMENT GATEWAY SUB-PAGE ──────────────────────────────────────────────────
+function PaymentGatewaySubPage({ onBack }: { onBack: () => void }) {
+  return (
+    <div>
+      <SubPageHeader title="Payment Gateway" onBack={onBack} />
+
+      {/* Description */}
+      <div className="mb-6 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 text-white shadow-md">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20 shrink-0">
+            <Zap className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <p className="text-base font-bold">PhonePe UPI</p>
+            <p className="text-xs text-violet-200">Dynamic QR for EMI collection</p>
+          </div>
+        </div>
+        <p className="text-xs text-violet-100 leading-relaxed">
+          Each organization uses its own PhonePe Merchant Account. Payments go directly
+          to your account — FundCircle never holds your funds.
+        </p>
+      </div>
+
+      {/* PhonePe settings card */}
+      <PhonePeSettings />
+    </div>
+  );
+}
+
+// ── ORG SECURITY SUB-PAGE ─────────────────────────────────────────────────────
+function OrgSecuritySubPage({ onBack }: { onBack: () => void }) {
+  const { user } = useUser();
+
+  const ITEMS = [
+    {
+      label: "Change Password",
+      desc: "Update via your email account",
+      icon: KeyRound,
+      bg: "bg-amber-50",
+      iconColor: "text-amber-600",
+      action: () => user?.primaryEmailAddress?.emailAddress
+        ? window.open(`mailto:${user.primaryEmailAddress.emailAddress}?subject=Change+FundCircle+Password`)
+        : undefined,
+    },
+    {
+      label: "Active Sessions",
+      desc: "Managed by Clerk authentication",
+      icon: Shield,
+      bg: "bg-sky-50",
+      iconColor: "text-sky-600",
+      action: null,
+    },
+    {
+      label: "Two-Factor Authentication",
+      desc: "Set up in Clerk dashboard",
+      icon: Lock,
+      bg: "bg-indigo-50",
+      iconColor: "text-indigo-600",
+      action: null,
+    },
+  ];
+
+  return (
+    <div>
+      <SubPageHeader title="Security" onBack={onBack} />
+
+      <div className="mb-6 rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3.5 flex items-start gap-3">
+        <Shield className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+        <p className="text-xs text-amber-800 leading-relaxed">
+          Security settings like password and 2FA are managed through your Clerk account.
+          Your organization data is protected with role-based access controls.
+        </p>
+      </div>
+
+      <div className="space-y-2.5">
+        {ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div
+              key={item.label}
+              onClick={item.action || undefined}
+              className={[
+                "flex items-center gap-3 px-4 py-4 rounded-2xl border border-slate-100 bg-white",
+                item.action ? "cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition-colors" : "opacity-70",
+              ].join(" ")}
+            >
+              <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${item.bg} shrink-0`}>
+                <Icon className={`w-4.5 h-4.5 ${item.iconColor}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{item.desc}</p>
+              </div>
+              {item.action && <ExternalLink className="w-4 h-4 text-slate-300 shrink-0" />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── ORG ADVANCED SUB-PAGE ─────────────────────────────────────────────────────
+function OrgAdvancedSubPage({ onBack }: { onBack: () => void }) {
+  const { organization } = useOrganization();
+  const orgId = organization?.id || null;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!orgId) return;
+    navigator.clipboard.writeText(orgId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div>
+      <SubPageHeader title="Advanced Settings" onBack={onBack} />
+
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Organization ID</p>
+          <p className="font-mono text-xs text-slate-600 break-all bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 select-all">
+            {orgId || "—"}
+          </p>
+          <button
+            onClick={handleCopy}
+            className={[
+              "flex items-center gap-1.5 text-xs font-semibold transition-colors",
+              copied ? "text-emerald-600" : "text-sky-600 hover:text-sky-700",
+            ].join(" ")}
+          >
+            {copied ? <><Check className="w-3.5 h-3.5" />Copied!</> : <><ClipboardList className="w-3.5 h-3.5" />Copy ID</>}
+          </button>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 space-y-2">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Organization Name</p>
+          <p className="text-sm font-semibold text-slate-800">{organization?.name || "—"}</p>
+        </div>
+
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-4 space-y-1.5">
+          <p className="text-xs font-bold text-red-600 uppercase tracking-wider flex items-center gap-1.5">
+            <AlertCircle className="w-3.5 h-3.5" /> Danger Zone
+          </p>
+          <p className="text-xs text-red-700 leading-relaxed">
+            Contact FundCircle support to delete or transfer ownership of this organization.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -896,12 +1195,24 @@ export default function MorePage() {
   if (page !== "list") {
     return (
       <div className="max-w-lg mx-auto px-1">
-        {page === "profile"       && <ProfileSubPage        onBack={() => setPage("list")} />}
-        {page === "organization"  && <OrganizationSubPage   onBack={() => setPage("list")} />}
-        {page === "notifications" && <NotificationsSubPage  onBack={() => setPage("list")} onSettings={() => setPage("notifSettings")} />}
-        {page === "notifSettings" && <NotifSettingsSubPage  onBack={() => setPage("notifications")} />}
-        {page === "support"       && <SupportSubPage        onBack={() => setPage("list")} />}
-        {page === "about"         && <AboutSubPage          onBack={() => setPage("list")} />}
+        {/* Top-level sub-pages */}
+        {page === "profile"       && <ProfileSubPage       onBack={() => setPage("list")} />}
+        {page === "notifications" && <NotificationsSubPage onBack={() => setPage("list")} onSettings={() => setPage("notifSettings")} />}
+        {page === "notifSettings" && <NotifSettingsSubPage onBack={() => setPage("notifications")} />}
+        {page === "support"       && <SupportSubPage       onBack={() => setPage("list")} />}
+        {page === "about"         && <AboutSubPage         onBack={() => setPage("list")} />}
+
+        {/* Organization nav hub */}
+        {page === "organization" && (
+          <OrganizationSubPage onBack={() => setPage("list")} onNavigate={setPage} />
+        )}
+
+        {/* Organization sub-pages */}
+        {page === "orgInfo"        && <OrgInfoSubPage        onBack={() => setPage("organization")} />}
+        {page === "orgStats"       && <OrgStatsSubPage       onBack={() => setPage("organization")} />}
+        {page === "paymentGateway" && <PaymentGatewaySubPage onBack={() => setPage("organization")} />}
+        {page === "orgSecurity"    && <OrgSecuritySubPage    onBack={() => setPage("organization")} />}
+        {page === "orgAdvanced"    && <OrgAdvancedSubPage    onBack={() => setPage("organization")} />}
       </div>
     );
   }
