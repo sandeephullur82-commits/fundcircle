@@ -8,7 +8,7 @@ import {
   RefreshCw, CheckCircle2,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, serverTimestamp, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, deleteDoc, writeBatch, where } from "firebase/firestore";
 import { toast } from "sonner";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -106,7 +106,10 @@ function groupByDay(items: Notif[]): { label: string; items: Notif[] }[] {
 export default function OrgNotifications() {
   const { user } = useUser();
   const { organization } = useOrganization();
-  const { data: rawNotifs, loading } = useCollectionRealtime<Notif>("notifications");
+  const { data: rawNotifs, loading } = useCollectionRealtime<Notif>(
+    "notifications",
+    user ? [where("userId", "==", user.id)] : []
+  );
   const [filter, setFilter] = useState<NotifCategory>("all");
   const [clearing, setClearing] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);

@@ -79,7 +79,10 @@ export default function OrgDashboard() {
     user && organization ? membershipIdFor(organization.id, user.id) : null
   );
 
-  const { data: notifications } = useCollectionRealtime<any>("notifications");
+  const { data: notifications } = useCollectionRealtime<any>(
+    "notifications",
+    user ? [where("userId", "==", user.id)] : []
+  );
   const unreadCount = notifications.filter((n: any) => !n.read).length;
 
   const { data: upgradeRequests } = useCollectionRealtime<any>("upgradeRequests", [where("status", "==", "PENDING")]);
@@ -160,7 +163,6 @@ export default function OrgDashboard() {
         createdBy: user.id,
         status: "ACTIVE",
         updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
       }, { merge: true }).catch(() => {});
     }
   }, [user?.id, organization?.id]);
@@ -224,6 +226,7 @@ export default function OrgDashboard() {
           {/* Notification Bell */}
           <button
             onClick={() => {
+              try { sessionStorage.setItem("fc_more_subpage", "notifications"); } catch {}
               setActiveTab("more");
               setTimeout(() => window.dispatchEvent(new CustomEvent("fundcircle:morePage", { detail: "notifications" })), 80);
             }}
@@ -240,6 +243,7 @@ export default function OrgDashboard() {
           {/* Profile avatar */}
           <button
             onClick={() => {
+              try { sessionStorage.setItem("fc_more_subpage", "profile"); } catch {}
               setActiveTab("more");
               setTimeout(() => window.dispatchEvent(new CustomEvent("fundcircle:morePage", { detail: "profile" })), 80);
             }}
@@ -399,7 +403,7 @@ export default function OrgDashboard() {
             {/* Actions */}
             <div className="py-2 px-2">
               {[
-                { label: "Organization Profile", sub: "Edit org name & details",   icon: Building2,  action: () => { setActiveTab("more"); setTimeout(() => window.dispatchEvent(new CustomEvent("fundcircle:morePage", { detail: "organization" })), 80); } },
+                { label: "Organization Profile", sub: "Edit org name & details",   icon: Building2,  action: () => { try { sessionStorage.setItem("fc_more_subpage", "organization"); } catch {} setActiveTab("more"); setTimeout(() => window.dispatchEvent(new CustomEvent("fundcircle:morePage", { detail: "organization" })), 80); } },
                 { label: "Billing & Subscription", sub: "Plan, usage & invoices",  icon: Wallet,     action: () => setActiveTab("billing") },
                 { label: "Add Collector",          sub: "Add a field agent",        icon: UserCheck,  action: () => setActiveTab("agents")  },
                 { label: "Add Customer",           sub: "Add a new customer",       icon: Users,      action: () => setActiveTab("customers") },

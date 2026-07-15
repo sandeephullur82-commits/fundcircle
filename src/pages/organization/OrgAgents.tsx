@@ -283,7 +283,11 @@ export default function OrgAgents() {
     }
     setLoadingStats(true);
     const agentLookupId = viewAgent.clerkUserId || viewAgent.id;
-    const q = query(collection(db, "collections"), where("agentId", "==", agentLookupId));
+    const q = query(
+      collection(db, "collections"),
+      where("organizationId", "==", organization?.id || ""),
+      where("agentId", "==", agentLookupId)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {

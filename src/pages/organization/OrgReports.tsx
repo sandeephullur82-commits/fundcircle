@@ -74,9 +74,9 @@ export default function OrgReports() {
     });
     return {
       month: format(monthStart, "MMM 'yy"),
-      emi:   cols.filter(c => c.collectionType === "LOAN_EMI").reduce((s, c) => s + Number(c.amount), 0),
-      other: cols.filter(c => c.collectionType !== "LOAN_EMI").reduce((s, c) => s + Number(c.amount), 0),
-      total: cols.reduce((s, c) => s + Number(c.amount), 0),
+      emi:   cols.filter(c => c.collectionType === "LOAN_EMI").reduce((s, c) => s + (Number(c.amount) || 0), 0),
+      other: cols.filter(c => c.collectionType !== "LOAN_EMI").reduce((s, c) => s + (Number(c.amount) || 0), 0),
+      total: cols.reduce((s, c) => s + (Number(c.amount) || 0), 0),
     };
   }), [collections]);
 
